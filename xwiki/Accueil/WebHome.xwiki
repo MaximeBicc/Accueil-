@@ -2,13 +2,14 @@
 ## ============================================================
 ## ACCUEIL XWIKI — page uniquement
 ## ============================================================
-##
 ## Extensions à attacher à cette page :
 ##   StyleSheet Extension : Accueil - Base
 ##   StyleSheet Extension : Accueil - Modules
 ##   StyleSheet Extension : Accueil - Panneaux & Contact
+##   StyleSheet Extension : Accueil - Flux
 ##   JavaScript Extension : Accueil - Modules
 ##   JavaScript Extension : Accueil - Contact
+##   JavaScript Extension : Accueil - Flux
 ##
 ## Règle : aucun CSS et aucun JavaScript métier dans WebHome.xwiki.
 ## ============================================================
@@ -21,34 +22,17 @@
 #set ($displayDocExtra = false)
 
 ## ============================================================
-## COMPTEURS
+## DOCUMENTATION / FORMATION
 ## ============================================================
-##
-## Documentation :
-## - on part du dossier / espace racine configuré ;
-## - on parcourt tous ses descendants, sans limite de profondeur ;
-## - pour chaque page, on inspecte ses XWiki Objects ;
-## - seul un objet dont la propriété String `type` vaut `document` est compté ;
-## - `type = folder` (ou toute autre valeur) n'est pas compté ;
-## - la page racine elle-même est toujours exclue.
-##
-## Formation : logique précédente conservée, inchangée.
-## ============================================================
-
 #set ($documentationRootSpace = 'Documentation')
 #set ($formationRootSpace = 'Formation')
 
-## Échappement des caractères spéciaux de LIKE selon la Query API XWiki.
 #set ($documentationSpaceLike = $documentationRootSpace.replaceAll('([%_!])', '!$1').concat('.%'))
 #set ($formationSpaceLike = $formationRootSpace.replaceAll('([%_!])', '!$1').concat('.%'))
-
 #set ($documentationRootPage = "${documentationRootSpace}.WebHome")
 #set ($formationRootPage = "${formationRootSpace}.WebHome")
 
-## ------------------------------------------------------------
-## Documentation : compter uniquement les descendants ayant un
-## XWiki Object avec la propriété `type = document`.
-## ------------------------------------------------------------
+## Documentation : uniquement les descendants qui portent type=document.
 #set ($documentationCount = 0)
 #set ($documentationCountQuery = $services.query.hql("select count(distinct doc.fullName) from XWikiDocument doc, BaseObject obj, StringProperty typeProp where doc.fullName = obj.name and obj.id = typeProp.id.id and typeProp.id.name = :typePropertyName and lower(typeProp.value) = :documentTypeValue and ((doc.space = :rootSpace) or (doc.space like :rootSpaceLike escape '!')) and doc.fullName <> :rootPage and doc.language = ''"))
 #set ($discard = $documentationCountQuery.bindValue('typePropertyName', 'type'))
@@ -61,16 +45,54 @@
   #set ($documentationCount = $documentationCountResult.get(0))
 #end
 
-## ------------------------------------------------------------
-## Formation : logique précédente conservée à l'identique.
-## ------------------------------------------------------------
+## Formation : logique précédente inchangée.
 #set ($formationQuery = $services.query.xwql("where ((doc.space = :rootSpace) or (doc.space like :rootSpaceLike escape '!')) and doc.fullName <> :rootPage and doc.language = ''"))
 #set ($discard = $formationQuery.bindValue('rootSpace', $formationRootSpace))
 #set ($discard = $formationQuery.bindValue('rootSpaceLike', $formationSpaceLike))
 #set ($discard = $formationQuery.bindValue('rootPage', $formationRootPage))
 #set ($formationCount = $formationQuery.count())
 
-## Contact administrateur.
+## ============================================================
+## À LA UNE — DERNIERS DOCUMENTS CRÉÉS
+## ============================================================
+## Même définition de "document" que le compteur : descendant de la
+## racine Documentation + XWiki Object dont la propriété type=document.
+#set ($latestDocumentQuery = $services.query.hql("select doc.fullName from XWikiDocument doc, BaseObject obj, StringProperty typeProp where doc.fullName = obj.name and obj.id = typeProp.id.id and typeProp.id.name = :typePropertyName and lower(typeProp.value) = :documentTypeValue and ((doc.space = :rootSpace) or (doc.space like :rootSpaceLike escape '!')) and doc.fullName <> :rootPage and doc.language = '' group by doc.fullName, doc.creationDate order by doc.creationDate desc"))
+#set ($discard = $latestDocumentQuery.bindValue('typePropertyName', 'type'))
+#set ($discard = $latestDocumentQuery.bindValue('documentTypeValue', 'document'))
+#set ($discard = $latestDocumentQuery.bindValue('rootSpace', $documentationRootSpace))
+#set ($discard = $latestDocumentQuery.bindValue('rootSpaceLike', $documentationSpaceLike))
+#set ($discard = $latestDocumentQuery.bindValue('rootPage', $documentationRootPage))
+#set ($latestDocumentNames = $latestDocumentQuery.setLimit(5).execute())
+
+## ============================================================
+## STATISTIQUES DE CONSULTATION
+## ============================================================
+## Les vues et les pages récemment ouvertes reposent sur le module
+## Statistics de XWiki. Aucun XClass supplémentaire n'est nécessaire.
+#set ($statsEnabled = false)
+#if ($xwiki.statsService)
+  #set ($statsEnabled = $xwiki.statsService.enabledForCurrentWiki)
+#end
+
+#set ($mostViewedStats = [])
+#set ($recentActionNames = [])
+#if ($statsEnabled)
+  ## On prend les 30 derniers jours puis on filtre les résultats sur
+  ## nos documents type=document dans le HTML ci-dessous.
+  #set ($statsPeriod = $xwiki.criteriaService.periodFactory.createSinceDaysPeriod(30))
+  #set ($statsScope = $xwiki.criteriaService.scopeFactory.ALL_PAGES)
+  #set ($statsRange = $xwiki.criteriaService.rangeFactory.createHeadRange(1000))
+  #set ($mostViewedStats = $xwiki.statsService.getDocumentStatistics('view', $statsScope, $statsPeriod, $statsRange))
+
+  ## On récupère davantage d'actions afin de pouvoir filtrer folder et
+  ## conserver jusqu'à 10 vrais documents uniques pour l'utilisateur.
+  #set ($recentActionNames = $xwiki.getRecentActions('view', 80))
+#end
+
+## ============================================================
+## CONTACT ADMINISTRATEUR
+## ============================================================
 #set ($adminEmail = $xwiki.getXWikiPreference('admin_email'))
 #set ($contactStatus = '')
 #set ($contactMessage = '')
@@ -118,73 +140,33 @@
       <p class="nh-subtitle">Accédez rapidement aux modules du wiki, aux ressources essentielles et aux informations utiles depuis un point d’entrée unique.</p>
     </header>
 
-    <!-- ======================================================
-         MODULES
-         Ajouter / supprimer un bloc data-home-module suffit.
-         Le JavaScript Accueil - Modules recalcule l'orbite.
-         ====================================================== -->
     <div class="nh-module-source" aria-hidden="true">
-      <div data-home-module
-           data-label="Documentation"
-           data-icon="D"
-           data-title="Documentation"
-           data-description="Retrouvez les procédures, les guides de référence et les connaissances partagées de votre organisation."
-           data-url="$escapetool.xml($xwiki.getURL('Documentation.WebHome', 'view'))">
+      <div data-home-module data-label="Documentation" data-icon="D" data-title="Documentation" data-description="Retrouvez les procédures, les guides de référence et les connaissances partagées de votre organisation." data-url="$escapetool.xml($xwiki.getURL('Documentation.WebHome', 'view'))">
         <span data-module-point>Procédures et modes opératoires</span>
         <span data-module-point>Référentiels techniques</span>
         <span data-module-point>Guides et bonnes pratiques</span>
       </div>
-
-      <div data-home-module
-           data-label="Formation"
-           data-icon="F"
-           data-title="Formation"
-           data-description="Centralisez les parcours de formation, supports pédagogiques et ressources destinées à la montée en compétence."
-           data-url="$escapetool.xml($xwiki.getURL('Formation.WebHome', 'view'))">
+      <div data-home-module data-label="Formation" data-icon="F" data-title="Formation" data-description="Centralisez les parcours de formation, supports pédagogiques et ressources destinées à la montée en compétence." data-url="$escapetool.xml($xwiki.getURL('Formation.WebHome', 'view'))">
         <span data-module-point>Parcours par métier</span>
         <span data-module-point>Supports de cours</span>
         <span data-module-point>Ressources et exercices</span>
       </div>
-
-      <div data-home-module
-           data-label="Projets"
-           data-icon="P"
-           data-title="Projets"
-           data-description="Suivez les espaces projets, les décisions, les livrables et les informations nécessaires au travail collectif."
-           data-url="$escapetool.xml($xwiki.getURL('Projets.WebHome', 'view'))">
+      <div data-home-module data-label="Projets" data-icon="P" data-title="Projets" data-description="Suivez les espaces projets, les décisions, les livrables et les informations nécessaires au travail collectif." data-url="$escapetool.xml($xwiki.getURL('Projets.WebHome', 'view'))">
         <span data-module-point>Espaces projets</span>
         <span data-module-point>Décisions et comptes-rendus</span>
         <span data-module-point>Suivi des livrables</span>
       </div>
-
-      <div data-home-module
-           data-label="Équipe"
-           data-icon="E"
-           data-title="Équipe"
-           data-description="Retrouvez les informations d’équipe, les rôles, les contacts et les ressources communes."
-           data-url="$escapetool.xml($xwiki.getURL('Equipe.WebHome', 'view'))">
+      <div data-home-module data-label="Équipe" data-icon="E" data-title="Équipe" data-description="Retrouvez les informations d’équipe, les rôles, les contacts et les ressources communes." data-url="$escapetool.xml($xwiki.getURL('Equipe.WebHome', 'view'))">
         <span data-module-point>Annuaire interne</span>
         <span data-module-point>Rôles et responsabilités</span>
         <span data-module-point>Informations partagées</span>
       </div>
-
-      <div data-home-module
-           data-label="Outils"
-           data-icon="O"
-           data-title="Outils"
-           data-description="Accédez aux outils et services utiles au quotidien depuis un catalogue centralisé."
-           data-url="$escapetool.xml($xwiki.getURL('Outils.WebHome', 'view'))">
+      <div data-home-module data-label="Outils" data-icon="O" data-title="Outils" data-description="Accédez aux outils et services utiles au quotidien depuis un catalogue centralisé." data-url="$escapetool.xml($xwiki.getURL('Outils.WebHome', 'view'))">
         <span data-module-point>Applications métier</span>
         <span data-module-point>Services internes</span>
         <span data-module-point>Liens et raccourcis</span>
       </div>
-
-      <div data-home-module
-           data-label="Support"
-           data-icon="S"
-           data-title="Support"
-           data-description="Trouvez les réponses aux problèmes courants et les différents moyens de demander de l’aide."
-           data-url="$escapetool.xml($xwiki.getURL('Support.WebHome', 'view'))">
+      <div data-home-module data-label="Support" data-icon="S" data-title="Support" data-description="Trouvez les réponses aux problèmes courants et les différents moyens de demander de l’aide." data-url="$escapetool.xml($xwiki.getURL('Support.WebHome', 'view'))">
         <span data-module-point>Questions fréquentes</span>
         <span data-module-point>Incidents connus</span>
         <span data-module-point>Canaux de support</span>
@@ -194,11 +176,11 @@
     <section class="nh-hero" aria-label="Modules du wiki">
       <div class="nh-orbit-stage">
         <div class="nh-orbit" data-module-orbit>
-          <div class="nh-hub" aria-hidden="true">
-            <span>
-              <span class="nh-hub-icon">✦</span>
-              <span class="nh-hub-label">Votre Wiki</span>
-            </span>
+          <div class="nh-hub" aria-label="Naval Group">
+            <svg class="nh-hub-logo" viewBox="0 0 140 112" role="img" aria-label="Logo Naval Group">
+              <polygon class="nh-hub-logo-blue" points="14,18 67,18 116,95 91,110 48,39 27,39 68,110 45,110" />
+              <polygon class="nh-hub-logo-red" points="84,10 121,10 102.5,40" />
+            </svg>
           </div>
           <div data-module-nodes></div>
         </div>
@@ -216,58 +198,173 @@
     </section>
 
     <section class="nh-cards" aria-label="Informations principales">
-      <article class="nh-card">
-        <div class="nh-card-icon" aria-hidden="true">◎</div>
-        <h3>À la une</h3>
-        <p>Utilisez ce panneau pour faire ressortir une actualité, une échéance importante ou un changement récent dans le wiki.</p>
+      <article class="nh-card nh-feed-card">
+        <div class="nh-card-heading">
+          <div class="nh-card-heading-main">
+            <div class="nh-card-icon" aria-hidden="true">◎</div>
+            <div>
+              <h3>À la une</h3>
+              <span class="nh-card-kicker">Les documents à suivre en priorité</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="nh-feed-tabs" role="tablist" aria-label="À la une">
+          <button class="nh-feed-tab is-active" type="button" role="tab" aria-selected="true" data-feed-tab="latest">Derniers créés</button>
+          <button class="nh-feed-tab" type="button" role="tab" aria-selected="false" data-feed-tab="popular">Plus vus · 30 jours</button>
+        </div>
+
+        <div class="nh-feed-panel" data-feed-panel="latest" role="tabpanel">
+          #if ($latestDocumentNames && !$latestDocumentNames.isEmpty())
+            <ol class="nh-doc-list">
+              #foreach ($latestDocumentName in $latestDocumentNames)
+                #set ($latestDocument = $xwiki.getDocument($latestDocumentName).getTranslatedDocument())
+                #set ($latestTitle = "$!latestDocument.plainTitle")
+                #if ($latestTitle.trim() == '')
+                  #set ($latestTitle = "$!latestDocument.name")
+                #end
+                <li class="nh-doc-item">
+                  <a class="nh-doc-link" href="$escapetool.xml($latestDocument.getURL('view'))">
+                    <span class="nh-doc-symbol" aria-hidden="true">D</span>
+                    <span class="nh-doc-copy">
+                      <span class="nh-doc-title">$escapetool.xml($latestTitle)</span>
+                      <span class="nh-doc-meta">Créé le $escapetool.xml($datetool.format('dd/MM/yyyy', $latestDocument.creationDate))</span>
+                    </span>
+                    <span class="nh-doc-value">Nouveau</span>
+                  </a>
+                </li>
+              #end
+            </ol>
+          #else
+            <div class="nh-feed-empty">Aucun document de type <strong>document</strong> n’a encore été créé dans ce dossier.</div>
+          #end
+        </div>
+
+        <div class="nh-feed-panel" data-feed-panel="popular" role="tabpanel" hidden>
+          #if (!$statsEnabled)
+            <div class="nh-feed-disabled"><span><strong>Statistiques de consultation désactivées</strong>Activez le module Statistics pour afficher les documents les plus vus sur les 30 derniers jours.</span></div>
+          #else
+            #set ($popularShown = 0)
+            <ol class="nh-doc-list">
+              #foreach ($viewStat in $mostViewedStats)
+                #if ($popularShown < 5)
+                  #set ($popularDocument = $xwiki.getDocument($viewStat.name).getTranslatedDocument())
+                  #set ($popularTypeObject = $popularDocument.getFirstObject('type'))
+                  #set ($popularSpace = "$!popularDocument.space")
+                  #set ($popularIsInDocumentation = $popularSpace == $documentationRootSpace || $popularSpace.startsWith("${documentationRootSpace}."))
+                  #if ($popularTypeObject && "$!popularTypeObject.get('type')".trim().toLowerCase() == 'document' && $popularIsInDocumentation && "$!popularDocument.fullName" != $documentationRootPage)
+                    #set ($popularTitle = "$!popularDocument.plainTitle")
+                    #if ($popularTitle.trim() == '')
+                      #set ($popularTitle = "$!popularDocument.name")
+                    #end
+                    <li class="nh-doc-item">
+                      <a class="nh-doc-link" href="$escapetool.xml($popularDocument.getURL('view'))">
+                        <span class="nh-doc-symbol" aria-hidden="true">D</span>
+                        <span class="nh-doc-copy">
+                          <span class="nh-doc-title">$escapetool.xml($popularTitle)</span>
+                          <span class="nh-doc-meta">Consultations sur les 30 derniers jours</span>
+                        </span>
+                        <span class="nh-doc-value">$escapetool.xml($viewStat.pageViews) vues</span>
+                      </a>
+                    </li>
+                    #set ($popularShown = $popularShown + 1)
+                  #end
+                #end
+              #end
+            </ol>
+            #if ($popularShown == 0)
+              <div class="nh-feed-empty">Aucune statistique de consultation n’est encore disponible pour les documents.</div>
+            #end
+          #end
+        </div>
       </article>
 
-      <article class="nh-card">
-        <div class="nh-card-icon" aria-hidden="true">↗</div>
-        <h3>Accès rapides</h3>
-        <p>Placez ici les liens les plus utilisés par vos équipes : procédures critiques, outils, formulaires ou pages métier.</p>
+      <article class="nh-card nh-recent-card">
+        <div class="nh-card-heading">
+          <div class="nh-card-heading-main">
+            <div class="nh-card-icon" aria-hidden="true">↗</div>
+            <div>
+              <h3>Accès rapides</h3>
+              <span class="nh-card-kicker">Vos 10 derniers documents ouverts</span>
+            </div>
+          </div>
+        </div>
+
+        #if (!$statsEnabled)
+          <div class="nh-feed-disabled"><span><strong>Historique de consultation indisponible</strong>Le module Statistics doit être actif pour mémoriser les pages récemment ouvertes.</span></div>
+        #elseif ($isGuest)
+          <div class="nh-feed-empty">Connectez-vous pour retrouver vos derniers documents ouverts.</div>
+        #else
+          #set ($recentShown = 0)
+          #set ($recentSeen = [])
+          <ol class="nh-doc-list">
+            #foreach ($recentName in $recentActionNames)
+              #if ($recentShown < 10 && !$recentSeen.contains("$recentName"))
+                #set ($recentDocument = $xwiki.getDocument($recentName).getTranslatedDocument())
+                #set ($recentTypeObject = $recentDocument.getFirstObject('type'))
+                #if ($recentTypeObject && "$!recentTypeObject.get('type')".trim().toLowerCase() == 'document')
+                  #set ($recentTitle = "$!recentDocument.plainTitle")
+                  #if ($recentTitle.trim() == '')
+                    #set ($recentTitle = "$!recentDocument.name")
+                  #end
+                  <li class="nh-doc-item">
+                    <a class="nh-doc-link" href="$escapetool.xml($recentDocument.getURL('view'))">
+                      <span class="nh-doc-symbol" aria-hidden="true">$recentShown</span>
+                      <span class="nh-doc-copy">
+                        <span class="nh-doc-title">$escapetool.xml($recentTitle)</span>
+                        <span class="nh-doc-meta">$escapetool.xml($recentDocument.space)</span>
+                      </span>
+                    </a>
+                  </li>
+                  #set ($discard = $recentSeen.add("$recentName"))
+                  #set ($recentShown = $recentShown + 1)
+                #end
+              #end
+            #end
+          </ol>
+          #if ($recentShown == 0)
+            <div class="nh-feed-empty">Aucun document récemment ouvert pour le moment.</div>
+          #end
+        #end
+
+        <span class="nh-stats-chip #if($statsEnabled)is-enabled#else is-disabled#end">#if($statsEnabled)Historique actif#else Historique inactif#end</span>
       </article>
 
-      <article class="nh-card">
-        <div class="nh-card-icon" aria-hidden="true">◌</div>
-        <h3>Informations utiles</h3>
-        <p>Un espace libre pour afficher des contacts, consignes, horaires, statuts de services ou toute autre information transversale.</p>
+      <article class="nh-card nh-info-card">
+        <div class="nh-card-heading">
+          <div class="nh-card-heading-main">
+            <div class="nh-card-icon" aria-hidden="true">◌</div>
+            <div>
+              <h3>Informations utiles</h3>
+              <span class="nh-card-kicker">Repères du portail</span>
+            </div>
+          </div>
+        </div>
+        <div class="nh-info-stack">
+          <div class="nh-info-row"><strong>Documentation</strong><span>$escapetool.xml($documentationCount) documents disponibles.</span></div>
+          <div class="nh-info-row"><strong>Formation</strong><span>$escapetool.xml($formationCount) éléments de formation disponibles.</span></div>
+          <div class="nh-info-row"><strong>Besoin d’aide ?</strong><span>Utilisez le contact administrateur en bas de page.</span></div>
+        </div>
       </article>
     </section>
 
     <section class="nh-bottom" aria-label="Ressources du wiki">
       <div class="nh-stat">
         <span class="nh-stat-orb" aria-hidden="true">D</span>
-        <div>
-          <strong>$escapetool.xml($documentationCount)</strong>
-          <span>Documentations</span>
-        </div>
+        <div><strong>$escapetool.xml($documentationCount)</strong><span>Documentations</span></div>
       </div>
-
       <div class="nh-stat">
         <span class="nh-stat-orb" aria-hidden="true">F</span>
-        <div>
-          <strong>$escapetool.xml($formationCount)</strong>
-          <span>Formations</span>
-        </div>
+        <div><strong>$escapetool.xml($formationCount)</strong><span>Formations</span></div>
       </div>
-
       <div class="nh-admin">
-        <div class="nh-admin-copy">
-          <strong>Contacter l’administrateur</strong>
-          <span>Une question, un problème ou une demande d’évolution ?</span>
-        </div>
+        <div class="nh-admin-copy"><strong>Contacter l’administrateur</strong><span>Une question, un problème ou une demande d’évolution ?</span></div>
         <button class="nh-contact-button" type="button" data-open-contact>Envoyer un message</button>
       </div>
     </section>
   </div>
 
-  <div class="nh-modal-backdrop"
-       data-contact-modal
-       role="dialog"
-       aria-modal="true"
-       aria-labelledby="nh-contact-title"
-       aria-hidden="true">
+  <div class="nh-modal-backdrop" data-contact-modal role="dialog" aria-modal="true" aria-labelledby="nh-contact-title" aria-hidden="true">
     <div class="nh-modal">
       <div class="nh-modal-head">
         <div>
@@ -276,26 +373,21 @@
         </div>
         <button class="nh-modal-close" type="button" aria-label="Fermer" data-close-contact>×</button>
       </div>
-
       <form class="nh-form" method="post" action="">
         <input type="hidden" name="homeAction" value="contact-admin" />
         <input type="hidden" name="form_token" value="$escapetool.xml($services.csrf.getToken())" />
-
         <div class="nh-field">
           <label for="nh-sender-name">Nom *</label>
           <input id="nh-sender-name" name="senderName" type="text" maxlength="120" autocomplete="name" required />
         </div>
-
         <div class="nh-field">
           <label for="nh-sender-email">Email</label>
           <input id="nh-sender-email" name="senderEmail" type="email" maxlength="180" autocomplete="email" />
         </div>
-
         <div class="nh-field">
           <label for="nh-message">Message *</label>
           <textarea id="nh-message" name="message" maxlength="5000" required></textarea>
         </div>
-
         <div class="nh-form-actions">
           <button class="nh-button-secondary" type="button" data-close-contact>Annuler</button>
           <button class="nh-button-primary" type="submit">Envoyer</button>
