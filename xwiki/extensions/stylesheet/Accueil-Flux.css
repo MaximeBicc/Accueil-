@@ -79,6 +79,28 @@
 
 .nh-feed-panel[hidden] { display: none !important; }
 
+/* La liste reste dans une fenêtre fixe : plus de documents = scroll,
+   jamais une carte qui s'allonge indéfiniment. */
+.nh-feed-panel[data-feed-panel="latest"] {
+  max-height: 315px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding-right: 5px;
+}
+
+.nh-feed-panel[data-feed-panel="latest"]::-webkit-scrollbar,
+.nh-recent-card .nh-doc-list::-webkit-scrollbar {
+  width: 7px;
+}
+
+.nh-feed-panel[data-feed-panel="latest"]::-webkit-scrollbar-thumb,
+.nh-recent-card .nh-doc-list::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(23, 63, 152, .20);
+}
+
 .nh-doc-list {
   list-style: none;
   padding: 0;
@@ -162,6 +184,12 @@
 .nh-recent-card .nh-doc-list {
   gap: 3px;
   counter-reset: recent-document;
+  max-height: 315px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding-right: 5px;
 }
 
 .nh-recent-card .nh-doc-link {
