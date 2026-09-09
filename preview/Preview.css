@@ -40,3 +40,29 @@ body {
 .preview-shell .naval-home {
   margin: 0;
 }
+
+/* Le vrai XWiki utilise Accueil - Branding. La preview reproduit ici
+   uniquement ce petit bloc pour ne pas dépendre d'un fichier image du repo. */
+.preview-shell .nh-hub {
+  width: 148px;
+  overflow: hidden;
+}
+
+.preview-shell .nh-hub::after {
+  display: none !important;
+}
+
+.preview-shell .nh-hub-logo-image {
+  display: block;
+  width: 116px;
+  max-width: 82%;
+  height: 104px;
+  object-fit: contain;
+  object-position: center;
+  filter: drop-shadow(0 8px 14px rgba(13, 45, 115, .10));
+}
+
+@media (max-width: 620px) {
+  .preview-shell .nh-hub { width: 118px; }
+  .preview-shell .nh-hub-logo-image { width: 92px; height: 82px; }
+}
