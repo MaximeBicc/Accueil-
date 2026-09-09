@@ -1,9 +1,9 @@
 (function () {
   'use strict';
 
-  var STORAGE_PREFIX = 'infowiki.recentDocuments.v2.';
-  var VIEW_THROTTLE_PREFIX = 'infowiki.viewThrottle.v2.';
-  var TRACKING_STATUS_PREFIX = 'infowiki.trackingStatus.v2.';
+  var STORAGE_PREFIX = 'infowiki.recentDocuments.v3.';
+  var VIEW_THROTTLE_PREFIX = 'infowiki.viewThrottle.v3.';
+  var TRACKING_STATUS_PREFIX = 'infowiki.trackingStatus.v3.';
   var VIEW_THROTTLE_MS = 30 * 60 * 1000;
 
   function serializeReference(reference) {
@@ -86,6 +86,15 @@
     }
   }
 
+  function getDisplaySpace(documentReference) {
+    var localReference = documentReference;
+    var separator = localReference.indexOf(':');
+    if (separator >= 0) localReference = localReference.substring(separator + 1);
+
+    var lastDot = localReference.lastIndexOf('.');
+    return lastDot > 0 ? localReference.substring(0, lastDot) : 'Document';
+  }
+
   function recordRecent(meta, documentReference) {
     var userReference = serializeReference(meta.userReference);
     if (!userReference || userReference.indexOf('XWikiGuest') !== -1) return;
@@ -103,15 +112,6 @@
     });
 
     writeRecent(meta, list);
-  }
-
-  function getDisplaySpace(documentReference) {
-    var localReference = documentReference;
-    var separator = localReference.indexOf(':');
-    if (separator >= 0) localReference = localReference.substring(separator + 1);
-
-    var lastDot = localReference.lastIndexOf('.');
-    return lastDot > 0 ? localReference.substring(0, lastDot) : 'Documentation';
   }
 
   function escapeHTML(value) {
@@ -173,23 +173,13 @@
             '<span class="nh-doc-symbol" aria-hidden="true">' + (index + 1) + '</span>' +
             '<span class="nh-doc-copy">' +
               '<span class="nh-doc-title">' + escapeHTML(item.title) + '</span>' +
-              '<span class="nh-doc-meta">' + escapeHTML(item.space || 'Documentation') + '</span>' +
+              '<span class="nh-doc-meta">' + escapeHTML(item.space || 'Document') + '</span>' +
             '</span>' +
           '</a>' +
         '</li>';
     }).join('');
 
     updateStatusChip(meta);
-  }
-
-  function isDocumentationReference(documentReference) {
-    if (!documentReference) return false;
-
-    var localReference = documentReference;
-    var separator = localReference.indexOf(':');
-    if (separator >= 0) localReference = localReference.substring(separator + 1);
-
-    return localReference === 'Documentation' || localReference.indexOf('Documentation.') === 0;
   }
 
   function shouldCountView(documentReference) {
@@ -230,7 +220,7 @@
     renderRecent(meta);
 
     if (window.XWiki && XWiki.contextaction && XWiki.contextaction !== 'view') return;
-    if (!isDocumentationReference(documentReference)) return;
+    if (!documentReference) return;
 
     var endpoint = getTrackingEndpoint(meta);
     if (!endpoint) {
@@ -267,14 +257,13 @@
         recordRecent(meta, documentReference);
         writeStatus(meta, 'valid');
       } else if (result.indexOf('no-edit-right') !== -1) {
-        // Le document a déjà été validé côté serveur : l'historique local peut fonctionner.
         recordRecent(meta, documentReference);
         writeStatus(meta, 'no-edit-right');
       } else if (result.indexOf('csrf') !== -1) {
         writeStatus(meta, 'csrf');
-      } else {
-        writeStatus(meta, 'ignored');
       }
+      // `ignored` correspond simplement à une page qui n'est pas une documentation.
+      // On ne remplace donc pas le dernier diagnostic utile.
     }).catch(function () {
       writeStatus(meta, 'network-error');
     });
