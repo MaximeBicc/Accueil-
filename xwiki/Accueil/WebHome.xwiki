@@ -45,20 +45,33 @@
 #end
 
 ## ============================================================
-## DOCUMENTATION
+## DOCUMENTATION — SANS DROIT PROGRAMMING
 ## ============================================================
-## Une documentation est une page descendante de Documentation,
-## hors WebHome racine, possédant une propriété String type=document.
+## On ne fait volontairement aucune requête HQL sur BaseObject.
+## On récupère seulement des noms de pages avec XWQL, puis on inspecte
+## leurs objets via l'API publique Document.getFirstObject('type').
+#set ($documentationCandidateQuery = $services.query.xwql("where ((doc.space = :rootSpace) or (doc.space like :rootSpaceLike)) and doc.fullName <> :rootPage and doc.language = '' order by doc.creationDate desc"))
+#set ($discard = $documentationCandidateQuery.bindValue('rootSpace', $documentationRootSpace))
+#set ($discard = $documentationCandidateQuery.bindValue('rootSpaceLike', $documentationSpaceLike))
+#set ($discard = $documentationCandidateQuery.bindValue('rootPage', $documentationRootPage))
+#set ($documentationCandidateNames = $documentationCandidateQuery.execute())
+
 #set ($documentationCount = 0)
-#set ($documentationCountQuery = $services.query.hql("select count(distinct doc.fullName) from XWikiDocument doc, BaseObject obj, StringProperty typeProp where doc.fullName = obj.name and obj.id = typeProp.id.id and typeProp.id.name = :typePropertyName and typeProp.value = :documentTypeValue and ((doc.space = :rootSpace) or (doc.space like :rootSpaceLike)) and doc.fullName <> :rootPage and doc.language = ''"))
-#set ($discard = $documentationCountQuery.bindValue('typePropertyName', 'type'))
-#set ($discard = $documentationCountQuery.bindValue('documentTypeValue', 'document'))
-#set ($discard = $documentationCountQuery.bindValue('rootSpace', $documentationRootSpace))
-#set ($discard = $documentationCountQuery.bindValue('rootSpaceLike', $documentationSpaceLike))
-#set ($discard = $documentationCountQuery.bindValue('rootPage', $documentationRootPage))
-#set ($documentationCountResult = $documentationCountQuery.execute())
-#foreach ($documentationCountValue in $documentationCountResult)
-  #set ($documentationCount = $documentationCountValue)
+#set ($documentationDocumentNames = [])
+#set ($latestDocumentNames = [])
+#set ($latestDocumentCount = 0)
+
+#foreach ($documentationCandidateName in $documentationCandidateNames)
+  #set ($documentationCandidate = $xwiki.getDocument($documentationCandidateName))
+  #set ($documentationTypeObject = $documentationCandidate.getFirstObject('type'))
+  #if ($documentationTypeObject && "$!documentationTypeObject.get('type')" == 'document')
+    #set ($documentationCount = $documentationCount + 1)
+    #set ($discard = $documentationDocumentNames.add("$documentationCandidateName"))
+    #if ($latestDocumentCount < 5)
+      #set ($discard = $latestDocumentNames.add("$documentationCandidateName"))
+      #set ($latestDocumentCount = $latestDocumentCount + 1)
+    #end
+  #end
 #end
 
 ## ============================================================
@@ -71,38 +84,67 @@
 #set ($formationCount = $formationQuery.count())
 
 ## ============================================================
-## À LA UNE — 5 DERNIERS DOCUMENTS CRÉÉS
+## À LA UNE — PLUS VUS SUR 30 JOURS, SANS DROIT PROGRAMMING
 ## ============================================================
-#set ($latestDocumentQuery = $services.query.hql("select doc.fullName from XWikiDocument doc, BaseObject obj, StringProperty typeProp where doc.fullName = obj.name and obj.id = typeProp.id.id and typeProp.id.name = :typePropertyName and typeProp.value = :documentTypeValue and ((doc.space = :rootSpace) or (doc.space like :rootSpaceLike)) and doc.fullName <> :rootPage and doc.language = '' group by doc.fullName, doc.creationDate order by doc.creationDate desc"))
-#set ($discard = $latestDocumentQuery.bindValue('typePropertyName', 'type'))
-#set ($discard = $latestDocumentQuery.bindValue('documentTypeValue', 'document'))
-#set ($discard = $latestDocumentQuery.bindValue('rootSpace', $documentationRootSpace))
-#set ($discard = $latestDocumentQuery.bindValue('rootSpaceLike', $documentationSpaceLike))
-#set ($discard = $latestDocumentQuery.bindValue('rootPage', $documentationRootPage))
-#set ($latestDocumentNames = $latestDocumentQuery.setLimit(5).execute())
-
-## ============================================================
-## À LA UNE — PLUS VUS SUR 30 JOURS
-## ============================================================
-## Les vues proviennent de InfoWiki.CODE.viewClass.
-## Aucun service Statistics XWiki n'est utilisé.
+## Les pages quotidiennes de stats sont listées avec une requête XWQL
+## sûre qui retourne uniquement les noms de documents. L'agrégation est
+## ensuite faite en Velocity sur les XObjects de InfoWiki.CODE.viewClass.
 #set ($cutoffCalendar = $datetool.systemCalendar)
 #set ($discard = $cutoffCalendar.add(5, -29))
 #set ($cutoffText = $datetool.format('yyyy-MM-dd', $datetool.toDate($cutoffCalendar)))
 #set ($cutoffDate = $datetool.toDate('yyyy-MM-dd', $cutoffText))
 
-#set ($popularDocumentQuery = $services.query.hql("select trackedDocument.value, sum(viewCount.value) from BaseObject trackingObject, StringProperty trackedDocument, DateProperty trackedDay, IntegerProperty viewCount, XWikiDocument doc, BaseObject documentObject, StringProperty typeProp where trackingObject.className = :viewClassName and trackingObject.id = trackedDocument.id.id and trackedDocument.id.name = :trackedDocumentProperty and trackingObject.id = trackedDay.id.id and trackedDay.id.name = :trackedDayProperty and trackingObject.id = viewCount.id.id and viewCount.id.name = :trackedViewsProperty and trackedDay.value >= :cutoffDate and doc.fullName = trackedDocument.value and doc.fullName = documentObject.name and documentObject.id = typeProp.id.id and typeProp.id.name = :typePropertyName and typeProp.value = :documentTypeValue and ((doc.space = :rootSpace) or (doc.space like :rootSpaceLike)) and doc.fullName <> :rootPage and doc.language = '' group by trackedDocument.value order by sum(viewCount.value) desc"))
-#set ($discard = $popularDocumentQuery.bindValue('viewClassName', $viewClassName))
-#set ($discard = $popularDocumentQuery.bindValue('trackedDocumentProperty', 'document'))
-#set ($discard = $popularDocumentQuery.bindValue('trackedDayProperty', 'day'))
-#set ($discard = $popularDocumentQuery.bindValue('trackedViewsProperty', 'views'))
-#set ($discard = $popularDocumentQuery.bindValue('cutoffDate', $cutoffDate))
-#set ($discard = $popularDocumentQuery.bindValue('typePropertyName', 'type'))
-#set ($discard = $popularDocumentQuery.bindValue('documentTypeValue', 'document'))
-#set ($discard = $popularDocumentQuery.bindValue('rootSpace', $documentationRootSpace))
-#set ($discard = $popularDocumentQuery.bindValue('rootSpaceLike', $documentationSpaceLike))
-#set ($discard = $popularDocumentQuery.bindValue('rootPage', $documentationRootPage))
-#set ($popularDocuments = $popularDocumentQuery.setLimit(5).execute())
+#set ($statsRootSpace = 'InfoWiki.DATA.ViewStats')
+#set ($statsRootSpaceLike = "${statsRootSpace}.%")
+#set ($statsPageQuery = $services.query.xwql("where ((doc.space = :statsRootSpace) or (doc.space like :statsRootSpaceLike)) and doc.language = ''"))
+#set ($discard = $statsPageQuery.bindValue('statsRootSpace', $statsRootSpace))
+#set ($discard = $statsPageQuery.bindValue('statsRootSpaceLike', $statsRootSpaceLike))
+#set ($statsPageNames = $statsPageQuery.execute())
+
+#set ($popularTotals = {})
+#foreach ($statsPageName in $statsPageNames)
+  #set ($statsPageDocument = $xwiki.getDocument($statsPageName))
+  #foreach ($viewObject in $statsPageDocument.getObjects($viewClassName))
+    #if ($viewObject)
+      #set ($trackedDocumentName = "$!viewObject.get('document')")
+      #set ($trackedDay = $viewObject.get('day'))
+      #set ($trackedViews = $viewObject.get('views'))
+      #if (!$trackedViews)
+        #set ($trackedViews = 0)
+      #end
+
+      #if ($trackedDay && $trackedDay.time >= $cutoffDate.time && $documentationDocumentNames.contains("$trackedDocumentName"))
+        #set ($existingViews = $popularTotals.get("$trackedDocumentName"))
+        #if (!$existingViews)
+          #set ($existingViews = 0)
+        #end
+        #set ($discard = $popularTotals.put("$trackedDocumentName", $math.add($existingViews, $trackedViews)))
+      #end
+    #end
+  #end
+#end
+
+## Construit le top 5 sans ORDER BY / SUM en base.
+#set ($popularDocuments = [])
+#set ($popularSelected = [])
+#foreach ($rank in [1..5])
+  #set ($bestDocumentName = '')
+  #set ($bestDocumentViews = -1)
+  #foreach ($popularName in $popularTotals.keySet())
+    #if (!$popularSelected.contains("$popularName"))
+      #set ($candidateViews = $popularTotals.get("$popularName"))
+      #if ($candidateViews > $bestDocumentViews)
+        #set ($bestDocumentName = "$popularName")
+        #set ($bestDocumentViews = $candidateViews)
+      #end
+    #end
+  #end
+  #if ("$bestDocumentName" != '')
+    #set ($popularRow = [$bestDocumentName, $bestDocumentViews])
+    #set ($discard = $popularDocuments.add($popularRow))
+    #set ($discard = $popularSelected.add($bestDocumentName))
+  #end
+#end
 
 ## ============================================================
 ## CONTACT ADMINISTRATEUR
