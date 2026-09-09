@@ -32,8 +32,14 @@
 #set ($documentationSpaceLike = "${documentationRootSpace}.%")
 #set ($formationSpaceLike = "${formationRootSpace}.%")
 
-## Logo : joindre `naval-group-logo.png` à la page Accueil.WebHome.
-#set ($navalLogoUrl = $xwiki.getURL('Accueil.WebHome', 'download', 'filename=naval-group-logo.png'))
+## Logo NAVAL GROUP.
+## L'image doit être jointe à CETTE page sous ce nom exact.
+#set ($navalLogoAttachmentName = 'naval-group-logo.png')
+#set ($navalLogoAttachment = $doc.getAttachment($navalLogoAttachmentName))
+#set ($navalLogoUrl = '')
+#if ($navalLogoAttachment)
+  #set ($navalLogoUrl = $doc.getAttachmentURL($navalLogoAttachmentName))
+#end
 
 ## ============================================================
 ## DOCUMENTATION
@@ -87,8 +93,6 @@
 ## ============================================================
 ## STATISTIQUES DE CONSULTATION
 ## ============================================================
-## Le test porte sur le wiki courant : le sous-wiki dans lequel cette
-## page s'exécute.
 #set ($statsEnabled = false)
 #if ($xwiki.statsService)
   #set ($statsEnabled = $xwiki.statsService.enabledForCurrentWiki)
@@ -187,7 +191,11 @@
       <div class="nh-orbit-stage">
         <div class="nh-orbit" data-module-orbit>
           <div class="nh-hub" aria-label="Naval Group">
-            <img class="nh-hub-logo-image" src="$escapetool.xml($navalLogoUrl)" alt="Naval Group" />
+            #if ("$navalLogoUrl" != '')
+              <img class="nh-hub-logo-image" src="$escapetool.xml($navalLogoUrl)" alt="Naval Group" />
+            #else
+              <span class="nh-hub-logo-missing">Logo<br/>non trouvé</span>
+            #end
           </div>
           <div data-module-nodes></div>
         </div>
@@ -222,40 +230,39 @@
         </div>
 
         <div class="nh-feed-panel" data-feed-panel="latest" role="tabpanel">
-          #set ($latestShown = 0)
-          <ol class="nh-doc-list">
-            #foreach ($latestDocumentName in $latestDocumentNames)
-              #set ($latestDocument = $xwiki.getDocument($latestDocumentName).getTranslatedDocument())
-              #set ($latestTitle = "$!latestDocument.plainTitle")
-              #if ("$latestTitle" == '')
-                #set ($latestTitle = "$!latestDocument.name")
+          #if ($latestDocumentNames && !$latestDocumentNames.isEmpty())
+            <ol class="nh-doc-list">
+              #foreach ($latestDocumentName in $latestDocumentNames)
+                #set ($latestDocument = $xwiki.getDocument($latestDocumentName).getTranslatedDocument())
+                #set ($latestTitle = "$!latestDocument.plainTitle")
+                #if ("$latestTitle" == '')
+                  #set ($latestTitle = "$!latestDocument.name")
+                #end
+                <li class="nh-doc-item">
+                  <a class="nh-doc-link" href="$escapetool.xml($latestDocument.getURL('view'))">
+                    <span class="nh-doc-symbol" aria-hidden="true">D</span>
+                    <span class="nh-doc-copy">
+                      <span class="nh-doc-title">$escapetool.xml($latestTitle)</span>
+                      <span class="nh-doc-meta">Créé le $escapetool.xml($datetool.format('dd/MM/yyyy', $latestDocument.creationDate))</span>
+                    </span>
+                    <span class="nh-doc-value">Nouveau</span>
+                  </a>
+                </li>
               #end
-              <li class="nh-doc-item">
-                <a class="nh-doc-link" href="$escapetool.xml($latestDocument.getURL('view'))">
-                  <span class="nh-doc-symbol" aria-hidden="true">D</span>
-                  <span class="nh-doc-copy">
-                    <span class="nh-doc-title">$escapetool.xml($latestTitle)</span>
-                    <span class="nh-doc-meta">Créé le $escapetool.xml($datetool.format('dd/MM/yyyy', $latestDocument.creationDate))</span>
-                  </span>
-                  <span class="nh-doc-value">Nouveau</span>
-                </a>
-              </li>
-              #set ($latestShown = $latestShown + 1)
-            #end
-          </ol>
-          #if ($latestShown == 0)
+            </ol>
+          #else
             <div class="nh-feed-empty">Aucun document n’a encore été créé dans ce dossier.</div>
           #end
         </div>
 
         <div class="nh-feed-panel" data-feed-panel="popular" role="tabpanel" hidden>
           #if (!$statsEnabled)
-            <div class="nh-feed-disabled"><span><strong>Statistiques indisponibles pour ce sous-wiki</strong>Le service Statistics doit être actif sur le serveur et activé pour le wiki courant.</span></div>
+            <div class="nh-feed-disabled"><span><strong>Statistiques de consultation désactivées</strong>Activez les statistiques dans les préférences du sous-wiki pour afficher les documents les plus vus sur les 30 derniers jours.</span></div>
           #else
             #set ($popularShown = 0)
             <ol class="nh-doc-list">
               #foreach ($viewStat in $mostViewedStats)
-                #if ($popularShown < 5 && $documentationDocumentNames.contains("$viewStat.name"))
+                #if ($popularShown < 5 && $documentationDocumentNames.contains($viewStat.name))
                   #set ($popularDocument = $xwiki.getDocument($viewStat.name).getTranslatedDocument())
                   #set ($popularTitle = "$!popularDocument.plainTitle")
                   #if ("$popularTitle" == '')
@@ -276,7 +283,7 @@
               #end
             </ol>
             #if ($popularShown == 0)
-              <div class="nh-feed-empty">Aucune statistique disponible pour les documents.</div>
+              <div class="nh-feed-empty">Aucune statistique de consultation disponible.</div>
             #end
           #end
         </div>
@@ -294,7 +301,7 @@
         </div>
 
         #if (!$statsEnabled)
-          <div class="nh-feed-disabled"><span><strong>Historique indisponible pour ce sous-wiki</strong>Le service Statistics doit être actif sur le serveur et activé pour le wiki courant.</span></div>
+          <div class="nh-feed-disabled"><span><strong>Historique de consultation indisponible</strong>Activez les statistiques dans les préférences du sous-wiki.</span></div>
         #elseif ($isGuest)
           <div class="nh-feed-empty">Connectez-vous pour retrouver vos derniers documents ouverts.</div>
         #else
@@ -310,7 +317,7 @@
                 #end
                 <li class="nh-doc-item">
                   <a class="nh-doc-link" href="$escapetool.xml($recentDocument.getURL('view'))">
-                    <span class="nh-doc-symbol" aria-hidden="true">$mathtool.add($recentShown, 1)</span>
+                    <span class="nh-doc-symbol" aria-hidden="true">$math.add($recentShown, 1)</span>
                     <span class="nh-doc-copy">
                       <span class="nh-doc-title">$escapetool.xml($recentTitle)</span>
                       <span class="nh-doc-meta">$escapetool.xml($recentDocument.space)</span>
