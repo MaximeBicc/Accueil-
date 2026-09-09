@@ -20,9 +20,41 @@
 #set ($showinformation = false)
 #set ($displayDocExtra = false)
 
-## Compteurs dynamiques du bandeau inférieur.
-#set ($documentationCount = $services.query.xwql("where doc.space = 'Documentation' or doc.space like 'Documentation.%'").count())
-#set ($formationCount = $services.query.xwql("where doc.space = 'Formation' or doc.space like 'Formation.%'").count())
+## ============================================================
+## COMPTEURS RÉCURSIFS
+## ============================================================
+##
+## Indiquer ici le dossier / espace racine de chaque catégorie.
+## Exemples :
+##   Documentation
+##   Ressources.Documentation
+##   Formation
+##   Ressources.Formation
+##
+## Le dossier racine lui-même (son WebHome) n'est PAS compté.
+## Tous ses enfants, sous-enfants, sous-sous-enfants, etc. sont comptés.
+##
+#set ($documentationRootSpace = 'Documentation')
+#set ($formationRootSpace = 'Formation')
+
+## Échappement des caractères spéciaux de LIKE selon la Query API XWiki.
+#set ($documentationSpaceLike = $documentationRootSpace.replaceAll('([%_!])', '!$1').concat('.%'))
+#set ($formationSpaceLike = $formationRootSpace.replaceAll('([%_!])', '!$1').concat('.%'))
+
+#set ($documentationRootPage = "${documentationRootSpace}.WebHome")
+#set ($formationRootPage = "${formationRootSpace}.WebHome")
+
+#set ($documentationQuery = $services.query.xwql("where ((doc.space = :rootSpace) or (doc.space like :rootSpaceLike escape '!')) and doc.fullName <> :rootPage and doc.language = ''"))
+#set ($discard = $documentationQuery.bindValue('rootSpace', $documentationRootSpace))
+#set ($discard = $documentationQuery.bindValue('rootSpaceLike', $documentationSpaceLike))
+#set ($discard = $documentationQuery.bindValue('rootPage', $documentationRootPage))
+#set ($documentationCount = $documentationQuery.count())
+
+#set ($formationQuery = $services.query.xwql("where ((doc.space = :rootSpace) or (doc.space like :rootSpaceLike escape '!')) and doc.fullName <> :rootPage and doc.language = ''"))
+#set ($discard = $formationQuery.bindValue('rootSpace', $formationRootSpace))
+#set ($discard = $formationQuery.bindValue('rootSpaceLike', $formationSpaceLike))
+#set ($discard = $formationQuery.bindValue('rootPage', $formationRootPage))
+#set ($formationCount = $formationQuery.count())
 
 ## Contact administrateur.
 #set ($adminEmail = $xwiki.getXWikiPreference('admin_email'))
