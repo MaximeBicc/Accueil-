@@ -29,13 +29,8 @@
   min-width: 0;
 }
 
-.nh-card-heading .nh-card-icon {
-  flex: 0 0 auto;
-}
-
-.nh-card-heading h3 {
-  margin: 0;
-}
+.nh-card-heading .nh-card-icon { flex: 0 0 auto; }
+.nh-card-heading h3 { margin: 0; }
 
 .nh-card-kicker {
   display: block;
@@ -82,9 +77,7 @@
   box-shadow: 0 5px 15px rgba(22, 55, 104, .08);
 }
 
-.nh-feed-panel[hidden] {
-  display: none !important;
-}
+.nh-feed-panel[hidden] { display: none !important; }
 
 .nh-doc-list {
   list-style: none;
@@ -94,9 +87,7 @@
   gap: 7px;
 }
 
-.nh-doc-item {
-  min-width: 0;
-}
+.nh-doc-item { min-width: 0; }
 
 .nh-doc-link {
   position: relative;
@@ -134,9 +125,7 @@
   font-weight: 840;
 }
 
-.nh-doc-copy {
-  min-width: 0;
-}
+.nh-doc-copy { min-width: 0; }
 
 .nh-doc-title {
   display: block;
@@ -172,6 +161,7 @@
 
 .nh-recent-card .nh-doc-list {
   gap: 3px;
+  counter-reset: recent-document;
 }
 
 .nh-recent-card .nh-doc-link {
@@ -185,6 +175,12 @@
   width: 27px;
   height: 27px;
   border-radius: 8px;
+  font-size: 0;
+  counter-increment: recent-document;
+}
+
+.nh-recent-card .nh-doc-symbol::before {
+  content: counter(recent-document);
   font-size: 10px;
 }
 
@@ -259,46 +255,20 @@
   background: #7b8da3;
 }
 
-.nh-stats-chip.is-enabled::before {
-  background: #28a56b;
-}
-
-.nh-stats-chip.is-disabled::before {
-  background: var(--nh-red);
-}
+.nh-stats-chip.is-enabled::before { background: #28a56b; }
+.nh-stats-chip.is-disabled::before { background: var(--nh-red); }
 
 @media (max-width: 1180px) {
-  .nh-cards {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .nh-info-card {
-    grid-column: 1 / -1;
-    min-height: 0;
-  }
-
-  .nh-info-stack {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
+  .nh-cards { grid-template-columns: 1fr 1fr; }
+  .nh-info-card { grid-column: 1 / -1; min-height: 0; }
+  .nh-info-stack { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 @media (max-width: 760px) {
-  .nh-cards {
-    grid-template-columns: 1fr;
-  }
-
+  .nh-cards { grid-template-columns: 1fr; }
   .nh-feed-card,
   .nh-recent-card,
-  .nh-info-card {
-    min-height: 0;
-    grid-column: auto;
-  }
-
-  .nh-info-stack {
-    grid-template-columns: 1fr;
-  }
-
-  .nh-feed-tabs {
-    flex-direction: column;
-  }
+  .nh-info-card { min-height: 0; grid-column: auto; }
+  .nh-info-stack { grid-template-columns: 1fr; }
+  .nh-feed-tabs { flex-direction: column; }
 }
