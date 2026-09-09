@@ -1,0 +1,35 @@
+/* ============================================================
+   Accueil - Branding
+   Logo central NAVAL GROUP sous forme d'image.
+   ============================================================ */
+
+.nh-hub {
+  width: 148px;
+  overflow: hidden;
+}
+
+/* Désactive l'ancienne décoration CSS du centre. */
+.nh-hub::after {
+  display: none !important;
+}
+
+.nh-hub-logo-image {
+  display: block;
+  width: 116px;
+  max-width: 82%;
+  height: 104px;
+  object-fit: contain;
+  object-position: center;
+  filter: drop-shadow(0 8px 14px rgba(13, 45, 115, .10));
+}
+
+@media (max-width: 620px) {
+  .nh-hub {
+    width: 118px;
+  }
+
+  .nh-hub-logo-image {
+    width: 92px;
+    height: 82px;
+  }
+}
