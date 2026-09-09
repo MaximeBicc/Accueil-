@@ -4,8 +4,6 @@
 
 La page XWiki ne doit pas contenir de gros blocs CSS ou JavaScript.
 
-La structure retenue est :
-
 ```text
 xwiki/
 ├── Accueil/
@@ -20,7 +18,7 @@ xwiki/
         └── Accueil-Contact.js
 ```
 
-Dans XWiki, créer les extensions avec les noms suivants :
+Dans XWiki, créer les extensions suivantes.
 
 ### StyleSheet Extensions
 
@@ -39,7 +37,7 @@ Chaque fichier du dépôt correspond au contenu à copier dans l'extension XWiki
 
 ## 1. Ajouter ou retirer des cercles
 
-Les données des modules restent volontairement dans `xwiki/Accueil/WebHome.xwiki`, car il s'agit du contenu de la page et non de logique JavaScript.
+Les données des modules restent dans `xwiki/Accueil/WebHome.xwiki` car elles font partie du contenu de la page.
 
 Chercher :
 
@@ -47,7 +45,7 @@ Chercher :
 <div class="nh-module-source" aria-hidden="true">
 ```
 
-Chaque bloc `data-home-module` correspond à un cercle :
+Chaque bloc `data-home-module` représente un cercle :
 
 ```html
 <div data-home-module
@@ -62,27 +60,63 @@ Chaque bloc `data-home-module` correspond à un cercle :
 </div>
 ```
 
-Pour ajouter un cercle, dupliquer simplement ce bloc et modifier ses valeurs.
+Pour ajouter un cercle, dupliquer le bloc puis modifier ses valeurs. Pour le retirer, supprimer son bloc.
 
-Pour retirer un cercle, supprimer son bloc.
-
-`Accueil - Modules.js` détecte automatiquement le nombre de modules et recalcule leur disposition. Lorsque tous les cercles ne tiennent plus correctement sur un seul anneau, plusieurs anneaux concentriques sont utilisés.
+`Accueil - Modules.js` détecte automatiquement le nombre de modules et recalcule leur position. Si nécessaire, plusieurs anneaux concentriques sont utilisés.
 
 ---
 
-## 2. Modifier les compteurs Documentation / Formation
+## 2. Compteurs Documentation / Formation
 
-Les compteurs sont calculés dans `WebHome.xwiki` avec XWQL.
+Les compteurs sont calculés côté XWiki / Velocity dans `WebHome.xwiki`.
 
-La version actuelle compte les pages présentes dans les espaces `Documentation` et `Formation`, y compris leurs sous-espaces.
+### Configuration
 
-Cette logique reste côté XWiki / Velocity et ne doit pas être déplacée dans JavaScript.
+Modifier uniquement ces deux variables :
+
+```velocity
+#set ($documentationRootSpace = 'Documentation')
+#set ($formationRootSpace = 'Formation')
+```
+
+Une racine peut être imbriquée :
+
+```velocity
+#set ($documentationRootSpace = 'Ressources.Documentation')
+#set ($formationRootSpace = 'Ressources.Formation')
+```
+
+### Règle de comptage
+
+Le dossier racine sert uniquement de conteneur et n'est pas compté lui-même.
+
+Sont comptés automatiquement :
+
+```text
+Documentation/
+├── Procédure A                  ✓
+├── Procédure B                  ✓
+├── Technique/                   ✓ (page enfant)
+│   ├── Guide A                  ✓
+│   └── Sous-dossier/            ✓
+│       └── Guide B              ✓
+└── Autre dossier/               ✓
+    └── ...                      ✓
+```
+
+Autrement dit, tous les enfants, sous-enfants et descendants à profondeur quelconque sont inclus.
+
+Le `WebHome` de la racine elle-même est explicitement exclu du compteur.
+
+Le comptage utilise un préfixe d'espace XWiki avec paramètres liés (`bindValue`) et échappement des caractères spéciaux de `LIKE`.
 
 ---
 
 ## 3. Modifier le thème
 
-Les variables principales du thème sont dans :
+Le thème actuel est : **blanc, moderne luxueux, avec bleu profond et accent rouge discret**.
+
+Les variables principales sont dans :
 
 ```text
 xwiki/extensions/stylesheet/Accueil-Base.css
@@ -91,18 +125,24 @@ xwiki/extensions/stylesheet/Accueil-Base.css
 Au début de `.naval-home` :
 
 ```css
---navy-950: #041426;
---navy-900: #071d35;
---blue-500: #2486dc;
---blue-400: #52a8ef;
---cyan-300: #87d7ff;
+--nh-white: #ffffff;
+--nh-surface: #ffffff;
+--nh-surface-soft: #f7f9fc;
+--nh-blue: #173f98;
+--nh-blue-deep: #0d2d73;
+--nh-blue-light: #365db3;
+--nh-red: #ef233c;
+--nh-text: #18324f;
+--nh-muted: #647890;
 ```
 
 ### Responsabilité des trois feuilles CSS
 
-- `Accueil - Base` : fond, palette, typographie, header et layout principal.
-- `Accueil - Modules` : cercles, anneaux, animations et panneau de détail à droite.
-- `Accueil - Panneaux & Contact` : trois panneaux inférieurs, statistiques, bouton administrateur, popup et toast.
+- `Accueil - Base` : palette, fond blanc, typographie, header et layout principal.
+- `Accueil - Modules` : cercles mixtes blanc / bleu, anneaux, animations et panneau de détail.
+- `Accueil - Panneaux & Contact` : trois panneaux inférieurs, compteurs, contact administrateur, popup et toast.
+
+Le logo n'est actuellement pas affiché. Le centre de l'orbite utilise seulement une signature graphique abstraite bleu / rouge.
 
 ---
 
@@ -110,7 +150,7 @@ Au début de `.naval-home` :
 
 Le traitement serveur reste dans `WebHome.xwiki`.
 
-Le comportement visuel de la popup est dans :
+Le comportement de la popup est dans :
 
 ```text
 xwiki/extensions/javascript/Accueil-Contact.js
@@ -130,8 +170,6 @@ Pour que l'envoi fonctionne :
 - XWiki doit avoir un expéditeur / SMTP valide ;
 - la page doit disposer des droits nécessaires pour utiliser le service Mail Sender.
 
-Le formulaire envoie le nom, l'email saisi, l'utilisateur XWiki courant et le message.
-
 ---
 
 ## 5. Cartes du milieu
@@ -148,12 +186,10 @@ Leur apparence est gérée uniquement par `Accueil - Panneaux & Contact`.
 
 ## 6. Convention à conserver pour les prochaines pages
 
-Pour chaque fonctionnalité importante :
-
 ```text
-Page XWiki   = contenu + Velocity / logique serveur indispensable
-SSX          = apparence
-JSX          = comportement navigateur
+Page XWiki = contenu + Velocity / logique serveur indispensable
+SSX        = apparence
+JSX        = comportement navigateur
 ```
 
-Si une feuille CSS ou un JavaScript devient trop gros, le découper par responsabilité métier ou composant plutôt que de créer un seul fichier global difficile à maintenir.
+Si une feuille CSS ou un JavaScript devient trop gros, le découper par responsabilité ou composant plutôt que de créer un fichier global difficile à maintenir.
