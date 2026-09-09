@@ -1,0 +1,42 @@
+/* Prévisualisation locale uniquement. N'est pas à copier dans XWiki. */
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background: #eef2f7;
+}
+
+.preview-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 9px 16px;
+  color: #173f98;
+  background: rgba(255, 255, 255, .94);
+  border-bottom: 1px solid #dbe4ef;
+  box-shadow: 0 5px 18px rgba(22, 55, 104, .05);
+  font: 700 12px/1.4 Inter, "Segoe UI", Arial, sans-serif;
+  letter-spacing: .04em;
+}
+
+.preview-toolbar::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #ef233c;
+}
+
+.preview-shell {
+  width: min(1600px, 100%);
+  margin: 0 auto;
+  background: #ffffff;
+}
+
+.preview-shell .naval-home {
+  margin: 0;
+}
