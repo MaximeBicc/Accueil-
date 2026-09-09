@@ -15,6 +15,12 @@
   transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease;
 }
 
+/* Le filtrage JS utilise l'attribut hidden. Cette règle doit gagner
+   sur les display:grid / display:flex des deux dispositions. */
+.ct-contact-card[hidden] {
+  display: none !important;
+}
+
 .ct-contact-card::before {
   content: "";
   position: absolute;
@@ -187,6 +193,10 @@
   border-radius: 17px;
 }
 
+.ct-contact-collection.is-horizontal .ct-contact-card[hidden] {
+  display: none !important;
+}
+
 .ct-contact-collection.is-horizontal .ct-contact-card::before {
   left: 0;
   top: 20px;
@@ -217,6 +227,10 @@
   padding: 26px 20px 20px;
   border-radius: 20px;
   text-align: center;
+}
+
+.ct-contact-collection.is-vertical .ct-contact-card[hidden] {
+  display: none !important;
 }
 
 .ct-contact-collection.is-vertical .ct-contact-card::before {
