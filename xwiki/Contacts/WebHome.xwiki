@@ -19,25 +19,37 @@
 
 ## ------------------------------------------------------------
 ## CONFIGURATION
-## INVITE / XWikiAllGroup sont masqués si un groupe métier existe.
-## Si INVITE est le seul groupe, il reste affiché.
+## XWikiAllGroup est toujours masqué.
+## INVITE est masqué si le membre possède un autre groupe ;
+## s'il est son seul groupe utile, INVITE reste affiché.
 ## ------------------------------------------------------------
-#set ($groupDisplayBlacklist = ['INVITE', 'XWikiAllGroup'])
 #set ($formationPageRef = 'Formation.WebHome')
 #set ($rolePageRef = 'Roles.WebHome')
 #set ($followupPageRef = 'Suivis.WebHome')
 
 ## ------------------------------------------------------------
-## UTILISATEURS
-## Forme XWQL officielle pour lister les documents possédant
-## un objet XWiki.XWikiUsers.
+## MEMBRES DU WIKI
+## Source de vérité : les groupes du wiki, pas l'utilisateur courant.
+## - récupère tous les documents contenant XWiki.XWikiGroups ;
+## - récupère tous les membres de chaque groupe ;
+## - résout aussi les sous-groupes ;
+## - ne conserve que les vraies pages XWiki.XWikiUsers ;
+## - déduplique les personnes.
 ## ------------------------------------------------------------
-#set ($allUserRefs = $services.query.xwql('from doc.object(XWiki.XWikiUsers) as user').addFilter('unique').execute())
+#set ($allGroupRefs = $services.query.xwql('from doc.object("XWiki.XWikiGroups") as membership order by doc.fullName').addFilter('unique').execute())
 #set ($visibleUserRefs = [])
-#foreach ($rawUserRef in $allUserRefs)
-  #set ($userRef = "$rawUserRef")
-  #if ($userRef != "$xcontext.user" && $userRef != 'XWiki.XWikiGuest' && $userRef != 'XWiki.XWikiUserTemplate')
-    #set ($discard = $visibleUserRefs.add($userRef))
+#set ($currentUserRef = $services.model.serialize($xcontext.userReference, 'default'))
+
+#foreach ($groupRef in $allGroupRefs)
+  #set ($groupMembers = $services.user.group.getMembers($groupRef))
+  #foreach ($memberReference in $groupMembers)
+    #set ($memberDoc = $xwiki.getDocument($memberReference))
+    #if ($memberDoc.getObject('XWiki.XWikiUsers'))
+      #set ($memberRef = $services.model.serialize($memberDoc.documentReference, 'default'))
+      #if ($memberRef != $currentUserRef && !$visibleUserRefs.contains($memberRef))
+        #set ($discard = $visibleUserRefs.add($memberRef))
+      #end
+    #end
   #end
 #end
 
@@ -116,26 +128,25 @@
 #end
 
 #macro (ctGroupChips $userRef)
-  ## Recherche dans les wikis afin de ne pas perdre les groupes globaux.
+  ## Tous les groupes du membre, sur tous les wikis, dédupliqués.
+  ## XWikiAllGroup : jamais affiché.
+  ## INVITE : affiché uniquement s'il n'existe aucun autre groupe utile.
   #set ($allGroups = $services.user.group.getGroupsFromAllWikis($userRef))
   #set ($displayGroups = [])
-  #set ($fallbackGroups = [])
+  #set ($hasInvite = false)
 
   #foreach ($groupRef in $allGroups)
     #set ($groupName = "$!groupRef.name")
-    #if ($groupName != '' && !$fallbackGroups.contains($groupName))
-      #set ($discard = $fallbackGroups.add($groupName))
-      #if (!$groupDisplayBlacklist.contains($groupName))
-        #set ($discard = $displayGroups.add($groupName))
-      #end
+    #if ($groupName == 'INVITE')
+      #set ($hasInvite = true)
+    #elseif ($groupName != '' && $groupName != 'XWikiAllGroup' && !$displayGroups.contains($groupName))
+      #set ($discard = $displayGroups.add($groupName))
     #end
   #end
 
-  #if ($displayGroups.isEmpty())
-    #set ($displayGroups = $fallbackGroups)
-  #end
-
-  #if ($displayGroups.isEmpty())
+  #if ($displayGroups.isEmpty() && $hasInvite)
+    <span class="ct-group-chip ct-group-chip--neutral">INVITE</span>
+  #elseif ($displayGroups.isEmpty())
     <span class="ct-group-chip ct-group-chip--neutral">Sans groupe</span>
   #else
     #foreach ($groupName in $displayGroups)
@@ -250,7 +261,7 @@
         <div class="ct-manager-grid">
           <section class="ct-manager-panel ct-manager-panel--members">
             <header class="ct-manager-panel-head"><h3>Liste des membres</h3></header>
-            <p class="ct-manager-help">Tous les membres qui ne font pas partie de vos contacts.</p>
+            <p class="ct-manager-help">Tous les membres du wiki qui ne font pas partie de vos contacts.</p>
             <div class="ct-manager-list" data-contact-zone="available">
               #foreach ($memberRef in $visibleUserRefs)
                 #if (!$savedContacts.contains($memberRef))
