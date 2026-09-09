@@ -43,11 +43,14 @@ Cette page :
 
 1. reçoit la référence du document ouvert ;
 2. vérifie côté serveur qu'il s'agit bien d'un descendant de `Documentation` ;
-3. vérifie qu'une propriété `type=document` existe ;
-4. ignore donc automatiquement `type=folder` ;
-5. incrémente la vue du document pour le jour courant.
+3. lit directement l'XObject qui contient la propriété `type` ;
+4. ne valide que `type=document` ;
+5. ignore donc automatiquement `type=folder` ;
+6. incrémente la vue du document pour le jour courant.
 
 Le formulaire utilise le token CSRF XWiki.
+
+**Aucun droit Programming n'est nécessaire pour les requêtes du module.** Les requêtes XWQL ne retournent que des noms de documents et les propriétés des XObjects sont ensuite lues via l'API publique XWiki.
 
 ## 3. Espace de données
 
@@ -158,13 +161,22 @@ Si un historique multi-appareils devient nécessaire, on pourra ajouter ensuite 
 
 ## 8. Plus vus sur 30 jours
 
-`Accueil.WebHome` interroge directement `InfoWiki.CODE.viewClass`, additionne `views` sur les 30 derniers jours, puis conserve les 5 documents les plus consultés.
+`Accueil.WebHome` ne fait plus de requête HQL avec `SUM`, `BaseObject`, `StringProperty`, `DateProperty` ou `IntegerProperty`, car ce type de requête peut demander le droit **Programming**.
 
-Le résultat est à nouveau filtré côté requête sur :
+La logique actuelle est :
 
-```text
-Documentation/**
-type=document
-```
+1. lister les pages de `InfoWiki.DATA.ViewStats` avec une requête XWQL sûre ;
+2. ouvrir ces pages avec l'API XWiki ;
+3. lire leurs objets `InfoWiki.CODE.viewClass` ;
+4. garder uniquement les objets des 30 derniers jours ;
+5. garder uniquement les documents déjà validés comme `type=document` ;
+6. additionner `views` en Velocity ;
+7. conserver les 5 totaux les plus élevés.
 
-Les folders ne peuvent donc pas apparaître dans le classement.
+Cela permet au système de fonctionner dans un sous-wiki sans droit Programming.
+
+## 9. Erreur « The query requires programming right »
+
+Si cette erreur réapparaît, cela signifie qu'une ancienne version de `Accueil.WebHome` ou `InfoWiki.CODE.TrackView` est encore copiée dans XWiki.
+
+Les versions à utiliser sont celles du dépôt qui ne contiennent plus de requête HQL d'agrégation pour le tracking.
