@@ -113,13 +113,15 @@
     }).join('');
   }
 
-  function shouldTrack(meta, documentReference) {
+  function isDocumentationView(meta, documentReference) {
     if (window.XWiki && XWiki.contextaction && XWiki.contextaction !== 'view') return false;
     if (!documentReference) return false;
 
     var space = meta.space || '';
-    if (space !== 'Documentation' && space.indexOf('Documentation.') !== 0) return false;
+    return space === 'Documentation' || space.indexOf('Documentation.') === 0;
+  }
 
+  function canCountView(documentReference) {
     var throttleKey = VIEW_THROTTLE_PREFIX + documentReference;
     var now = Date.now();
 
@@ -128,7 +130,7 @@
       if (previous && now - previous < VIEW_THROTTLE_MS) return false;
       window.localStorage.setItem(throttleKey, String(now));
     } catch (error) {
-      // Sans localStorage, on laisse le serveur décider et on compte la visite.
+      // Sans localStorage, on compte la consultation côté serveur.
     }
 
     return true;
@@ -139,7 +141,7 @@
 
     renderRecent(meta);
 
-    if (!shouldTrack(meta, documentReference)) return;
+    if (!isDocumentationView(meta, documentReference)) return;
     if (!window.XWiki || typeof XWiki.Document !== 'function') return;
 
     var endpoint = new XWiki.Document('TrackView', 'InfoWiki.CODE').getURL('get');
@@ -148,6 +150,7 @@
     body.set('outputSyntax', 'plain');
     body.set('form_token', meta.form_token || '');
     body.set('documentReference', documentReference);
+    body.set('countView', canCountView(documentReference) ? '1' : '0');
 
     window.fetch(endpoint, {
       method: 'POST',
@@ -160,7 +163,8 @@
     }).then(function (response) {
       return response.text();
     }).then(function (text) {
-      if (String(text).indexOf('tracked') !== -1) {
+      var result = String(text);
+      if (result.indexOf('tracked') !== -1 || result.indexOf('valid') !== -1) {
         recordRecent(meta, documentReference);
       }
     }).catch(function () {
