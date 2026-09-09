@@ -1,6 +1,6 @@
 # Personnalisation de la page d'accueil
 
-## Structure du projet
+## Structure XWiki
 
 ```text
 xwiki/
@@ -10,6 +10,7 @@ xwiki/
     ├── stylesheet/
     │   ├── Accueil-Base.css
     │   ├── Accueil-Modules.css
+    │   ├── Accueil-Branding.css
     │   ├── Accueil-Panneaux-Contact.css
     │   └── Accueil-Flux.css
     └── javascript/
@@ -19,37 +20,39 @@ xwiki/
 
 preview/
 ├── index.html
-└── Preview.css
+├── Preview.css
+└── Preview.js
 ```
+
+## Extensions à créer dans XWiki
 
 ### StyleSheet Extensions
 
-1. `Accueil - Base`
-2. `Accueil - Modules`
-3. `Accueil - Panneaux & Contact`
-4. `Accueil - Flux`
+- `Accueil - Base`
+- `Accueil - Modules`
+- `Accueil - Branding`
+- `Accueil - Panneaux & Contact`
+- `Accueil - Flux`
 
 ### JavaScript Extensions
 
-1. `Accueil - Modules`
-2. `Accueil - Contact`
-3. `Accueil - Flux`
+- `Accueil - Modules`
+- `Accueil - Contact`
+- `Accueil - Flux`
 
-Le dossier `preview/` sert uniquement à simuler la page dans un navigateur.
+## Logo central
 
----
+Le centre de l'orbite utilise maintenant une vraie image et non un logo redessiné en SVG.
 
-## 1. Modules circulaires
+Action manuelle : joindre le fichier suivant à la page `Accueil.WebHome` :
 
-Les données des modules sont dans `xwiki/Accueil/WebHome.xwiki` dans le bloc `nh-module-source`.
+```text
+naval-group-logo.png
+```
 
-Chaque bloc `data-home-module` correspond à un cercle. `Accueil - Modules.js` détecte automatiquement leur nombre et recalcule la disposition.
+Le code le récupère automatiquement avec l'URL de téléchargement de la pièce jointe.
 
-Le centre de l'orbite affiche maintenant le symbole NAVAL GROUP en grand sous forme de SVG directement dans le HTML de la page. Aucun fichier image externe n'est nécessaire.
-
----
-
-## 2. Compteur Documentation
+## Documentation
 
 Racine configurable :
 
@@ -57,125 +60,60 @@ Racine configurable :
 #set ($documentationRootSpace = 'Documentation')
 ```
 
-Tous les descendants de cette racine sont parcourus, quelle que soit leur profondeur.
-
-Pour chaque page, le compteur inspecte les XWiki Objects et la propriété String `type` :
+Tous les descendants sont inspectés. Seules les pages possédant un XWiki Object avec une propriété String exactement égale à :
 
 ```text
-type = document   → compté
-type = folder     → non compté
-autre valeur      → non compté
-pas de type        → non compté
+type = document
 ```
 
-La page racine est explicitement exclue et `count(distinct doc.fullName)` évite les doublons.
-
-> La requête ne filtre pas encore par nom de XClass. Si plusieurs classes de ton wiki utilisent aussi une propriété `type`, il sera préférable d'ajouter le nom exact de la classe.
-
----
-
-## 3. Compteur Formation
-
-La logique Formation reste volontairement inchangée :
-
-```velocity
-#set ($formationRootSpace = 'Formation')
-```
-
-Toutes les pages descendantes sont comptées récursivement, en excluant le WebHome racine.
-
----
-
-## 4. À la une
-
-Le panneau `À la une` possède deux onglets :
-
-### Derniers créés
-
-Les 5 derniers documents créés sont récupérés automatiquement parmi les descendants de la racine Documentation qui possèdent `type=document`.
-
-Cette fonction n'a besoin d'aucun module supplémentaire et fonctionne directement avec la Query API XWiki.
-
-### Plus vus · 30 jours
-
-Les 5 documents les plus consultés sur les 30 derniers jours utilisent le service de statistiques natif XWiki.
-
-La page filtre ensuite les statistiques pour conserver uniquement les descendants Documentation ayant `type=document`.
-
-Si les statistiques XWiki sont désactivées, l'interface reste fonctionnelle mais affiche un message indiquant que cette donnée est indisponible.
-
----
-
-## 5. Accès rapides
-
-`Accès rapides` affiche les 10 derniers documents ouverts par l'utilisateur courant.
-
-La récupération utilise l'API XWiki :
-
-```velocity
-$xwiki.getRecentActions('view', ...)
-```
-
-Les résultats sont filtrés :
+sont considérées comme des documentations.
 
 ```text
-type=document → conservé
-type=folder   → ignoré
+type=document  -> compté
+type=folder    -> non compté
+autre          -> non compté
 ```
 
-Les doublons sont supprimés et seuls les 10 premiers vrais documents sont affichés.
+La racine elle-même est exclue.
 
-Cette fonctionnalité dépend elle aussi du module Statistics.
+Le code évite les appels Velocity problématiques de type `.trim()` et `.toLowerCase()` et compare directement la valeur attendue.
 
----
+## Formation
 
-## 6. Action administrateur nécessaire pour les statistiques
+La logique Formation n'a pas été modifiée : tous les descendants de la racine Formation sont comptés, hors WebHome racine.
 
-Aucune XClass supplémentaire n'est nécessaire pour les vues et l'historique récent.
+## À la une
 
-En revanche, XWiki doit enregistrer les statistiques de consultation. Si elles ne sont pas déjà activées, une intervention sur le serveur est nécessaire :
+Le panneau contient deux onglets :
 
-```properties
-xwiki.stats=1
-xwiki.stats.default=1
-```
+- `Derniers créés` : 5 derniers documents `type=document` par date de création ;
+- `Plus vus · 30 jours` : 5 documents les plus vus sur les 30 derniers jours si Statistics est actif.
 
-Ces propriétés se trouvent dans `xwiki.cfg`. Un redémarrage de XWiki est normalement nécessaire après modification.
+## Accès rapides
 
-Sur un sous-wiki, la préférence `statistics` dans `XWiki.XWikiPreferences` peut aussi devoir être activée.
+Affiche jusqu'aux 10 derniers documents ouverts par l'utilisateur courant, en supprimant les doublons et en filtrant sur les vraies documentations `type=document`.
 
-Le code de la page détecte automatiquement si les statistiques sont actives : il n'échoue pas si elles sont désactivées.
+## Sous-wiki et Statistics
 
----
+Le code teste `enabledForCurrentWiki`, donc il travaille sur le sous-wiki courant.
 
-## 7. Responsabilité des CSS / JS
+XWiki distingue deux niveaux :
 
-- `Accueil - Base` : palette, fond, typographie et layout principal.
-- `Accueil - Modules` : orbite, logo central, cercles et panneau de détail.
-- `Accueil - Panneaux & Contact` : compteurs inférieurs, popup et contact.
-- `Accueil - Flux` : À la une, listes de documents et Accès rapides.
-- `Accueil - Modules.js` : interactions de l'orbite.
-- `Accueil - Contact.js` : popup de contact.
-- `Accueil - Flux.js` : onglets Derniers créés / Plus vus.
+1. le service Statistics doit être autorisé globalement par le serveur (`xwiki.stats=1`) ;
+2. le sous-wiki peut ensuite décider de l'activer via la propriété `statistics` de son `XWiki.XWikiPreferences`.
 
----
+Si le niveau 1 est désactivé par l'administrateur de la plateforme, un administrateur limité au sous-wiki ne peut pas le réactiver seul.
 
-## 8. Prévisualisation web
+Si le service est disponible mais simplement désactivé pour le sous-wiki, il peut être activé dans les préférences du sous-wiki sans accéder au wiki principal.
 
-Ouvrir :
+## Prévisualisation
+
+`preview/index.html` reste la prévisualisation interactive. Le logo exact fourni est injecté localement par `Preview.js`, donc aucune image de maquette générée n'est utilisée.
+
+## Convention projet
 
 ```text
-preview/index.html
-```
-
-La prévisualisation charge les mêmes feuilles CSS et scripts que XWiki. Les données sont simulées, mais les interactions sont réelles : orbite, sélection de module, onglets À la une et popup de contact.
-
----
-
-## Convention à conserver
-
-```text
-Page XWiki = contenu + Velocity / logique serveur
+Page XWiki = contenu + Velocity nécessaire
 SSX        = apparence
 JSX        = comportement navigateur
 Preview    = simulation web interactive
