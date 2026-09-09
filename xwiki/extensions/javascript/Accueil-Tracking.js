@@ -1,23 +1,68 @@
 (function () {
   'use strict';
 
-  var STORAGE_PREFIX = 'infowiki.recentDocuments.v3.';
-  var VIEW_THROTTLE_PREFIX = 'infowiki.viewThrottle.v3.';
-  var TRACKING_STATUS_PREFIX = 'infowiki.trackingStatus.v3.';
+  var TRACKING_VERSION = 'v4';
+  var DOCUMENTATION_ROOT = 'TestPage.PAGE.Doc';
+  var STORAGE_PREFIX = 'infowiki.recentDocuments.v4.';
+  var VIEW_THROTTLE_PREFIX = 'infowiki.viewThrottle.v4.';
+  var TRACKING_STATUS_PREFIX = 'infowiki.trackingStatus.v4.';
   var VIEW_THROTTLE_MS = 30 * 60 * 1000;
+  var started = false;
+
+  function getMetaContent(name) {
+    var node = document.querySelector('meta[name="' + name + '"]');
+    return node ? (node.getAttribute('content') || '') : '';
+  }
 
   function serializeReference(reference) {
-    if (window.XWiki && XWiki.Model && reference) {
-      return XWiki.Model.serialize(reference);
+    if (!reference) return '';
+    if (typeof reference === 'string') return reference;
+
+    if (window.XWiki && XWiki.Model) {
+      try {
+        return XWiki.Model.serialize(reference);
+      } catch (error) {
+        return '';
+      }
     }
+
     return '';
   }
 
+  function getDocumentReferenceText(meta) {
+    var reference = serializeReference(meta && meta.documentReference);
+    if (reference) return reference;
+
+    var documentName = (meta && meta.document) || getMetaContent('document');
+    var wikiName = (meta && meta.wiki) || getMetaContent('wiki');
+
+    if (!documentName) return '';
+    if (documentName.indexOf(':') >= 0) return documentName;
+    return wikiName ? wikiName + ':' + documentName : documentName;
+  }
+
   function getWikiName(meta) {
-    var reference = serializeReference(meta.documentReference);
+    var reference = getDocumentReferenceText(meta || {});
     var separator = reference.indexOf(':');
     if (separator > 0) return reference.substring(0, separator);
-    return meta.wiki || 'current';
+
+    return (meta && meta.wiki) || getMetaContent('wiki') || 'current';
+  }
+
+  function getUserKey(meta) {
+    var user = serializeReference(meta && meta.userReference);
+    if (user) return user;
+
+    user = (meta && meta.user) || getMetaContent('user');
+    return user || 'browser-user';
+  }
+
+  function getFormToken(meta) {
+    var token = (meta && meta.form_token) || getMetaContent('form_token');
+    if (token) return token;
+
+    var input = document.querySelector('input[name="form_token"]');
+    return input ? (input.value || '') : '';
   }
 
   function getPageTitle() {
@@ -40,8 +85,7 @@
   }
 
   function makeStorageKey(meta) {
-    var user = serializeReference(meta.userReference) || 'guest';
-    return STORAGE_PREFIX + getWikiName(meta) + '.' + user;
+    return STORAGE_PREFIX + getWikiName(meta) + '.' + getUserKey(meta);
   }
 
   function makeStatusKey(meta) {
@@ -66,10 +110,13 @@
     }
   }
 
-  function writeStatus(meta, status) {
+  function writeStatus(meta, status, detail) {
     try {
       window.localStorage.setItem(makeStatusKey(meta), JSON.stringify({
+        version: TRACKING_VERSION,
         status: status,
+        detail: detail || '',
+        document: getDocumentReferenceText(meta || {}),
         at: Date.now()
       }));
     } catch (error) {
@@ -96,8 +143,8 @@
   }
 
   function recordRecent(meta, documentReference) {
-    var userReference = serializeReference(meta.userReference);
-    if (!userReference || userReference.indexOf('XWikiGuest') !== -1) return;
+    var userKey = getUserKey(meta);
+    if (userKey.indexOf('XWikiGuest') !== -1) return;
 
     var list = readRecent(meta).filter(function (item) {
       return item.reference !== documentReference;
@@ -128,22 +175,24 @@
     if (!chip) return;
 
     var status = readStatus(meta);
+    chip.classList.remove('is-enabled');
+    chip.classList.remove('is-disabled');
+
     if (!status) {
-      chip.textContent = 'Suivi en attente d’une première consultation';
+      chip.textContent = 'Tracking v4 · en attente d’une première consultation';
       return;
     }
 
     if (status.status === 'tracked' || status.status === 'valid') {
-      chip.textContent = 'Suivi des documents actif';
+      chip.textContent = 'Tracking v4 · suivi des documents actif';
       chip.classList.add('is-enabled');
-      chip.classList.remove('is-disabled');
     } else if (status.status === 'no-edit-right') {
-      chip.textContent = 'Historique local actif · compteur sans droit Edit';
-      chip.classList.remove('is-enabled');
+      chip.textContent = 'Tracking v4 · historique local actif · compteur sans droit Edit';
       chip.classList.add('is-disabled');
+    } else if (status.status === 'requesting') {
+      chip.textContent = 'Tracking v4 · requête envoyée, réponse en attente';
     } else {
-      chip.textContent = 'Suivi à vérifier · ' + status.status;
-      chip.classList.remove('is-enabled');
+      chip.textContent = 'Tracking v4 · à vérifier : ' + status.status;
       chip.classList.add('is-disabled');
     }
   }
@@ -152,8 +201,8 @@
     var host = document.querySelector('[data-recent-documents]');
     if (!host) return;
 
-    var userReference = serializeReference(meta.userReference);
-    if (!userReference || userReference.indexOf('XWikiGuest') !== -1) {
+    var userKey = getUserKey(meta);
+    if (userKey.indexOf('XWikiGuest') !== -1) {
       host.innerHTML = '<li class="nh-feed-empty">Connectez-vous pour retrouver vos derniers documents ouverts.</li>';
       updateStatusChip(meta);
       return;
@@ -182,6 +231,26 @@
     updateStatusChip(meta);
   }
 
+  function localDocumentReference(documentReference) {
+    var separator = documentReference.indexOf(':');
+    return separator >= 0 ? documentReference.substring(separator + 1) : documentReference;
+  }
+
+  function isUnderDocumentationRoot(documentReference) {
+    var localReference = localDocumentReference(documentReference || '');
+    return localReference === DOCUMENTATION_ROOT || localReference.indexOf(DOCUMENTATION_ROOT + '.') === 0;
+  }
+
+  function isViewAction() {
+    var action = '';
+    if (window.XWiki && XWiki.contextaction) action = String(XWiki.contextaction);
+
+    if (action === 'view') return true;
+
+    var path = window.location.pathname || '';
+    return path.indexOf('/bin/view/') >= 0 || path.indexOf('/view/') >= 0;
+  }
+
   function shouldCountView(documentReference) {
     var throttleKey = VIEW_THROTTLE_PREFIX + documentReference;
     var now = Date.now();
@@ -205,36 +274,53 @@
   function getTrackingEndpoint(meta) {
     if (!window.XWiki || !XWiki.Model || typeof XWiki.Document !== 'function') return '';
 
-    var reference = XWiki.Model.resolve(
-      'InfoWiki.CODE.TrackView',
-      XWiki.EntityType.DOCUMENT,
-      meta.documentReference
-    );
+    var wikiName = getWikiName(meta);
+    var endpointReferenceText = (wikiName && wikiName !== 'current' ? wikiName + ':' : '') + 'InfoWiki.CODE.TrackView';
 
-    return new XWiki.Document(reference).getURL('get');
+    try {
+      var reference = XWiki.Model.resolve(endpointReferenceText, XWiki.EntityType.DOCUMENT);
+      return new XWiki.Document(reference).getURL('get', 'xpage=plain&outputSyntax=plain');
+    } catch (error) {
+      return '';
+    }
   }
 
   function track(meta) {
-    var documentReference = serializeReference(meta.documentReference);
+    meta = meta || {};
 
+    var documentReference = getDocumentReferenceText(meta);
     renderRecent(meta);
 
-    if (window.XWiki && XWiki.contextaction && XWiki.contextaction !== 'view') return;
-    if (!documentReference) return;
+    if (!documentReference) {
+      writeStatus(meta, 'no-document-reference');
+      updateStatusChip(meta);
+      return;
+    }
+
+    if (!isViewAction()) {
+      if (isUnderDocumentationRoot(documentReference)) {
+        writeStatus(meta, 'not-view-action');
+      }
+      return;
+    }
 
     var endpoint = getTrackingEndpoint(meta);
     if (!endpoint) {
-      writeStatus(meta, 'endpoint-unavailable');
+      if (isUnderDocumentationRoot(documentReference)) {
+        writeStatus(meta, 'endpoint-unavailable');
+      }
       return;
     }
 
     var countView = shouldCountView(documentReference);
     var body = new URLSearchParams();
-    body.set('xpage', 'plain');
-    body.set('outputSyntax', 'plain');
-    body.set('form_token', meta.form_token || '');
+    body.set('form_token', getFormToken(meta));
     body.set('documentReference', documentReference);
     body.set('countView', countView ? '1' : '0');
+
+    if (isUnderDocumentationRoot(documentReference)) {
+      writeStatus(meta, 'requesting');
+    }
 
     window.fetch(endpoint, {
       method: 'POST',
@@ -245,6 +331,11 @@
       },
       body: body.toString()
     }).then(function (response) {
+      if (!response.ok) {
+        if (isUnderDocumentationRoot(documentReference)) {
+          writeStatus(meta, 'http-' + response.status);
+        }
+      }
       return response.text();
     }).then(function (text) {
       var result = String(text);
@@ -260,20 +351,53 @@
         recordRecent(meta, documentReference);
         writeStatus(meta, 'no-edit-right');
       } else if (result.indexOf('csrf') !== -1) {
-        writeStatus(meta, 'csrf');
+        if (isUnderDocumentationRoot(documentReference)) {
+          writeStatus(meta, 'csrf');
+        }
+      } else if (result.indexOf('ignored') !== -1 && isUnderDocumentationRoot(documentReference)) {
+        writeStatus(meta, 'ignored-document');
       }
-      // `ignored` correspond simplement à une page qui n'est pas une documentation.
-      // On ne remplace donc pas le dernier diagnostic utile.
-    }).catch(function () {
-      writeStatus(meta, 'network-error');
+    }).catch(function (error) {
+      if (isUnderDocumentationRoot(documentReference)) {
+        writeStatus(meta, 'network-error', error && error.message ? error.message : '');
+      }
     });
   }
 
+  function fallbackMeta() {
+    return {
+      document: getMetaContent('document'),
+      wiki: getMetaContent('wiki'),
+      form_token: getMetaContent('form_token'),
+      user: getMetaContent('user')
+    };
+  }
+
+  function startWithMeta(meta) {
+    if (started) return;
+    started = true;
+    track(meta || fallbackMeta());
+  }
+
   function start() {
-    if (typeof window.require !== 'function') return;
-    window.require(['xwiki-meta'], function (meta) {
-      track(meta || {});
-    });
+    if (typeof window.require === 'function') {
+      try {
+        window.require(['xwiki-meta'], function (meta) {
+          startWithMeta(meta || fallbackMeta());
+        }, function () {
+          startWithMeta(fallbackMeta());
+        });
+
+        window.setTimeout(function () {
+          startWithMeta(fallbackMeta());
+        }, 1800);
+        return;
+      } catch (error) {
+        // Fallback ci-dessous.
+      }
+    }
+
+    startWithMeta(fallbackMeta());
   }
 
   if (document.readyState === 'loading') {
