@@ -1,0 +1,350 @@
+/* ============================================================
+   Contacts - Cards
+   Deux dispositions : horizontale et verticale.
+   ============================================================ */
+
+.ct-contact-collection {
+  width: 100%;
+}
+
+.ct-contact-card {
+  position: relative;
+  border: 1px solid var(--ct-line);
+  background: rgba(255, 255, 255, .96);
+  box-shadow: var(--ct-shadow-soft);
+  transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease;
+}
+
+.ct-contact-card::before {
+  content: "";
+  position: absolute;
+  background: linear-gradient(180deg, var(--ct-blue) 0 78%, var(--ct-red) 78% 100%);
+}
+
+.ct-contact-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(23, 63, 152, .25);
+  box-shadow: 0 18px 38px rgba(22, 55, 104, .10);
+}
+
+.ct-avatar {
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-radius: 50%;
+  border: 3px solid #ffffff;
+  background: var(--ct-surface-blue);
+  box-shadow:
+    0 0 0 1px var(--ct-line),
+    0 9px 22px rgba(22, 55, 104, .12);
+}
+
+.ct-avatar img,
+.ct-avatar .avatar,
+.ct-avatar .avatar img {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  object-fit: cover !important;
+  border-radius: 50% !important;
+}
+
+.ct-avatar--large {
+  width: 86px;
+  height: 86px;
+}
+
+.ct-avatar--small {
+  width: 48px;
+  height: 48px;
+  border-width: 2px;
+}
+
+.ct-contact-main {
+  min-width: 0;
+}
+
+.ct-contact-ref {
+  display: block;
+  margin-bottom: 4px;
+  overflow: hidden;
+  color: #8a9aaf;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-transform: uppercase;
+}
+
+.ct-contact-name {
+  margin: 0 0 10px;
+  color: var(--ct-blue-deep);
+  font-size: 20px;
+  line-height: 1.15;
+  letter-spacing: -.02em;
+  font-weight: 760;
+}
+
+.ct-groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ct-group-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 9px;
+  border: 1px solid rgba(23, 63, 152, .12);
+  border-radius: 999px;
+  color: var(--ct-blue);
+  background: var(--ct-surface-blue);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: .015em;
+}
+
+.ct-group-chip--neutral {
+  color: var(--ct-muted);
+  border-color: var(--ct-line);
+  background: var(--ct-surface-soft);
+}
+
+.ct-groups--small {
+  margin-top: 5px;
+  gap: 4px;
+}
+
+.ct-groups--small .ct-group-chip {
+  min-height: 20px;
+  padding: 2px 7px;
+  font-size: 9px;
+}
+
+.ct-contact-actions {
+  display: grid;
+  gap: 7px;
+}
+
+.ct-action-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--ct-line);
+  border-radius: 10px;
+  color: var(--ct-text) !important;
+  background: var(--ct-surface-soft);
+  font-size: 11px;
+  font-weight: 760;
+  text-decoration: none !important;
+  white-space: nowrap;
+  transition: color .18s ease, background .18s ease, border-color .18s ease, transform .18s ease;
+}
+
+.ct-action-button span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  color: var(--ct-blue);
+  background: #ffffff;
+  box-shadow: 0 0 0 1px rgba(23, 63, 152, .10);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.ct-action-button:hover {
+  color: var(--ct-blue) !important;
+  border-color: rgba(23, 63, 152, .24);
+  background: var(--ct-surface-blue);
+  transform: translateX(1px);
+}
+
+/* ------------------------------------------------------------
+   DISPOSITION HORIZONTALE
+   Photo à gauche, informations au centre, 4 boutons à droite.
+   Les contacts sont empilés les uns sous les autres.
+   ------------------------------------------------------------ */
+.ct-contact-collection.is-horizontal {
+  display: grid;
+  gap: 12px;
+}
+
+.ct-contact-collection.is-horizontal .ct-contact-card {
+  display: grid;
+  grid-template-columns: 86px minmax(220px, 1fr) minmax(500px, .9fr);
+  gap: 22px;
+  align-items: center;
+  min-height: 126px;
+  padding: 18px 20px 18px 22px;
+  border-radius: 17px;
+}
+
+.ct-contact-collection.is-horizontal .ct-contact-card::before {
+  left: 0;
+  top: 20px;
+  bottom: 20px;
+  width: 3px;
+  border-radius: 0 999px 999px 0;
+}
+
+.ct-contact-collection.is-horizontal .ct-contact-actions {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+/* ------------------------------------------------------------
+   DISPOSITION VERTICALE
+   Plusieurs cartes sur la même ligne, avatar centré en haut.
+   ------------------------------------------------------------ */
+.ct-contact-collection.is-vertical {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+  gap: 18px;
+}
+
+.ct-contact-collection.is-vertical .ct-contact-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 340px;
+  padding: 26px 20px 20px;
+  border-radius: 20px;
+  text-align: center;
+}
+
+.ct-contact-collection.is-vertical .ct-contact-card::before {
+  top: 0;
+  left: 50%;
+  width: 58px;
+  height: 3px;
+  border-radius: 0 0 999px 999px;
+  transform: translateX(-50%);
+}
+
+.ct-contact-collection.is-vertical .ct-avatar--large {
+  width: 102px;
+  height: 102px;
+  margin-bottom: 17px;
+}
+
+.ct-contact-collection.is-vertical .ct-contact-main {
+  width: 100%;
+  flex: 1 1 auto;
+}
+
+.ct-contact-collection.is-vertical .ct-contact-name {
+  font-size: 19px;
+}
+
+.ct-contact-collection.is-vertical .ct-groups {
+  justify-content: center;
+}
+
+.ct-contact-collection.is-vertical .ct-contact-actions {
+  width: 100%;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 20px;
+}
+
+.ct-contact-collection.is-vertical .ct-action-button {
+  justify-content: center;
+  padding: 0 8px;
+}
+
+.ct-empty-contact-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 330px;
+  padding: 42px;
+  border: 1px dashed var(--ct-line-strong);
+  border-radius: 20px;
+  color: var(--ct-muted);
+  background: linear-gradient(180deg, rgba(241, 245, 251, .55), rgba(255, 255, 255, .92));
+  text-align: center;
+}
+
+.ct-empty-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  margin-bottom: 16px;
+  border-radius: 50%;
+  color: var(--ct-blue);
+  background: #ffffff;
+  box-shadow: 0 0 0 1px var(--ct-line), var(--ct-shadow-soft);
+  font-size: 28px;
+}
+
+.ct-empty-contact-state h2 {
+  margin: 0 0 7px;
+  color: var(--ct-blue-deep);
+  font-size: 21px;
+}
+
+.ct-empty-contact-state p {
+  margin: 0 0 18px;
+  max-width: 420px;
+  line-height: 1.6;
+}
+
+.ct-no-search-result {
+  margin-top: 16px;
+  padding: 18px;
+  border: 1px dashed var(--ct-line);
+  border-radius: 13px;
+  color: var(--ct-muted);
+  background: var(--ct-surface-soft);
+  text-align: center;
+  font-size: 13px;
+}
+
+@media (max-width: 1180px) {
+  .ct-contact-collection.is-horizontal .ct-contact-card {
+    grid-template-columns: 80px minmax(190px, 1fr) minmax(330px, .85fr);
+  }
+
+  .ct-contact-collection.is-horizontal .ct-contact-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .ct-contact-collection.is-horizontal .ct-contact-card {
+    grid-template-columns: 68px 1fr;
+    gap: 16px;
+    padding: 16px 16px 16px 20px;
+  }
+
+  .ct-contact-collection.is-horizontal .ct-avatar--large {
+    width: 68px;
+    height: 68px;
+  }
+
+  .ct-contact-collection.is-horizontal .ct-contact-actions {
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 420px) {
+  .ct-contact-collection.is-vertical {
+    grid-template-columns: 1fr;
+  }
+
+  .ct-contact-actions,
+  .ct-contact-collection.is-horizontal .ct-contact-actions,
+  .ct-contact-collection.is-vertical .ct-contact-actions {
+    grid-template-columns: 1fr;
+  }
+}
