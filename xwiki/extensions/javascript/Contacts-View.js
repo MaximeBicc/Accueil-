@@ -9,6 +9,14 @@
     }
   }
 
+  function normalizeText(value) {
+    var text = String(value || '').toLocaleLowerCase('fr');
+    if (typeof text.normalize === 'function') {
+      text = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    }
+    return text.trim();
+  }
+
   function initContactsView(root) {
     var tabButtons = root.querySelectorAll('[data-contacts-tab]');
     var panels = root.querySelectorAll('[data-contacts-panel]');
@@ -16,6 +24,7 @@
     var layoutButtons = root.querySelectorAll('[data-contact-layout]');
     var collection = root.querySelector('[data-contact-collection]');
     var searchInput = root.querySelector('[data-contact-search]');
+    var groupFilter = root.querySelector('[data-contact-group-filter]');
     var noSearchResult = root.querySelector('[data-no-contact-result]');
     var toast = root.querySelector('[data-contacts-toast]');
 
@@ -81,24 +90,70 @@
       // Le mode horizontal reste le défaut.
     }
 
-    if (searchInput) {
-      searchInput.addEventListener('input', function () {
-        var query = searchInput.value.trim().toLocaleLowerCase();
-        var cards = root.querySelectorAll('[data-contact-card]');
-        var visibleCount = 0;
+    function populateGroupFilter() {
+      if (!groupFilter) return;
 
-        cards.forEach(function (card) {
-          var haystack = (card.getAttribute('data-search-text') || '').toLocaleLowerCase();
-          var visible = !query || haystack.indexOf(query) !== -1;
-          card.hidden = !visible;
-          if (visible) visibleCount += 1;
-        });
-
-        if (noSearchResult) {
-          noSearchResult.hidden = !query || visibleCount > 0 || cards.length === 0;
+      var groupsByKey = {};
+      root.querySelectorAll('[data-contact-card] .ct-group-chip').forEach(function (chip) {
+        var label = chip.textContent.trim();
+        var key = normalizeText(label);
+        if (key && key !== normalizeText('Sans groupe')) {
+          groupsByKey[key] = label;
         }
       });
+
+      Object.keys(groupsByKey)
+        .sort(function (a, b) {
+          return groupsByKey[a].localeCompare(groupsByKey[b], 'fr', { sensitivity: 'base' });
+        })
+        .forEach(function (key) {
+          var option = document.createElement('option');
+          option.value = key;
+          option.textContent = groupsByKey[key];
+          groupFilter.appendChild(option);
+        });
     }
+
+    function applyContactFilters() {
+      var query = normalizeText(searchInput ? searchInput.value : '');
+      var selectedGroup = groupFilter ? normalizeText(groupFilter.value) : '';
+      var cards = root.querySelectorAll('[data-contact-card]');
+      var visibleCount = 0;
+
+      cards.forEach(function (card) {
+        var explicitSearchText = card.getAttribute('data-search-text') || '';
+        var haystack = normalizeText(explicitSearchText + ' ' + card.textContent);
+        var matchesText = !query || haystack.indexOf(query) !== -1;
+
+        var matchesGroup = !selectedGroup;
+        if (selectedGroup) {
+          matchesGroup = Array.prototype.some.call(card.querySelectorAll('.ct-group-chip'), function (chip) {
+            return normalizeText(chip.textContent) === selectedGroup;
+          });
+        }
+
+        var visible = matchesText && matchesGroup;
+        card.hidden = !visible;
+        if (visible) visibleCount += 1;
+      });
+
+      if (noSearchResult) {
+        var hasActiveFilter = !!query || !!selectedGroup;
+        noSearchResult.hidden = !hasActiveFilter || visibleCount > 0 || cards.length === 0;
+      }
+    }
+
+    populateGroupFilter();
+
+    if (searchInput) {
+      searchInput.addEventListener('input', applyContactFilters);
+    }
+
+    if (groupFilter) {
+      groupFilter.addEventListener('change', applyContactFilters);
+    }
+
+    applyContactFilters();
 
     var saveStatus = root.getAttribute('data-save-status');
     var saveMessage = root.getAttribute('data-save-message');
