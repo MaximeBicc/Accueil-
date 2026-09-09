@@ -1,8 +1,6 @@
 # Personnalisation de la page d'accueil
 
-## Règle de structure du projet
-
-La page XWiki ne doit pas contenir de gros blocs CSS ou JavaScript.
+## Structure du projet
 
 ```text
 xwiki/
@@ -12,239 +10,173 @@ xwiki/
     ├── stylesheet/
     │   ├── Accueil-Base.css
     │   ├── Accueil-Modules.css
-    │   └── Accueil-Panneaux-Contact.css
+    │   ├── Accueil-Panneaux-Contact.css
+    │   └── Accueil-Flux.css
     └── javascript/
         ├── Accueil-Modules.js
-        └── Accueil-Contact.js
+        ├── Accueil-Contact.js
+        └── Accueil-Flux.js
 
 preview/
 ├── index.html
-├── Preview.css
-└── Preview.js
+└── Preview.css
 ```
-
-Dans XWiki, créer les extensions suivantes.
 
 ### StyleSheet Extensions
 
 1. `Accueil - Base`
 2. `Accueil - Modules`
 3. `Accueil - Panneaux & Contact`
+4. `Accueil - Flux`
 
 ### JavaScript Extensions
 
 1. `Accueil - Modules`
 2. `Accueil - Contact`
+3. `Accueil - Flux`
 
-Chaque fichier du dépôt correspond au contenu à copier dans l'extension XWiki portant le même nom.
-
-Le dossier `preview/` sert uniquement à simuler la page dans un navigateur. Il ne doit pas être copié dans XWiki.
+Le dossier `preview/` sert uniquement à simuler la page dans un navigateur.
 
 ---
 
-## 1. Ajouter ou retirer des cercles
+## 1. Modules circulaires
 
-Les données des modules restent dans `xwiki/Accueil/WebHome.xwiki` car elles font partie du contenu de la page.
+Les données des modules sont dans `xwiki/Accueil/WebHome.xwiki` dans le bloc `nh-module-source`.
 
-Chercher :
+Chaque bloc `data-home-module` correspond à un cercle. `Accueil - Modules.js` détecte automatiquement leur nombre et recalcule la disposition.
 
-```html
-<div class="nh-module-source" aria-hidden="true">
-```
-
-Chaque bloc `data-home-module` représente un cercle :
-
-```html
-<div data-home-module
-     data-label="Documentation"
-     data-icon="D"
-     data-title="Documentation"
-     data-description="Texte affiché dans le panneau de droite."
-     data-url="$escapetool.xml($xwiki.getURL('Documentation.WebHome', 'view'))">
-  <span data-module-point>Premier point</span>
-  <span data-module-point>Deuxième point</span>
-  <span data-module-point>Troisième point</span>
-</div>
-```
-
-Pour ajouter un cercle, dupliquer le bloc puis modifier ses valeurs. Pour le retirer, supprimer son bloc.
-
-`Accueil - Modules.js` détecte automatiquement le nombre de modules et recalcule leur position. Si nécessaire, plusieurs anneaux concentriques sont utilisés.
+Le centre de l'orbite affiche maintenant le symbole NAVAL GROUP en grand sous forme de SVG directement dans le HTML de la page. Aucun fichier image externe n'est nécessaire.
 
 ---
 
 ## 2. Compteur Documentation
 
-Le compteur Documentation est calculé côté XWiki / Velocity dans `WebHome.xwiki`.
-
-### Configuration du dossier racine
+Racine configurable :
 
 ```velocity
 #set ($documentationRootSpace = 'Documentation')
 ```
 
-Une racine imbriquée est possible :
+Tous les descendants de cette racine sont parcourus, quelle que soit leur profondeur.
 
-```velocity
-#set ($documentationRootSpace = 'Ressources.Documentation')
-```
-
-### Règle exacte
-
-Tous les descendants du dossier racine sont parcourus, quelle que soit leur profondeur.
-
-Pour chaque page trouvée, la requête inspecte les **XWiki Objects attachés à la page**, et en particulier une propriété String nommée :
+Pour chaque page, le compteur inspecte les XWiki Objects et la propriété String `type` :
 
 ```text
-type
-```
-
-Le comptage est alors :
-
-```text
-type = document   → compté comme documentation
+type = document   → compté
 type = folder     → non compté
 autre valeur      → non compté
 pas de type        → non compté
 ```
 
-Exemple :
+La page racine est explicitement exclue et `count(distinct doc.fullName)` évite les doublons.
 
-```text
-Documentation/                       racine non comptée
-├── Procédure-A                      type=document   ✓ compté
-├── Technique                       type=folder     ✗ non compté
-│   ├── Guide-A                     type=document   ✓ compté
-│   └── Sécurité                    type=folder     ✗ non compté
-│       └── Guide-B                 type=document   ✓ compté
-└── Archives                        type=folder     ✗ non compté
-    └── Ancienne-procédure          type=document   ✓ compté
-```
-
-Le résultat de cet exemple est **4 documentations**, pas 7 pages.
-
-La page racine est également explicitement exclue, même si elle possède par erreur `type=document`.
-
-La requête utilise `count(distinct doc.fullName)` afin qu'une même page ne soit comptée qu'une seule fois si plusieurs objets correspondent.
-
-> Remarque : cette version recherche la propriété `type` dans les XWiki Objects sans imposer une classe d'objet précise. Si plusieurs classes différentes de ton wiki utilisent aussi une propriété `type=document`, on pourra ensuite ajouter le nom exact de la classe comme filtre.
+> La requête ne filtre pas encore par nom de XClass. Si plusieurs classes de ton wiki utilisent aussi une propriété `type`, il sera préférable d'ajouter le nom exact de la classe.
 
 ---
 
 ## 3. Compteur Formation
 
-**Aucune modification de logique n'a été faite sur Formation.**
-
-La configuration reste :
+La logique Formation reste volontairement inchangée :
 
 ```velocity
 #set ($formationRootSpace = 'Formation')
 ```
 
-Le fonctionnement reste celui de la version précédente : toutes les pages descendantes de la racine Formation sont comptées récursivement, en excluant le `WebHome` racine.
+Toutes les pages descendantes sont comptées récursivement, en excluant le WebHome racine.
 
 ---
 
-## 4. Modifier le thème
+## 4. À la une
 
-Le thème actuel est : **blanc, moderne luxueux, avec bleu profond et accent rouge discret**.
+Le panneau `À la une` possède deux onglets :
 
-Les variables principales sont dans :
+### Derniers créés
 
-```text
-xwiki/extensions/stylesheet/Accueil-Base.css
-```
+Les 5 derniers documents créés sont récupérés automatiquement parmi les descendants de la racine Documentation qui possèdent `type=document`.
 
-Au début de `.naval-home` :
+Cette fonction n'a besoin d'aucun module supplémentaire et fonctionne directement avec la Query API XWiki.
 
-```css
---nh-white: #ffffff;
---nh-surface: #ffffff;
---nh-surface-soft: #f7f9fc;
---nh-blue: #173f98;
---nh-blue-deep: #0d2d73;
---nh-blue-light: #365db3;
---nh-red: #ef233c;
---nh-text: #18324f;
---nh-muted: #647890;
-```
+### Plus vus · 30 jours
 
-### Responsabilité des trois feuilles CSS
+Les 5 documents les plus consultés sur les 30 derniers jours utilisent le service de statistiques natif XWiki.
 
-- `Accueil - Base` : palette, fond blanc, typographie, header et layout principal.
-- `Accueil - Modules` : cercles mixtes blanc / bleu, anneaux, animations et panneau de détail.
-- `Accueil - Panneaux & Contact` : trois panneaux inférieurs, compteurs, contact administrateur, popup et toast.
+La page filtre ensuite les statistiques pour conserver uniquement les descendants Documentation ayant `type=document`.
 
-Le logo n'est actuellement pas affiché. Le centre de l'orbite utilise seulement une signature graphique abstraite bleu / rouge.
+Si les statistiques XWiki sont désactivées, l'interface reste fonctionnelle mais affiche un message indiquant que cette donnée est indisponible.
 
 ---
 
-## 5. Formulaire administrateur
+## 5. Accès rapides
 
-Le traitement serveur reste dans `WebHome.xwiki`.
+`Accès rapides` affiche les 10 derniers documents ouverts par l'utilisateur courant.
 
-Le comportement de la popup est dans :
+La récupération utilise l'API XWiki :
 
-```text
-xwiki/extensions/javascript/Accueil-Contact.js
+```velocity
+$xwiki.getRecentActions('view', ...)
 ```
 
-Son apparence est dans :
+Les résultats sont filtrés :
 
 ```text
-xwiki/extensions/stylesheet/Accueil-Panneaux-Contact.css
+type=document → conservé
+type=folder   → ignoré
 ```
 
-Le destinataire est récupéré depuis la préférence XWiki `admin_email`.
+Les doublons sont supprimés et seuls les 10 premiers vrais documents sont affichés.
 
-Pour que l'envoi fonctionne :
-
-- une adresse administrateur doit être configurée ;
-- XWiki doit avoir un expéditeur / SMTP valide ;
-- la page doit disposer des droits nécessaires pour utiliser le service Mail Sender.
+Cette fonctionnalité dépend elle aussi du module Statistics.
 
 ---
 
-## 6. Prévisualisation réelle dans un navigateur
+## 6. Action administrateur nécessaire pour les statistiques
 
-À partir de maintenant, le livrable visuel est un **site web interactif**, pas une image générée.
+Aucune XClass supplémentaire n'est nécessaire pour les vues et l'historique récent.
 
-Le simulateur est :
+En revanche, XWiki doit enregistrer les statistiques de consultation. Si elles ne sont pas déjà activées, une intervention sur le serveur est nécessaire :
+
+```properties
+xwiki.stats=1
+xwiki.stats.default=1
+```
+
+Ces propriétés se trouvent dans `xwiki.cfg`. Un redémarrage de XWiki est normalement nécessaire après modification.
+
+Sur un sous-wiki, la préférence `statistics` dans `XWiki.XWikiPreferences` peut aussi devoir être activée.
+
+Le code de la page détecte automatiquement si les statistiques sont actives : il n'échoue pas si elles sont désactivées.
+
+---
+
+## 7. Responsabilité des CSS / JS
+
+- `Accueil - Base` : palette, fond, typographie et layout principal.
+- `Accueil - Modules` : orbite, logo central, cercles et panneau de détail.
+- `Accueil - Panneaux & Contact` : compteurs inférieurs, popup et contact.
+- `Accueil - Flux` : À la une, listes de documents et Accès rapides.
+- `Accueil - Modules.js` : interactions de l'orbite.
+- `Accueil - Contact.js` : popup de contact.
+- `Accueil - Flux.js` : onglets Derniers créés / Plus vus.
+
+---
+
+## 8. Prévisualisation web
+
+Ouvrir :
 
 ```text
 preview/index.html
 ```
 
-Il charge directement les mêmes CSS et JavaScript que la page XWiki :
-
-```text
-Accueil-Base.css
-Accueil-Modules.css
-Accueil-Panneaux-Contact.css
-Accueil-Modules.js
-Accueil-Contact.js
-```
-
-Il permet donc de tester réellement :
-
-- le rendu desktop ;
-- le responsive ;
-- le placement dynamique des cercles ;
-- le changement du panneau de droite au clic ;
-- l'ouverture / fermeture de la popup administrateur ;
-- un faux envoi du formulaire sans envoyer d'email réel.
-
-Les valeurs de compteurs dans le simulateur sont des exemples visuels uniquement. Le vrai calcul reste effectué par XWiki dans `WebHome.xwiki`.
+La prévisualisation charge les mêmes feuilles CSS et scripts que XWiki. Les données sont simulées, mais les interactions sont réelles : orbite, sélection de module, onglets À la une et popup de contact.
 
 ---
 
-## 7. Convention à conserver pour les prochaines pages
+## Convention à conserver
 
 ```text
-Page XWiki = contenu + Velocity / logique serveur indispensable
+Page XWiki = contenu + Velocity / logique serveur
 SSX        = apparence
 JSX        = comportement navigateur
-Preview    = simulation web interactive, jamais une image
+Preview    = simulation web interactive
 ```
-
-Si une feuille CSS ou un JavaScript devient trop gros, le découper par responsabilité ou composant plutôt que de créer un fichier global difficile à maintenir.
