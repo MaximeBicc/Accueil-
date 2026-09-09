@@ -6,9 +6,38 @@ Version actuelle : **blanc moderne luxueux**, avec accents bleu profond et rouge
 
 Le logo n'est pas affiché. Le centre de l'orbite utilise une signature abstraite bleu / rouge.
 
+Le livrable visuel est désormais une **prévisualisation web interactive**, et non une image.
+
 ---
 
-## Fichiers à intégrer
+## Arborescence du livrable
+
+```text
+xwiki/
+├── Accueil/
+│   └── WebHome.xwiki
+└── extensions/
+    ├── stylesheet/
+    │   ├── Accueil-Base.css
+    │   ├── Accueil-Modules.css
+    │   └── Accueil-Panneaux-Contact.css
+    └── javascript/
+        ├── Accueil-Modules.js
+        └── Accueil-Contact.js
+
+preview/
+├── index.html
+├── Preview.css
+└── Preview.js
+
+docs/
+├── CUSTOMISATION.md
+└── LIVRABLE-ACCUEIL.md
+```
+
+---
+
+## Fichiers à intégrer dans XWiki
 
 ### Page XWiki
 
@@ -19,8 +48,6 @@ xwiki/Accueil/WebHome.xwiki
 À utiliser comme contenu de la page `Accueil.WebHome`.
 
 ### StyleSheet Extensions
-
-Créer trois SSX et copier le contenu des fichiers correspondants :
 
 ```text
 Accueil - Base
@@ -35,8 +62,6 @@ Accueil - Panneaux & Contact
 
 ### JavaScript Extensions
 
-Créer deux JSX :
-
 ```text
 Accueil - Modules
 → xwiki/extensions/javascript/Accueil-Modules.js
@@ -47,50 +72,95 @@ Accueil - Contact
 
 ---
 
-## Ordre d'intégration conseillé
+## Compteur Documentation — logique exacte
 
-1. Créer ou ouvrir `Accueil.WebHome`.
-2. Coller le contenu de `WebHome.xwiki`.
-3. Créer les 3 StyleSheet Extensions avec les noms exacts indiqués ci-dessus.
-4. Créer les 2 JavaScript Extensions.
-5. Configurer les extensions pour qu'elles s'appliquent à la page d'accueil concernée.
-6. Configurer les deux dossiers racines des compteurs.
-7. Tester les clics sur les cercles.
-8. Tester le responsive mobile.
-9. Configurer `admin_email` et SMTP avant de tester le formulaire administrateur.
-
----
-
-## Configuration des compteurs
-
-Dans `WebHome.xwiki` :
+La racine est définie dans `WebHome.xwiki` :
 
 ```velocity
 #set ($documentationRootSpace = 'Documentation')
-#set ($formationRootSpace = 'Formation')
 ```
 
-Le dossier racine lui-même est exclu.
+Le compteur parcourt récursivement tous les descendants de cette racine.
 
-Tous ses descendants sont comptés récursivement, sans limite de profondeur : enfants, sous-enfants, sous-sous-enfants, etc.
+Ensuite, pour chaque page, il inspecte ses **XWiki Objects** et leur propriété String :
+
+```text
+type
+```
+
+Règle :
+
+```text
+type = document   → compté
+type = folder     → non compté
+autre valeur      → non compté
+aucun type         → non compté
+```
+
+La page racine est toujours exclue.
 
 Exemple :
 
 ```text
-Documentation                non compté : dossier racine
-├── Procédure A              compté
-├── Procédure B              compté
-└── Technique                compté
-    ├── Guide A              compté
-    └── Sécurité             compté
-        └── Guide B          compté
+Documentation/                       racine : non comptée
+├── Procédure-A                      type=document   ✓
+├── Technique                       type=folder     ✗
+│   ├── Guide-A                     type=document   ✓
+│   └── Sécurité                    type=folder     ✗
+│       └── Guide-B                 type=document   ✓
+└── Archives                        type=folder     ✗
+    └── Ancienne-procédure          type=document   ✓
 ```
 
-Pour utiliser une racine imbriquée :
+Résultat : **4 documentations**.
+
+La requête utilise un `count(distinct doc.fullName)` afin d'éviter de compter deux fois une page qui aurait plusieurs objets correspondants.
+
+> Cette version ne filtre pas encore par nom de classe XWiki Object. Elle cherche toute propriété `type=document` portée par un objet de la page. Si tu me donnes le nom exact de la classe utilisée, on pourra verrouiller encore davantage la requête.
+
+---
+
+## Compteur Formation
+
+La logique Formation n'a pas été modifiée.
+
+Configuration :
 
 ```velocity
-#set ($documentationRootSpace = 'Ressources.Documentation')
+#set ($formationRootSpace = 'Formation')
 ```
+
+Elle continue à compter les pages descendantes du dossier Formation, récursivement, avec exclusion du `WebHome` racine.
+
+---
+
+## Prévisualisation web interactive
+
+Le visuel du livrable est maintenant :
+
+```text
+preview/index.html
+```
+
+Cette page charge les **mêmes CSS et JavaScript** que le futur XWiki.
+
+Elle simule réellement :
+
+- les cercles dynamiques ;
+- la sélection d'un module ;
+- le changement du panneau de droite ;
+- les animations ;
+- le responsive ;
+- la popup de contact ;
+- un faux envoi du formulaire.
+
+Pour l'utiliser :
+
+1. cloner ou télécharger le dépôt ;
+2. ouvrir `preview/index.html` dans un navigateur ;
+3. cliquer sur les différents cercles et sur `Envoyer un message`.
+
+Les compteurs affichés dans cette prévisualisation sont des valeurs d'exemple. Seul XWiki peut exécuter la vraie requête sur les objets et les pages du wiki.
 
 ---
 
@@ -106,7 +176,7 @@ Le JavaScript :
 - met à jour le panneau de droite au clic ;
 - conserve le fonctionnement responsive.
 
-Le style alterne automatiquement entre cercles blancs bordés de bleu et cercles bleus pleins.
+Le style alterne entre cercles blancs bordés de bleu et cercles bleus pleins.
 
 ---
 
@@ -131,6 +201,7 @@ Le livrable contient :
 WebHome / page XWiki = contenu + Velocity nécessaire
 StyleSheet Extension = CSS
 JavaScript Extension = JavaScript
+Preview              = site web interactif de simulation
 ```
 
-Les composants doivent être séparés par responsabilité dès qu'ils deviennent suffisamment importants.
+Ne plus générer d'image de maquette comme livrable visuel : fournir une prévisualisation HTML/CSS/JS utilisable dans un navigateur.
