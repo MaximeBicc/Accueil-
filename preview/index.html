@@ -8,10 +8,11 @@
   <link rel="stylesheet" href="../xwiki/extensions/stylesheet/Accueil-Base.css" />
   <link rel="stylesheet" href="../xwiki/extensions/stylesheet/Accueil-Modules.css" />
   <link rel="stylesheet" href="../xwiki/extensions/stylesheet/Accueil-Panneaux-Contact.css" />
+  <link rel="stylesheet" href="../xwiki/extensions/stylesheet/Accueil-Flux.css" />
   <link rel="stylesheet" href="./Preview.css" />
 </head>
 <body>
-  <div class="preview-toolbar">Prévisualisation interactive locale — simulation du rendu XWiki</div>
+  <div class="preview-toolbar">Prévisualisation interactive locale — données simulées, comportement réel</div>
 
   <main class="preview-shell">
     <div class="naval-home" data-contact-status="" data-contact-message="">
@@ -23,51 +24,34 @@
         </header>
 
         <div class="nh-module-source" aria-hidden="true">
-          <div data-home-module data-label="Documentation" data-icon="D" data-title="Documentation" data-description="Retrouvez les procédures, les guides de référence et les connaissances partagées de votre organisation." data-url="#">
-            <span data-module-point>Procédures et modes opératoires</span>
-            <span data-module-point>Référentiels techniques</span>
-            <span data-module-point>Guides et bonnes pratiques</span>
+          <div data-home-module data-label="Documentation" data-icon="D" data-title="Documentation" data-description="Retrouvez les procédures, les guides de référence et les connaissances partagées de votre organisation." data-url="#documentation">
+            <span data-module-point>Procédures et modes opératoires</span><span data-module-point>Référentiels techniques</span><span data-module-point>Guides et bonnes pratiques</span>
           </div>
-
-          <div data-home-module data-label="Formation" data-icon="F" data-title="Formation" data-description="Centralisez les parcours de formation, supports pédagogiques et ressources destinées à la montée en compétence." data-url="#">
-            <span data-module-point>Parcours par métier</span>
-            <span data-module-point>Supports de cours</span>
-            <span data-module-point>Ressources et exercices</span>
+          <div data-home-module data-label="Formation" data-icon="F" data-title="Formation" data-description="Centralisez les parcours de formation, supports pédagogiques et ressources destinées à la montée en compétence." data-url="#formation">
+            <span data-module-point>Parcours par métier</span><span data-module-point>Supports de cours</span><span data-module-point>Ressources et exercices</span>
           </div>
-
-          <div data-home-module data-label="Projets" data-icon="P" data-title="Projets" data-description="Suivez les espaces projets, les décisions, les livrables et les informations nécessaires au travail collectif." data-url="#">
-            <span data-module-point>Espaces projets</span>
-            <span data-module-point>Décisions et comptes-rendus</span>
-            <span data-module-point>Suivi des livrables</span>
+          <div data-home-module data-label="Projets" data-icon="P" data-title="Projets" data-description="Suivez les espaces projets, les décisions et les livrables." data-url="#projets">
+            <span data-module-point>Espaces projets</span><span data-module-point>Décisions et comptes-rendus</span><span data-module-point>Suivi des livrables</span>
           </div>
-
-          <div data-home-module data-label="Équipe" data-icon="E" data-title="Équipe" data-description="Retrouvez les informations d’équipe, les rôles, les contacts et les ressources communes." data-url="#">
-            <span data-module-point>Annuaire interne</span>
-            <span data-module-point>Rôles et responsabilités</span>
-            <span data-module-point>Informations partagées</span>
+          <div data-home-module data-label="Équipe" data-icon="E" data-title="Équipe" data-description="Retrouvez les informations d’équipe, les rôles et les contacts." data-url="#equipe">
+            <span data-module-point>Annuaire interne</span><span data-module-point>Rôles et responsabilités</span><span data-module-point>Informations partagées</span>
           </div>
-
-          <div data-home-module data-label="Outils" data-icon="O" data-title="Outils" data-description="Accédez aux outils et services utiles au quotidien depuis un catalogue centralisé." data-url="#">
-            <span data-module-point>Applications métier</span>
-            <span data-module-point>Services internes</span>
-            <span data-module-point>Liens et raccourcis</span>
+          <div data-home-module data-label="Outils" data-icon="O" data-title="Outils" data-description="Accédez aux outils et services utiles au quotidien." data-url="#outils">
+            <span data-module-point>Applications métier</span><span data-module-point>Services internes</span><span data-module-point>Liens et raccourcis</span>
           </div>
-
-          <div data-home-module data-label="Support" data-icon="S" data-title="Support" data-description="Trouvez les réponses aux problèmes courants et les différents moyens de demander de l’aide." data-url="#">
-            <span data-module-point>Questions fréquentes</span>
-            <span data-module-point>Incidents connus</span>
-            <span data-module-point>Canaux de support</span>
+          <div data-home-module data-label="Support" data-icon="S" data-title="Support" data-description="Trouvez les réponses aux problèmes courants et les moyens de demander de l’aide." data-url="#support">
+            <span data-module-point>Questions fréquentes</span><span data-module-point>Incidents connus</span><span data-module-point>Canaux de support</span>
           </div>
         </div>
 
         <section class="nh-hero" aria-label="Modules du wiki">
           <div class="nh-orbit-stage">
             <div class="nh-orbit" data-module-orbit>
-              <div class="nh-hub" aria-hidden="true">
-                <span>
-                  <span class="nh-hub-icon">✦</span>
-                  <span class="nh-hub-label">Votre Wiki</span>
-                </span>
+              <div class="nh-hub" aria-label="Naval Group">
+                <svg class="nh-hub-logo" viewBox="0 0 140 112" role="img" aria-label="Logo Naval Group">
+                  <polygon class="nh-hub-logo-blue" points="14,18 67,18 116,95 91,110 48,39 27,39 68,110 45,110" />
+                  <polygon class="nh-hub-logo-red" points="84,10 121,10 102.5,40" />
+                </svg>
               </div>
               <div data-module-nodes></div>
             </div>
@@ -85,86 +69,91 @@
         </section>
 
         <section class="nh-cards" aria-label="Informations principales">
-          <article class="nh-card">
-            <div class="nh-card-icon" aria-hidden="true">◎</div>
-            <h3>À la une</h3>
-            <p>Utilisez ce panneau pour faire ressortir une actualité, une échéance importante ou un changement récent dans le wiki.</p>
+          <article class="nh-card nh-feed-card">
+            <div class="nh-card-heading">
+              <div class="nh-card-heading-main">
+                <div class="nh-card-icon" aria-hidden="true">◎</div>
+                <div><h3>À la une</h3><span class="nh-card-kicker">Les documents à suivre en priorité</span></div>
+              </div>
+            </div>
+
+            <div class="nh-feed-tabs" role="tablist" aria-label="À la une">
+              <button class="nh-feed-tab is-active" type="button" role="tab" aria-selected="true" data-feed-tab="latest">Derniers créés</button>
+              <button class="nh-feed-tab" type="button" role="tab" aria-selected="false" data-feed-tab="popular">Plus vus · 30 jours</button>
+            </div>
+
+            <div class="nh-feed-panel" data-feed-panel="latest" role="tabpanel">
+              <ol class="nh-doc-list">
+                <li class="nh-doc-item"><a class="nh-doc-link" href="#"><span class="nh-doc-symbol">D</span><span class="nh-doc-copy"><span class="nh-doc-title">Procédure de maintenance préventive</span><span class="nh-doc-meta">Créé le 09/09/2026</span></span><span class="nh-doc-value">Nouveau</span></a></li>
+                <li class="nh-doc-item"><a class="nh-doc-link" href="#"><span class="nh-doc-symbol">D</span><span class="nh-doc-copy"><span class="nh-doc-title">Guide sécurité atelier</span><span class="nh-doc-meta">Créé le 08/09/2026</span></span><span class="nh-doc-value">Nouveau</span></a></li>
+                <li class="nh-doc-item"><a class="nh-doc-link" href="#"><span class="nh-doc-symbol">D</span><span class="nh-doc-copy"><span class="nh-doc-title">Référentiel qualité fournisseurs</span><span class="nh-doc-meta">Créé le 07/09/2026</span></span><span class="nh-doc-value">Nouveau</span></a></li>
+                <li class="nh-doc-item"><a class="nh-doc-link" href="#"><span class="nh-doc-symbol">D</span><span class="nh-doc-copy"><span class="nh-doc-title">Procédure contrôle réception</span><span class="nh-doc-meta">Créé le 06/09/2026</span></span><span class="nh-doc-value">Nouveau</span></a></li>
+                <li class="nh-doc-item"><a class="nh-doc-link" href="#"><span class="nh-doc-symbol">D</span><span class="nh-doc-copy"><span class="nh-doc-title">Guide outillage spécifique</span><span class="nh-doc-meta">Créé le 05/09/2026</span></span><span class="nh-doc-value">Nouveau</span></a></li>
+              </ol>
+            </div>
+
+            <div class="nh-feed-panel" data-feed-panel="popular" role="tabpanel" hidden>
+              <ol class="nh-doc-list">
+                <li class="nh-doc-item"><a class="nh-doc-link" href="#"><span class="nh-doc-symbol">D</span><span class="nh-doc-copy"><span class="nh-doc-title">Procédure habilitations</span><span class="nh-doc-meta">Consultations sur les 30 derniers jours</span></span><span class="nh-doc-value">328 vues</span></a></li>
+                <li class="nh-doc-item"><a class="nh-doc-link" href="#"><span class="nh-doc-symbol">D</span><span class="nh-doc-copy"><span class="nh-doc-title">Guide sécurité chantier</span><span class="nh-doc-meta">Consultations sur les 30 derniers jours</span></span><span class="nh-doc-value">241 vues</span></a></li>
+                <li class="nh-doc-item"><a class="nh-doc-link" href="#"><span class="nh-doc-symbol">D</span><span class="nh-doc-copy"><span class="nh-doc-title">Référentiel documentation technique</span><span class="nh-doc-meta">Consultations sur les 30 derniers jours</span></span><span class="nh-doc-value">197 vues</span></a></li>
+                <li class="nh-doc-item"><a class="nh-doc-link" href="#"><span class="nh-doc-symbol">D</span><span class="nh-doc-copy"><span class="nh-doc-title">Procédure de consignation</span><span class="nh-doc-meta">Consultations sur les 30 derniers jours</span></span><span class="nh-doc-value">163 vues</span></a></li>
+                <li class="nh-doc-item"><a class="nh-doc-link" href="#"><span class="nh-doc-symbol">D</span><span class="nh-doc-copy"><span class="nh-doc-title">Manuel des outils métiers</span><span class="nh-doc-meta">Consultations sur les 30 derniers jours</span></span><span class="nh-doc-value">119 vues</span></a></li>
+              </ol>
+            </div>
           </article>
 
-          <article class="nh-card">
-            <div class="nh-card-icon" aria-hidden="true">↗</div>
-            <h3>Accès rapides</h3>
-            <p>Placez ici les liens les plus utilisés par vos équipes : procédures critiques, outils, formulaires ou pages métier.</p>
+          <article class="nh-card nh-recent-card">
+            <div class="nh-card-heading"><div class="nh-card-heading-main"><div class="nh-card-icon" aria-hidden="true">↗</div><div><h3>Accès rapides</h3><span class="nh-card-kicker">Vos 10 derniers documents ouverts</span></div></div></div>
+            <ol class="nh-doc-list">
+              <li class="nh-doc-item"><a class="nh-doc-link" href="#"><span class="nh-doc-symbol">1</span><span class="nh-doc-copy"><span class="nh-doc-title">Guide sécurité chantier</span><span class="nh-doc-meta">Documentation.Sécurité</span></span></a></li>
+              <li class="nh-doc-item"><a class="nh-doc-link" href="#"><span class="nh-doc-symbol">2</span><span class="nh-doc-copy"><span class="nh-doc-title">Procédure habilitations</span><span class="nh-doc-meta">Documentation.RH</span></span></a></li>
+              <li class="nh-doc-item"><a class="nh-doc-link" href="#"><span class="nh-doc-symbol">3</span><span class="nh-doc-copy"><span class="nh-doc-title">Référentiel qualité fournisseurs</span><span class="nh-doc-meta">Documentation.Qualité</span></span></a></li>
+              <li class="nh-doc-item"><a class="nh-doc-link" href="#"><span class="nh-doc-symbol">4</span><span class="nh-doc-copy"><span class="nh-doc-title">Procédure contrôle réception</span><span class="nh-doc-meta">Documentation.Production</span></span></a></li>
+              <li class="nh-doc-item"><a class="nh-doc-link" href="#"><span class="nh-doc-symbol">5</span><span class="nh-doc-copy"><span class="nh-doc-title">Guide outillage spécifique</span><span class="nh-doc-meta">Documentation.Outillage</span></span></a></li>
+              <li class="nh-doc-item"><a class="nh-doc-link" href="#"><span class="nh-doc-symbol">6</span><span class="nh-doc-copy"><span class="nh-doc-title">Procédure de consignation</span><span class="nh-doc-meta">Documentation.Sécurité</span></span></a></li>
+              <li class="nh-doc-item"><a class="nh-doc-link" href="#"><span class="nh-doc-symbol">7</span><span class="nh-doc-copy"><span class="nh-doc-title">Manuel des outils métiers</span><span class="nh-doc-meta">Documentation.Outils</span></span></a></li>
+              <li class="nh-doc-item"><a class="nh-doc-link" href="#"><span class="nh-doc-symbol">8</span><span class="nh-doc-copy"><span class="nh-doc-title">Guide accès site</span><span class="nh-doc-meta">Documentation.Accueil</span></span></a></li>
+              <li class="nh-doc-item"><a class="nh-doc-link" href="#"><span class="nh-doc-symbol">9</span><span class="nh-doc-copy"><span class="nh-doc-title">Procédure demande matériel</span><span class="nh-doc-meta">Documentation.Logistique</span></span></a></li>
+              <li class="nh-doc-item"><a class="nh-doc-link" href="#"><span class="nh-doc-symbol">10</span><span class="nh-doc-copy"><span class="nh-doc-title">Référentiel documentation technique</span><span class="nh-doc-meta">Documentation.Technique</span></span></a></li>
+            </ol>
+            <span class="nh-stats-chip is-enabled">Historique actif</span>
           </article>
 
-          <article class="nh-card">
-            <div class="nh-card-icon" aria-hidden="true">◌</div>
-            <h3>Informations utiles</h3>
-            <p>Un espace libre pour afficher des contacts, consignes, horaires, statuts de services ou toute autre information transversale.</p>
+          <article class="nh-card nh-info-card">
+            <div class="nh-card-heading"><div class="nh-card-heading-main"><div class="nh-card-icon" aria-hidden="true">◌</div><div><h3>Informations utiles</h3><span class="nh-card-kicker">Repères du portail</span></div></div></div>
+            <div class="nh-info-stack">
+              <div class="nh-info-row"><strong>Documentation</strong><span>248 documents disponibles.</span></div>
+              <div class="nh-info-row"><strong>Formation</strong><span>36 éléments de formation disponibles.</span></div>
+              <div class="nh-info-row"><strong>Besoin d’aide ?</strong><span>Utilisez le contact administrateur en bas de page.</span></div>
+            </div>
           </article>
         </section>
 
         <section class="nh-bottom" aria-label="Ressources du wiki">
-          <div class="nh-stat">
-            <span class="nh-stat-orb" aria-hidden="true">D</span>
-            <div><strong>12</strong><span>Documentations</span></div>
-          </div>
-
-          <div class="nh-stat">
-            <span class="nh-stat-orb" aria-hidden="true">F</span>
-            <div><strong>8</strong><span>Formations</span></div>
-          </div>
-
-          <div class="nh-admin">
-            <div class="nh-admin-copy">
-              <strong>Contacter l’administrateur</strong>
-              <span>Une question, un problème ou une demande d’évolution ?</span>
-            </div>
-            <button class="nh-contact-button" type="button" data-open-contact>Envoyer un message</button>
-          </div>
+          <div class="nh-stat"><span class="nh-stat-orb">D</span><div><strong>248</strong><span>Documentations</span></div></div>
+          <div class="nh-stat"><span class="nh-stat-orb">F</span><div><strong>36</strong><span>Formations</span></div></div>
+          <div class="nh-admin"><div class="nh-admin-copy"><strong>Contacter l’administrateur</strong><span>Une question, un problème ou une demande d’évolution ?</span></div><button class="nh-contact-button" type="button" data-open-contact>Envoyer un message</button></div>
         </section>
       </div>
 
       <div class="nh-modal-backdrop" data-contact-modal role="dialog" aria-modal="true" aria-labelledby="nh-contact-title" aria-hidden="true">
         <div class="nh-modal">
-          <div class="nh-modal-head">
-            <div>
-              <h2 id="nh-contact-title">Contacter l’administrateur</h2>
-              <p>Dans XWiki, ce formulaire enverra le message à l’administrateur configuré.</p>
-            </div>
-            <button class="nh-modal-close" type="button" aria-label="Fermer" data-close-contact>×</button>
-          </div>
-
-          <form class="nh-form">
-            <div class="nh-field">
-              <label for="nh-sender-name">Nom *</label>
-              <input id="nh-sender-name" name="senderName" type="text" maxlength="120" autocomplete="name" required />
-            </div>
-
-            <div class="nh-field">
-              <label for="nh-sender-email">Email</label>
-              <input id="nh-sender-email" name="senderEmail" type="email" maxlength="180" autocomplete="email" />
-            </div>
-
-            <div class="nh-field">
-              <label for="nh-message">Message *</label>
-              <textarea id="nh-message" name="message" maxlength="5000" required></textarea>
-            </div>
-
-            <div class="nh-form-actions">
-              <button class="nh-button-secondary" type="button" data-close-contact>Annuler</button>
-              <button class="nh-button-primary" type="submit">Envoyer</button>
-            </div>
+          <div class="nh-modal-head"><div><h2 id="nh-contact-title">Contacter l’administrateur</h2><p>Simulation locale du formulaire XWiki.</p></div><button class="nh-modal-close" type="button" data-close-contact>×</button></div>
+          <form class="nh-form" onsubmit="event.preventDefault(); alert('Simulation : le message serait envoyé dans XWiki.');">
+            <div class="nh-field"><label for="nh-sender-name">Nom *</label><input id="nh-sender-name" type="text" required /></div>
+            <div class="nh-field"><label for="nh-sender-email">Email</label><input id="nh-sender-email" type="email" /></div>
+            <div class="nh-field"><label for="nh-message">Message *</label><textarea id="nh-message" required></textarea></div>
+            <div class="nh-form-actions"><button class="nh-button-secondary" type="button" data-close-contact>Annuler</button><button class="nh-button-primary" type="submit">Envoyer</button></div>
           </form>
         </div>
       </div>
-
-      <div class="nh-toast" role="status" aria-live="polite" data-toast></div>
+      <div class="nh-toast" data-toast></div>
     </div>
   </main>
 
   <script src="../xwiki/extensions/javascript/Accueil-Modules.js"></script>
   <script src="../xwiki/extensions/javascript/Accueil-Contact.js"></script>
-  <script src="./Preview.js"></script>
+  <script src="../xwiki/extensions/javascript/Accueil-Flux.js"></script>
 </body>
 </html>
