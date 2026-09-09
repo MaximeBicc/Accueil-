@@ -16,6 +16,11 @@ xwiki/
     └── javascript/
         ├── Accueil-Modules.js
         └── Accueil-Contact.js
+
+preview/
+├── index.html
+├── Preview.css
+└── Preview.js
 ```
 
 Dans XWiki, créer les extensions suivantes.
@@ -32,6 +37,8 @@ Dans XWiki, créer les extensions suivantes.
 2. `Accueil - Contact`
 
 Chaque fichier du dépôt correspond au contenu à copier dans l'extension XWiki portant le même nom.
+
+Le dossier `preview/` sert uniquement à simuler la page dans un navigateur. Il ne doit pas être copié dans XWiki.
 
 ---
 
@@ -66,53 +73,79 @@ Pour ajouter un cercle, dupliquer le bloc puis modifier ses valeurs. Pour le ret
 
 ---
 
-## 2. Compteurs Documentation / Formation
+## 2. Compteur Documentation
 
-Les compteurs sont calculés côté XWiki / Velocity dans `WebHome.xwiki`.
+Le compteur Documentation est calculé côté XWiki / Velocity dans `WebHome.xwiki`.
 
-### Configuration
-
-Modifier uniquement ces deux variables :
+### Configuration du dossier racine
 
 ```velocity
 #set ($documentationRootSpace = 'Documentation')
-#set ($formationRootSpace = 'Formation')
 ```
 
-Une racine peut être imbriquée :
+Une racine imbriquée est possible :
 
 ```velocity
 #set ($documentationRootSpace = 'Ressources.Documentation')
-#set ($formationRootSpace = 'Ressources.Formation')
 ```
 
-### Règle de comptage
+### Règle exacte
 
-Le dossier racine sert uniquement de conteneur et n'est pas compté lui-même.
+Tous les descendants du dossier racine sont parcourus, quelle que soit leur profondeur.
 
-Sont comptés automatiquement :
+Pour chaque page trouvée, la requête inspecte les **XWiki Objects attachés à la page**, et en particulier une propriété String nommée :
 
 ```text
-Documentation/
-├── Procédure A                  ✓
-├── Procédure B                  ✓
-├── Technique/                   ✓ (page enfant)
-│   ├── Guide A                  ✓
-│   └── Sous-dossier/            ✓
-│       └── Guide B              ✓
-└── Autre dossier/               ✓
-    └── ...                      ✓
+type
 ```
 
-Autrement dit, tous les enfants, sous-enfants et descendants à profondeur quelconque sont inclus.
+Le comptage est alors :
 
-Le `WebHome` de la racine elle-même est explicitement exclu du compteur.
+```text
+type = document   → compté comme documentation
+type = folder     → non compté
+autre valeur      → non compté
+pas de type        → non compté
+```
 
-Le comptage utilise un préfixe d'espace XWiki avec paramètres liés (`bindValue`) et échappement des caractères spéciaux de `LIKE`.
+Exemple :
+
+```text
+Documentation/                       racine non comptée
+├── Procédure-A                      type=document   ✓ compté
+├── Technique                       type=folder     ✗ non compté
+│   ├── Guide-A                     type=document   ✓ compté
+│   └── Sécurité                    type=folder     ✗ non compté
+│       └── Guide-B                 type=document   ✓ compté
+└── Archives                        type=folder     ✗ non compté
+    └── Ancienne-procédure          type=document   ✓ compté
+```
+
+Le résultat de cet exemple est **4 documentations**, pas 7 pages.
+
+La page racine est également explicitement exclue, même si elle possède par erreur `type=document`.
+
+La requête utilise `count(distinct doc.fullName)` afin qu'une même page ne soit comptée qu'une seule fois si plusieurs objets correspondent.
+
+> Remarque : cette version recherche la propriété `type` dans les XWiki Objects sans imposer une classe d'objet précise. Si plusieurs classes différentes de ton wiki utilisent aussi une propriété `type=document`, on pourra ensuite ajouter le nom exact de la classe comme filtre.
 
 ---
 
-## 3. Modifier le thème
+## 3. Compteur Formation
+
+**Aucune modification de logique n'a été faite sur Formation.**
+
+La configuration reste :
+
+```velocity
+#set ($formationRootSpace = 'Formation')
+```
+
+Le fonctionnement reste celui de la version précédente : toutes les pages descendantes de la racine Formation sont comptées récursivement, en excluant le `WebHome` racine.
+
+---
+
+## 4. Modifier le thème
 
 Le thème actuel est : **blanc, moderne luxueux, avec bleu profond et accent rouge discret**.
 
@@ -146,7 +179,7 @@ Le logo n'est actuellement pas affiché. Le centre de l'orbite utilise seulement
 
 ---
 
-## 4. Formulaire administrateur
+## 5. Formulaire administrateur
 
 Le traitement serveur reste dans `WebHome.xwiki`.
 
@@ -172,24 +205,46 @@ Pour que l'envoi fonctionne :
 
 ---
 
-## 5. Cartes du milieu
+## 6. Prévisualisation réelle dans un navigateur
 
-Le contenu des trois cartes reste dans `WebHome.xwiki` :
+À partir de maintenant, le livrable visuel est un **site web interactif**, pas une image générée.
 
-```html
-<section class="nh-cards" aria-label="Informations principales">
+Le simulateur est :
+
+```text
+preview/index.html
 ```
 
-Leur apparence est gérée uniquement par `Accueil - Panneaux & Contact`.
+Il charge directement les mêmes CSS et JavaScript que la page XWiki :
+
+```text
+Accueil-Base.css
+Accueil-Modules.css
+Accueil-Panneaux-Contact.css
+Accueil-Modules.js
+Accueil-Contact.js
+```
+
+Il permet donc de tester réellement :
+
+- le rendu desktop ;
+- le responsive ;
+- le placement dynamique des cercles ;
+- le changement du panneau de droite au clic ;
+- l'ouverture / fermeture de la popup administrateur ;
+- un faux envoi du formulaire sans envoyer d'email réel.
+
+Les valeurs de compteurs dans le simulateur sont des exemples visuels uniquement. Le vrai calcul reste effectué par XWiki dans `WebHome.xwiki`.
 
 ---
 
-## 6. Convention à conserver pour les prochaines pages
+## 7. Convention à conserver pour les prochaines pages
 
 ```text
 Page XWiki = contenu + Velocity / logique serveur indispensable
 SSX        = apparence
 JSX        = comportement navigateur
+Preview    = simulation web interactive, jamais une image
 ```
 
 Si une feuille CSS ou un JavaScript devient trop gros, le découper par responsabilité ou composant plutôt que de créer un fichier global difficile à maintenir.
