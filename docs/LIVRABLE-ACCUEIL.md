@@ -1,16 +1,16 @@
 # Livrable — Page d'accueil XWiki
 
-## État
+## État actuel
 
-Version actuelle : **blanc moderne luxueux**, avec accents bleu profond et rouge discret.
+Version : **blanc moderne luxueux**, bleu profond + accent rouge discret.
 
-Le logo n'est pas affiché. Le centre de l'orbite utilise une signature abstraite bleu / rouge.
+Le centre de l'orbite affiche maintenant le symbole NAVAL GROUP en grand.
 
-Le livrable visuel est désormais une **prévisualisation web interactive**, et non une image.
+Le livrable visuel est une **prévisualisation web interactive**, jamais une image générée.
 
 ---
 
-## Arborescence du livrable
+## Arborescence
 
 ```text
 xwiki/
@@ -20,15 +20,16 @@ xwiki/
     ├── stylesheet/
     │   ├── Accueil-Base.css
     │   ├── Accueil-Modules.css
-    │   └── Accueil-Panneaux-Contact.css
+    │   ├── Accueil-Panneaux-Contact.css
+    │   └── Accueil-Flux.css
     └── javascript/
         ├── Accueil-Modules.js
-        └── Accueil-Contact.js
+        ├── Accueil-Contact.js
+        └── Accueil-Flux.js
 
 preview/
 ├── index.html
-├── Preview.css
-└── Preview.js
+└── Preview.css
 
 docs/
 ├── CUSTOMISATION.md
@@ -37,171 +38,139 @@ docs/
 
 ---
 
-## Fichiers à intégrer dans XWiki
+## Extensions XWiki à créer
 
-### Page XWiki
-
-```text
-xwiki/Accueil/WebHome.xwiki
-```
-
-À utiliser comme contenu de la page `Accueil.WebHome`.
-
-### StyleSheet Extensions
+### SSX
 
 ```text
 Accueil - Base
-→ xwiki/extensions/stylesheet/Accueil-Base.css
-
 Accueil - Modules
-→ xwiki/extensions/stylesheet/Accueil-Modules.css
-
 Accueil - Panneaux & Contact
-→ xwiki/extensions/stylesheet/Accueil-Panneaux-Contact.css
+Accueil - Flux
 ```
 
-### JavaScript Extensions
+### JSX
 
 ```text
 Accueil - Modules
-→ xwiki/extensions/javascript/Accueil-Modules.js
-
 Accueil - Contact
-→ xwiki/extensions/javascript/Accueil-Contact.js
+Accueil - Flux
 ```
 
 ---
 
-## Compteur Documentation — logique exacte
+## Documentation — logique exacte
 
-La racine est définie dans `WebHome.xwiki` :
+Racine :
 
 ```velocity
 #set ($documentationRootSpace = 'Documentation')
 ```
 
-Le compteur parcourt récursivement tous les descendants de cette racine.
-
-Ensuite, pour chaque page, il inspecte ses **XWiki Objects** et leur propriété String :
+Tous les descendants sont inspectés récursivement.
 
 ```text
-type
+type=document → compté
+type=folder   → non compté
+autre type    → non compté
+sans type     → non compté
 ```
 
-Règle :
-
-```text
-type = document   → compté
-type = folder     → non compté
-autre valeur      → non compté
-aucun type         → non compté
-```
-
-La page racine est toujours exclue.
-
-Exemple :
-
-```text
-Documentation/                       racine : non comptée
-├── Procédure-A                      type=document   ✓
-├── Technique                       type=folder     ✗
-│   ├── Guide-A                     type=document   ✓
-│   └── Sécurité                    type=folder     ✗
-│       └── Guide-B                 type=document   ✓
-└── Archives                        type=folder     ✗
-    └── Ancienne-procédure          type=document   ✓
-```
-
-Résultat : **4 documentations**.
-
-La requête utilise un `count(distinct doc.fullName)` afin d'éviter de compter deux fois une page qui aurait plusieurs objets correspondants.
-
-> Cette version ne filtre pas encore par nom de classe XWiki Object. Elle cherche toute propriété `type=document` portée par un objet de la page. Si tu me donnes le nom exact de la classe utilisée, on pourra verrouiller encore davantage la requête.
+La racine elle-même est exclue.
 
 ---
 
-## Compteur Formation
+## Formation
 
 La logique Formation n'a pas été modifiée.
-
-Configuration :
 
 ```velocity
 #set ($formationRootSpace = 'Formation')
 ```
 
-Elle continue à compter les pages descendantes du dossier Formation, récursivement, avec exclusion du `WebHome` racine.
+Elle continue à compter les pages descendantes de façon récursive.
+
+---
+
+## À la une
+
+Le panneau contient deux onglets interactifs.
+
+### Derniers créés
+
+Affiche automatiquement les 5 derniers documents créés qui :
+
+1. sont sous la racine Documentation ;
+2. ont un XWiki Object avec `type=document`.
+
+Aucune configuration supplémentaire n'est requise.
+
+### Plus vus · 30 jours
+
+Affiche les 5 documents les plus consultés sur les 30 derniers jours, filtrés eux aussi sur `type=document` et la racine Documentation.
+
+Cette fonction utilise le service Statistics natif de XWiki.
+
+---
+
+## Accès rapides
+
+Affiche jusqu'à 10 derniers documents ouverts par l'utilisateur connecté.
+
+Les actions de consultation sont récupérées depuis XWiki, puis filtrées pour exclure les éléments `type=folder` et ne garder que `type=document`.
+
+Les doublons sont supprimés.
+
+---
+
+## Action humaine nécessaire
+
+Pour rendre **Plus vus · 30 jours** et **Accès rapides** réellement fonctionnels, les statistiques XWiki doivent être activées sur le serveur.
+
+Si elles ne le sont pas déjà, il faut modifier `xwiki.cfg` :
+
+```properties
+xwiki.stats=1
+xwiki.stats.default=1
+```
+
+Puis redémarrer XWiki.
+
+Pour un sous-wiki, la propriété `statistics` de `XWiki.XWikiPreferences` peut également devoir être activée.
+
+**Aucune XClass personnalisée n'est nécessaire** pour ces deux fonctionnalités.
+
+Le code actuel détecte si Statistics est actif. S'il ne l'est pas, la page continue de fonctionner et affiche un état indisponible au lieu de provoquer une erreur.
 
 ---
 
 ## Prévisualisation web interactive
 
-Le visuel du livrable est maintenant :
+Ouvrir :
 
 ```text
 preview/index.html
 ```
 
-Cette page charge les **mêmes CSS et JavaScript** que le futur XWiki.
+Le simulateur réutilise les vrais CSS et JavaScript du livrable et permet de tester :
 
-Elle simule réellement :
+- l'orbite dynamique ;
+- le logo central ;
+- la sélection des modules ;
+- les onglets `Derniers créés` / `Plus vus · 30 jours` ;
+- la liste des 10 documents récemment ouverts ;
+- la popup administrateur ;
+- le responsive.
 
-- les cercles dynamiques ;
-- la sélection d'un module ;
-- le changement du panneau de droite ;
-- les animations ;
-- le responsive ;
-- la popup de contact ;
-- un faux envoi du formulaire.
-
-Pour l'utiliser :
-
-1. cloner ou télécharger le dépôt ;
-2. ouvrir `preview/index.html` dans un navigateur ;
-3. cliquer sur les différents cercles et sur `Envoyer un message`.
-
-Les compteurs affichés dans cette prévisualisation sont des valeurs d'exemple. Seul XWiki peut exécuter la vraie requête sur les objets et les pages du wiki.
-
----
-
-## Modules circulaires
-
-Chaque bloc `data-home-module` dans `WebHome.xwiki` crée un cercle.
-
-Le JavaScript :
-
-- détecte automatiquement le nombre de modules ;
-- répartit les cercles autour du centre ;
-- utilise plusieurs anneaux si nécessaire ;
-- met à jour le panneau de droite au clic ;
-- conserve le fonctionnement responsive.
-
-Le style alterne entre cercles blancs bordés de bleu et cercles bleus pleins.
-
----
-
-## Bas de page
-
-Le livrable contient :
-
-- 3 panneaux d'information ;
-- compteur Documentation ;
-- compteur Formation ;
-- bouton `Contacter l’administrateur` ;
-- popup de contact ;
-- retour utilisateur par toast.
+Les données de documents et statistiques de la prévisualisation sont fictives. Les interactions et la mise en page correspondent au vrai code.
 
 ---
 
 ## Règle projet
 
-À conserver pour les prochaines pages :
-
 ```text
-WebHome / page XWiki = contenu + Velocity nécessaire
-StyleSheet Extension = CSS
-JavaScript Extension = JavaScript
-Preview              = site web interactif de simulation
+Page XWiki = contenu + Velocity nécessaire
+SSX        = CSS
+JSX        = JavaScript
+Preview    = site web interactif de simulation
 ```
-
-Ne plus générer d'image de maquette comme livrable visuel : fournir une prévisualisation HTML/CSS/JS utilisable dans un navigateur.
