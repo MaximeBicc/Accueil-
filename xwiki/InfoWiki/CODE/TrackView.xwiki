@@ -8,6 +8,8 @@
 ## - propriétés : document (String), day (Date), views (Number/Integer)
 ## - droits Edit hérités pour les utilisateurs authentifiés sur
 ##   l'espace InfoWiki.DATA.ViewStats
+##
+## Important : aucune requête HQL privilégiée ici.
 ## ============================================================
 
 #set ($viewClassName = 'InfoWiki.CODE.viewClass')
@@ -28,21 +30,25 @@
       #set ($sourceDocument = $xwiki.getDocument($sourceReference))
       #set ($sourceFullName = "$!sourceDocument.fullName")
 
-      ## Le serveur vérifie lui-même que la page est une vraie documentation.
-      #set ($validDocumentQuery = $services.query.hql("select count(distinct doc.fullName) from XWikiDocument doc, BaseObject obj, StringProperty typeProp where doc.fullName = obj.name and obj.id = typeProp.id.id and typeProp.id.name = :typePropertyName and typeProp.value = :documentTypeValue and doc.fullName = :documentName and ((doc.space = :rootSpace) or (doc.space like :rootSpaceLike)) and doc.fullName <> :rootPage and doc.language = ''"))
-      #set ($discard = $validDocumentQuery.bindValue('typePropertyName', 'type'))
-      #set ($discard = $validDocumentQuery.bindValue('documentTypeValue', 'document'))
-      #set ($discard = $validDocumentQuery.bindValue('documentName', $sourceFullName))
-      #set ($discard = $validDocumentQuery.bindValue('rootSpace', $documentationRootSpace))
-      #set ($discard = $validDocumentQuery.bindValue('rootSpaceLike', $documentationSpaceLike))
-      #set ($discard = $validDocumentQuery.bindValue('rootPage', $documentationRootPage))
-      #set ($validDocumentResult = $validDocumentQuery.execute())
-      #set ($validDocumentCount = 0)
-      #foreach ($validDocumentValue in $validDocumentResult)
-        #set ($validDocumentCount = $validDocumentValue)
+      ## Vérifie d'abord que la page appartient bien à Documentation avec
+      ## une requête XWQL sûre qui ne retourne que doc.fullName.
+      #set ($validScopeQuery = $services.query.xwql("where doc.fullName = :documentName and ((doc.space = :rootSpace) or (doc.space like :rootSpaceLike)) and doc.fullName <> :rootPage and doc.language = ''"))
+      #set ($discard = $validScopeQuery.bindValue('documentName', $sourceFullName))
+      #set ($discard = $validScopeQuery.bindValue('rootSpace', $documentationRootSpace))
+      #set ($discard = $validScopeQuery.bindValue('rootSpaceLike', $documentationSpaceLike))
+      #set ($discard = $validScopeQuery.bindValue('rootPage', $documentationRootPage))
+      #set ($validScopeNames = $validScopeQuery.setLimit(1).execute())
+
+      #set ($validDocument = false)
+      #foreach ($validScopeName in $validScopeNames)
+        ## Puis vérifie le type directement via l'API publique du document.
+        #set ($sourceTypeObject = $sourceDocument.getFirstObject('type'))
+        #if ($sourceTypeObject && "$!sourceTypeObject.get('type')" == 'document')
+          #set ($validDocument = true)
+        #end
       #end
 
-      #if ($validDocumentCount > 0)
+      #if ($validDocument)
         ## Même lorsqu'une vue est volontairement non comptée (anti-refresh),
         ## on confirme au navigateur que la page est bien un document.
         #set ($result = 'valid')
