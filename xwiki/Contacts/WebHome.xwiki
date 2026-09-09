@@ -28,23 +28,24 @@
 #set ($followupPageRef = 'Suivis.WebHome')
 
 ## ------------------------------------------------------------
-## MEMBRES DU WIKI
-## Source de vérité : les groupes du wiki, pas l'utilisateur courant.
-## - récupère tous les documents contenant XWiki.XWikiGroups ;
-## - récupère tous les membres de chaque groupe ;
-## - résout aussi les sous-groupes ;
-## - ne conserve que les vraies pages XWiki.XWikiUsers ;
+## MEMBRES DU WIKI COURANT UNIQUEMENT
+## Source de vérité : les groupes du wiki actuellement affiché.
+## - récupère les groupes du wiki courant ;
+## - récupère leurs membres ;
+## - ne conserve que les utilisateurs du même wiki ;
 ## - déduplique les personnes.
 ## ------------------------------------------------------------
 #set ($allGroupRefs = $services.query.xwql('from doc.object("XWiki.XWikiGroups") as membership order by doc.fullName').addFilter('unique').execute())
 #set ($visibleUserRefs = [])
 #set ($currentUserRef = $services.model.serialize($xcontext.userReference, 'default'))
+#set ($currentWikiName = "$xcontext.database")
 
 #foreach ($groupRef in $allGroupRefs)
   #set ($groupMembers = $services.user.group.getMembers($groupRef))
   #foreach ($memberReference in $groupMembers)
     #set ($memberDoc = $xwiki.getDocument($memberReference))
-    #if ($memberDoc.getObject('XWiki.XWikiUsers'))
+    #set ($memberWikiName = "$!memberDoc.documentReference.wikiReference.name")
+    #if ($memberWikiName == $currentWikiName && $memberDoc.getObject('XWiki.XWikiUsers'))
       #set ($memberRef = $services.model.serialize($memberDoc.documentReference, 'default'))
       #if ($memberRef != $currentUserRef && !$visibleUserRefs.contains($memberRef))
         #set ($discard = $visibleUserRefs.add($memberRef))
@@ -128,10 +129,10 @@
 #end
 
 #macro (ctGroupChips $userRef)
-  ## Tous les groupes du membre, sur tous les wikis, dédupliqués.
+  ## Groupes du membre dans le wiki courant uniquement.
   ## XWikiAllGroup : jamais affiché.
   ## INVITE : affiché uniquement s'il n'existe aucun autre groupe utile.
-  #set ($allGroups = $services.user.group.getGroupsFromAllWikis($userRef))
+  #set ($allGroups = $services.user.group.getGroups($userRef, $xcontext.database, true))
   #set ($displayGroups = [])
   #set ($hasInvite = false)
 
@@ -190,11 +191,20 @@
     <!-- ONGLET 1 — MES CONTACTS -->
     <section id="ct-panel-contacts" class="ct-tab-panel" role="tabpanel" data-contacts-panel="contacts">
       <div class="ct-toolbar">
-        <label class="ct-search">
-          <span class="ct-search-icon" aria-hidden="true">⌕</span>
-          <span class="sr-only">Rechercher un contact</span>
-          <input type="search" placeholder="Rechercher un contact…" autocomplete="off" data-contact-search />
-        </label>
+        <div class="ct-contact-filters">
+          <label class="ct-search">
+            <span class="ct-search-icon" aria-hidden="true">⌕</span>
+            <span class="sr-only">Rechercher un contact</span>
+            <input type="search" placeholder="Rechercher un contact…" autocomplete="off" data-contact-search />
+          </label>
+
+          <label class="ct-group-filter">
+            <span class="sr-only">Filtrer par groupe</span>
+            <select data-contact-group-filter aria-label="Filtrer par groupe">
+              <option value="">Tous les groupes</option>
+            </select>
+          </label>
+        </div>
 
         <div class="ct-layout-switch" aria-label="Disposition des contacts">
           <button type="button" class="ct-layout-button is-active" data-contact-layout="horizontal" aria-pressed="true" title="Vue horizontale"><span aria-hidden="true">☰</span><span>Liste</span></button>
@@ -235,7 +245,7 @@
         #end
       </div>
 
-      <div class="ct-no-search-result" hidden data-no-contact-result>Aucun contact ne correspond à votre recherche.</div>
+      <div class="ct-no-search-result" hidden data-no-contact-result>Aucun contact ne correspond à vos filtres.</div>
     </section>
 
     <!-- ONGLET 2 — GESTION DES CONTACTS -->
