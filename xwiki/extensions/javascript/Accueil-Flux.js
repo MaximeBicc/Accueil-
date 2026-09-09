@@ -9,53 +9,48 @@
     }
   }
 
-  function getLatestEndpoint() {
-    if (!window.XWiki || !XWiki.Model || typeof XWiki.Document !== 'function') return '';
-
-    var reference = XWiki.Model.resolve(
-      'InfoWiki.CODE.LatestDocuments',
-      XWiki.EntityType.DOCUMENT,
-      XWiki.currentDocument && XWiki.currentDocument.documentReference
-        ? XWiki.currentDocument.documentReference
-        : null
-    );
-
-    return new XWiki.Document(reference).getURL('get', 'xpage=plain&outputSyntax=plain');
-  }
-
   function loadMoreLatest(panel) {
     if (!panel || panel.getAttribute('data-latest-loaded') === 'true') return;
     if (!window.XWiki || !XWiki.Model || typeof XWiki.Document !== 'function') return;
-
-    var endpoint;
-    try {
-      var reference = XWiki.Model.resolve('InfoWiki.CODE.LatestDocuments', XWiki.EntityType.DOCUMENT);
-      endpoint = new XWiki.Document(reference).getURL('get', 'xpage=plain&outputSyntax=plain');
-    } catch (error) {
-      return;
-    }
+    if (typeof window.require !== 'function') return;
 
     panel.setAttribute('data-latest-loaded', 'loading');
 
-    window.fetch(endpoint, {
-      method: 'GET',
-      credentials: 'same-origin',
-      headers: { 'X-Requested-With': 'XMLHttpRequest' }
-    }).then(function (response) {
-      return response.text();
-    }).then(function (html) {
-      var container = document.createElement('div');
-      container.innerHTML = html;
-      var list = container.querySelector('.nh-doc-list');
+    window.require(['xwiki-meta'], function (meta) {
+      var endpoint;
 
-      if (list) {
-        panel.innerHTML = '';
-        panel.appendChild(list);
+      try {
+        var reference = XWiki.Model.resolve(
+          'InfoWiki.CODE.LatestDocuments',
+          XWiki.EntityType.DOCUMENT,
+          meta && meta.documentReference ? meta.documentReference : null
+        );
+        endpoint = new XWiki.Document(reference).getURL('get', 'xpage=plain&outputSyntax=plain');
+      } catch (error) {
+        panel.setAttribute('data-latest-loaded', 'error');
+        return;
       }
 
-      panel.setAttribute('data-latest-loaded', 'true');
-    }).catch(function () {
-      panel.setAttribute('data-latest-loaded', 'error');
+      window.fetch(endpoint, {
+        method: 'GET',
+        credentials: 'same-origin',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+      }).then(function (response) {
+        return response.text();
+      }).then(function (html) {
+        var container = document.createElement('div');
+        container.innerHTML = html;
+        var list = container.querySelector('.nh-doc-list');
+
+        if (list) {
+          panel.innerHTML = '';
+          panel.appendChild(list);
+        }
+
+        panel.setAttribute('data-latest-loaded', 'true');
+      }).catch(function () {
+        panel.setAttribute('data-latest-loaded', 'error');
+      });
     });
   }
 
@@ -77,8 +72,8 @@
       }
     });
 
-    // Si la liste initiale remplit déjà presque tout le panneau, on précharge
-    // la version longue afin que le premier geste de scroll soit fluide.
+    // Si la liste initiale tient entièrement dans la zone, on prépare
+    // directement la version longue. Sinon elle sera chargée au premier scroll.
     window.setTimeout(function () {
       if (panel.scrollHeight <= panel.clientHeight + 80) {
         requestMore();
