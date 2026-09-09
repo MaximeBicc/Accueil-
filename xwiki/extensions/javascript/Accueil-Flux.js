@@ -9,9 +9,43 @@
     }
   }
 
+  function populatePreviewLatest(panel) {
+    if (!document.querySelector('.preview-toolbar')) return false;
+
+    var list = panel.querySelector('.nh-doc-list');
+    if (!list) return false;
+
+    var originals = Array.prototype.slice.call(list.querySelectorAll('.nh-doc-item'));
+    if (!originals.length) return false;
+
+    var targetCount = 18;
+    var index = originals.length;
+
+    while (list.querySelectorAll('.nh-doc-item').length < targetCount) {
+      var source = originals[index % originals.length];
+      var clone = source.cloneNode(true);
+      var title = clone.querySelector('.nh-doc-title');
+      var meta = clone.querySelector('.nh-doc-meta');
+
+      if (title) title.textContent = title.textContent + ' · exemple ' + (index + 1);
+      if (meta) meta.textContent = 'Document simulé pour tester le défilement';
+
+      list.appendChild(clone);
+      index += 1;
+    }
+
+    panel.setAttribute('data-latest-loaded', 'true');
+    return true;
+  }
+
   function loadMoreLatest(panel) {
     if (!panel || panel.getAttribute('data-latest-loaded') === 'true') return;
-    if (!window.XWiki || !XWiki.Model || typeof XWiki.Document !== 'function') return;
+
+    if (!window.XWiki || !XWiki.Model || typeof XWiki.Document !== 'function') {
+      populatePreviewLatest(panel);
+      return;
+    }
+
     if (typeof window.require !== 'function') return;
 
     panel.setAttribute('data-latest-loaded', 'loading');
