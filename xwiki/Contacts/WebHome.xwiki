@@ -2,15 +2,12 @@
 ## ============================================================
 ## CONTACTS XWIKI — page uniquement
 ## ============================================================
-##
-## Extensions à attacher à cette page :
+## Extensions à attacher :
 ##   StyleSheet Extension : Contacts - Base
 ##   StyleSheet Extension : Contacts - Cards
 ##   StyleSheet Extension : Contacts - Manager
 ##   JavaScript Extension : Contacts - View
 ##   JavaScript Extension : Contacts - Manager
-##
-## Règle : aucun CSS et aucun JavaScript métier dans WebHome.xwiki.
 ## ============================================================
 
 #set ($showcomments = false)
@@ -22,9 +19,8 @@
 
 ## ------------------------------------------------------------
 ## CONFIGURATION
-## Les noms présents ici sont masqués lorsqu'un utilisateur a
-## au moins un autre groupe plus pertinent.
-## Si INVITE est son seul groupe, INVITE reste affiché.
+## INVITE / XWikiAllGroup sont masqués si un groupe métier existe.
+## Si INVITE est le seul groupe, il reste affiché.
 ## ------------------------------------------------------------
 #set ($groupDisplayBlacklist = ['INVITE', 'XWikiAllGroup'])
 #set ($formationPageRef = 'Formation.WebHome')
@@ -33,11 +29,14 @@
 
 ## ------------------------------------------------------------
 ## UTILISATEURS
+## Forme XWQL officielle pour lister les documents possédant
+## un objet XWiki.XWikiUsers.
 ## ------------------------------------------------------------
-#set ($allUserRefs = $services.query.xwql("select doc.fullName from Document doc, doc.object(XWiki.XWikiUsers) user order by doc.fullName").execute())
+#set ($allUserRefs = $services.query.xwql('from doc.object(XWiki.XWikiUsers) as user').addFilter('unique').execute())
 #set ($visibleUserRefs = [])
-#foreach ($userRef in $allUserRefs)
-  #if ($userRef != $xcontext.user && $userRef != 'XWiki.XWikiGuest')
+#foreach ($rawUserRef in $allUserRefs)
+  #set ($userRef = "$rawUserRef")
+  #if ($userRef != "$xcontext.user" && $userRef != 'XWiki.XWikiGuest' && $userRef != 'XWiki.XWikiUserTemplate')
     #set ($discard = $visibleUserRefs.add($userRef))
   #end
 #end
@@ -45,7 +44,6 @@
 ## ------------------------------------------------------------
 ## STOCKAGE DES CONTACTS
 ## Une page cachée par utilisateur dans Contacts.Data.
-## Son contenu contient une référence utilisateur par ligne.
 ## ------------------------------------------------------------
 #set ($currentUserKey = $xcontext.user.replace(':', '_').replace('.', '_'))
 #set ($contactsDataRef = "Contacts.Data.${currentUserKey}")
@@ -65,12 +63,6 @@
     #end
   #end
 
-  ## ----------------------------------------------------------
-  ## VALIDATION SERVEUR
-  ## Le navigateur envoie uniquement l'état final des contacts.
-  ## Le serveur reconstruit la liste à partir des utilisateurs
-  ## réellement connus du wiki.
-  ## ----------------------------------------------------------
   #if ("$!request.getMethod()" == 'POST' && "$!request.getParameter('contactsAction')" == 'save-contacts')
     #if (!$services.csrf.isTokenValid("$!request.getParameter('form_token')"))
       #set ($saveStatus = 'error')
@@ -124,13 +116,14 @@
 #end
 
 #macro (ctGroupChips $userRef)
-  #set ($allGroups = $services.user.group.getGroups($userRef, $xcontext.database, true))
+  ## Recherche dans les wikis afin de ne pas perdre les groupes globaux.
+  #set ($allGroups = $services.user.group.getGroupsFromAllWikis($userRef))
   #set ($displayGroups = [])
   #set ($fallbackGroups = [])
 
   #foreach ($groupRef in $allGroups)
     #set ($groupName = "$!groupRef.name")
-    #if ($groupName != '')
+    #if ($groupName != '' && !$fallbackGroups.contains($groupName))
       #set ($discard = $fallbackGroups.add($groupName))
       #if (!$groupDisplayBlacklist.contains($groupName))
         #set ($discard = $displayGroups.add($groupName))
@@ -138,8 +131,6 @@
     #end
   #end
 
-  ## Si tous les groupes sont blacklistés, on en conserve l'affichage
-  ## plutôt que de laisser la personne sans groupe visible.
   #if ($displayGroups.isEmpty())
     #set ($displayGroups = $fallbackGroups)
   #end
@@ -178,36 +169,15 @@
         <h1 class="ct-title">Mes contacts</h1>
         <p class="ct-subtitle">Retrouvez les personnes avec lesquelles vous travaillez et accédez rapidement à leurs informations, formations, rôles et suivis.</p>
       </div>
-
-      <div class="ct-tabs" role="tablist" aria-label="Contacts">
-        <button class="ct-tab is-active"
-                type="button"
-                role="tab"
-                aria-selected="true"
-                aria-controls="ct-panel-contacts"
-                data-contacts-tab="contacts">
-          Mes contacts
-          <span class="ct-tab-count">$savedContacts.size()</span>
-        </button>
-        <button class="ct-tab"
-                type="button"
-                role="tab"
-                aria-selected="false"
-                aria-controls="ct-panel-manage"
-                data-contacts-tab="manage">
-          Gérer mes contacts
-        </button>
-      </div>
     </header>
 
-    <!-- ======================================================
-         ONGLET 1 — MES CONTACTS
-         ====================================================== -->
-    <section id="ct-panel-contacts"
-             class="ct-tab-panel"
-             role="tabpanel"
-             data-contacts-panel="contacts">
+    <div class="ct-tabs" role="tablist" aria-label="Contacts">
+      <button class="ct-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="ct-panel-contacts" data-contacts-tab="contacts">Mes contacts</button>
+      <button class="ct-tab" type="button" role="tab" aria-selected="false" aria-controls="ct-panel-manage" data-contacts-tab="manage">Gérer mes contacts</button>
+    </div>
 
+    <!-- ONGLET 1 — MES CONTACTS -->
+    <section id="ct-panel-contacts" class="ct-tab-panel" role="tabpanel" data-contacts-panel="contacts">
       <div class="ct-toolbar">
         <label class="ct-search">
           <span class="ct-search-icon" aria-hidden="true">⌕</span>
@@ -216,14 +186,8 @@
         </label>
 
         <div class="ct-layout-switch" aria-label="Disposition des contacts">
-          <button type="button" class="ct-layout-button is-active" data-contact-layout="horizontal" aria-pressed="true" title="Vue horizontale">
-            <span aria-hidden="true">☰</span>
-            <span>Liste</span>
-          </button>
-          <button type="button" class="ct-layout-button" data-contact-layout="vertical" aria-pressed="false" title="Vue verticale">
-            <span aria-hidden="true">▦</span>
-            <span>Cartes</span>
-          </button>
+          <button type="button" class="ct-layout-button is-active" data-contact-layout="horizontal" aria-pressed="true" title="Vue horizontale"><span aria-hidden="true">☰</span><span>Liste</span></button>
+          <button type="button" class="ct-layout-button" data-contact-layout="vertical" aria-pressed="false" title="Vue verticale"><span aria-hidden="true">▦</span><span>Cartes</span></button>
         </div>
       </div>
 
@@ -243,51 +207,28 @@
             #set ($roleUrl = $xwiki.getURL($rolePageRef, 'view', "contact=${encodedContact}"))
             #set ($followupUrl = $xwiki.getURL($followupPageRef, 'view', "contact=${encodedContact}"))
             <article class="ct-contact-card" data-contact-card data-search-text="#ctUserName($contactRef) $escapetool.xml($contactRef)">
-              <div class="ct-avatar ct-avatar--large">
-                #resizedUserAvatar($contactRef, 120)
-              </div>
-
+              <div class="ct-avatar ct-avatar--large">#resizedUserAvatar($contactRef, 120)</div>
               <div class="ct-contact-main">
                 <span class="ct-contact-ref">$escapetool.xml($contactRef)</span>
                 <h2 class="ct-contact-name">#ctUserName($contactRef)</h2>
                 <div class="ct-groups">#ctGroupChips($contactRef)</div>
               </div>
-
               <div class="ct-contact-actions">
-                <a class="ct-action-button" href="$escapetool.xml($profileUrl)">
-                  <span aria-hidden="true">i</span> Informations
-                </a>
-                <a class="ct-action-button" href="$escapetool.xml($formationUrl)">
-                  <span aria-hidden="true">▤</span> Formation
-                </a>
-                <a class="ct-action-button" href="$escapetool.xml($roleUrl)">
-                  <span aria-hidden="true">◇</span> Rôle
-                </a>
-                <a class="ct-action-button" href="$escapetool.xml($followupUrl)">
-                  <span aria-hidden="true">✓</span> Suivis
-                </a>
+                <a class="ct-action-button" href="$escapetool.xml($profileUrl)"><span aria-hidden="true">i</span> Informations</a>
+                <a class="ct-action-button" href="$escapetool.xml($formationUrl)"><span aria-hidden="true">▤</span> Formation</a>
+                <a class="ct-action-button" href="$escapetool.xml($roleUrl)"><span aria-hidden="true">◇</span> Rôle</a>
+                <a class="ct-action-button" href="$escapetool.xml($followupUrl)"><span aria-hidden="true">✓</span> Suivis</a>
               </div>
             </article>
           #end
         #end
       </div>
 
-      <div class="ct-no-search-result" hidden data-no-contact-result>
-        Aucun contact ne correspond à votre recherche.
-      </div>
+      <div class="ct-no-search-result" hidden data-no-contact-result>Aucun contact ne correspond à votre recherche.</div>
     </section>
 
-    <!-- ======================================================
-         ONGLET 2 — GESTION DES CONTACTS
-         Les cartes changent physiquement de liste côté client.
-         Aucune écriture serveur avant clic sur « Valider ».
-         ====================================================== -->
-    <section id="ct-panel-manage"
-             class="ct-tab-panel"
-             role="tabpanel"
-             hidden
-             data-contacts-panel="manage">
-
+    <!-- ONGLET 2 — GESTION DES CONTACTS -->
+    <section id="ct-panel-manage" class="ct-tab-panel" role="tabpanel" hidden data-contacts-panel="manage">
       <form method="post" action="" data-contact-manager-form>
         <input type="hidden" name="contactsAction" value="save-contacts" />
         <input type="hidden" name="form_token" value="$escapetool.xml($services.csrf.getToken())" />
@@ -299,7 +240,6 @@
             <h2>Organiser mes contacts</h2>
             <p>Les changements restent locaux tant que vous n’avez pas cliqué sur « Valider ».</p>
           </div>
-
           <label class="ct-search ct-search--manager">
             <span class="ct-search-icon" aria-hidden="true">⌕</span>
             <span class="sr-only">Rechercher un membre</span>
@@ -308,30 +248,15 @@
         </div>
 
         <div class="ct-manager-grid">
-          <!-- LISTE DES MEMBRES -->
           <section class="ct-manager-panel ct-manager-panel--members">
-            <header class="ct-manager-panel-head">
-              <div>
-                <span class="ct-manager-step">01</span>
-                <h3>Liste des membres</h3>
-              </div>
-              <span class="ct-count" data-zone-count="available">0</span>
-            </header>
+            <header class="ct-manager-panel-head"><h3>Liste des membres</h3></header>
             <p class="ct-manager-help">Tous les membres qui ne font pas partie de vos contacts.</p>
-
             <div class="ct-manager-list" data-contact-zone="available">
               #foreach ($memberRef in $visibleUserRefs)
                 #if (!$savedContacts.contains($memberRef))
-                  <article class="ct-member-card"
-                           data-member-card
-                           data-contact-ref="$escapetool.xml($memberRef)"
-                           data-initial-contact="false"
-                           data-search-text="#ctUserName($memberRef) $escapetool.xml($memberRef)">
+                  <article class="ct-member-card" data-member-card data-contact-ref="$escapetool.xml($memberRef)" data-initial-contact="false" data-search-text="#ctUserName($memberRef) $escapetool.xml($memberRef)">
                     <div class="ct-avatar ct-avatar--small">#resizedUserAvatar($memberRef, 56)</div>
-                    <div class="ct-member-copy">
-                      <strong>#ctUserName($memberRef)</strong>
-                      <div class="ct-groups ct-groups--small">#ctGroupChips($memberRef)</div>
-                    </div>
+                    <div class="ct-member-copy"><strong>#ctUserName($memberRef)</strong><div class="ct-groups ct-groups--small">#ctGroupChips($memberRef)</div></div>
                     <button type="button" class="ct-member-action" data-move-contact></button>
                   </article>
                 #end
@@ -340,29 +265,14 @@
             </div>
           </section>
 
-          <!-- LISTE DES CONTACTS -->
           <section class="ct-manager-panel ct-manager-panel--current">
-            <header class="ct-manager-panel-head">
-              <div>
-                <span class="ct-manager-step">02</span>
-                <h3>Liste de vos contacts</h3>
-              </div>
-              <span class="ct-count" data-zone-count="current">0</span>
-            </header>
+            <header class="ct-manager-panel-head"><h3>Liste de vos contacts</h3></header>
             <p class="ct-manager-help">Les contacts actuellement enregistrés dans votre compte.</p>
-
             <div class="ct-manager-list" data-contact-zone="current">
               #foreach ($memberRef in $savedContacts)
-                <article class="ct-member-card"
-                         data-member-card
-                         data-contact-ref="$escapetool.xml($memberRef)"
-                         data-initial-contact="true"
-                         data-search-text="#ctUserName($memberRef) $escapetool.xml($memberRef)">
+                <article class="ct-member-card" data-member-card data-contact-ref="$escapetool.xml($memberRef)" data-initial-contact="true" data-search-text="#ctUserName($memberRef) $escapetool.xml($memberRef)">
                   <div class="ct-avatar ct-avatar--small">#resizedUserAvatar($memberRef, 56)</div>
-                  <div class="ct-member-copy">
-                    <strong>#ctUserName($memberRef)</strong>
-                    <div class="ct-groups ct-groups--small">#ctGroupChips($memberRef)</div>
-                  </div>
+                  <div class="ct-member-copy"><strong>#ctUserName($memberRef)</strong><div class="ct-groups ct-groups--small">#ctGroupChips($memberRef)</div></div>
                   <button type="button" class="ct-member-action" data-move-contact></button>
                 </article>
               #end
@@ -370,44 +280,20 @@
             </div>
           </section>
 
-          <!-- CONTACTS À AJOUTER -->
           <section class="ct-manager-panel ct-manager-panel--pending ct-manager-panel--add">
-            <header class="ct-manager-panel-head">
-              <div>
-                <span class="ct-manager-step">03</span>
-                <h3>Contacts que vous allez ajouter</h3>
-              </div>
-              <span class="ct-count" data-zone-count="pending-add">0</span>
-            </header>
+            <header class="ct-manager-panel-head"><h3>Contacts que vous allez ajouter</h3></header>
             <p class="ct-manager-help">Ces personnes seront ajoutées uniquement après validation.</p>
-
-            <div class="ct-manager-list" data-contact-zone="pending-add">
-              <div class="ct-zone-empty" data-zone-empty>Aucun ajout en attente.</div>
-            </div>
+            <div class="ct-manager-list" data-contact-zone="pending-add"><div class="ct-zone-empty" data-zone-empty>Aucun ajout en attente.</div></div>
           </section>
 
-          <!-- CONTACTS À SUPPRIMER -->
           <section class="ct-manager-panel ct-manager-panel--pending ct-manager-panel--remove">
-            <header class="ct-manager-panel-head">
-              <div>
-                <span class="ct-manager-step">04</span>
-                <h3>Contacts que vous allez supprimer</h3>
-              </div>
-              <span class="ct-count" data-zone-count="pending-remove">0</span>
-            </header>
+            <header class="ct-manager-panel-head"><h3>Contacts que vous allez supprimer</h3></header>
             <p class="ct-manager-help">Vous pouvez restaurer un contact avant de valider.</p>
-
-            <div class="ct-manager-list" data-contact-zone="pending-remove">
-              <div class="ct-zone-empty" data-zone-empty>Aucune suppression en attente.</div>
-            </div>
+            <div class="ct-manager-list" data-contact-zone="pending-remove"><div class="ct-zone-empty" data-zone-empty>Aucune suppression en attente.</div></div>
           </section>
         </div>
 
         <div class="ct-manager-footer">
-          <div class="ct-change-summary" aria-live="polite">
-            <strong data-change-count>0 modification</strong>
-            <span>en attente de validation</span>
-          </div>
           <div class="ct-manager-actions">
             <button type="button" class="ct-secondary-button" data-cancel-contact-changes>Annuler</button>
             <button type="submit" class="ct-primary-button" data-save-contacts disabled>Valider</button>
@@ -416,7 +302,6 @@
       </form>
     </section>
   </div>
-
   <div class="ct-toast" role="status" aria-live="polite" data-contacts-toast></div>
 </div>
 {{/html}}
