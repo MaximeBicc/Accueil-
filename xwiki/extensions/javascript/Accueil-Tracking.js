@@ -1,13 +1,73 @@
 (function () {
   'use strict';
 
-  var TRACKING_VERSION = 'v4';
+  var TRACKING_VERSION = 'v5';
   var DOCUMENTATION_ROOT = 'TestPage.PAGE.Doc';
-  var STORAGE_PREFIX = 'infowiki.recentDocuments.v4.';
-  var VIEW_THROTTLE_PREFIX = 'infowiki.viewThrottle.v4.';
-  var TRACKING_STATUS_PREFIX = 'infowiki.trackingStatus.v4.';
+  var STORAGE_PREFIX = 'infowiki.recentDocuments.v5.';
+  var VIEW_THROTTLE_PREFIX = 'infowiki.viewThrottle.v5.';
+  var TRACKING_STATUS_PREFIX = 'infowiki.trackingStatus.v5.';
+  var PROBE_KEY = 'infowiki.trackingProbe.v5';
+  var PROBE_LIMIT = 30;
   var VIEW_THROTTLE_MS = 30 * 60 * 1000;
   var started = false;
+
+  function now() {
+    return Date.now();
+  }
+
+  function safeLocalStorageGet(key) {
+    try {
+      return window.localStorage.getItem(key);
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function safeLocalStorageSet(key, value) {
+    try {
+      window.localStorage.setItem(key, value);
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  function readProbeHistory() {
+    try {
+      var raw = safeLocalStorageGet(PROBE_KEY);
+      var parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+      return [];
+    }
+  }
+
+  function writeProbe(phase, meta, detail) {
+    var history = readProbeHistory();
+    var reference = '';
+
+    try {
+      reference = getDocumentReferenceText(meta || {});
+    } catch (error) {
+      reference = '';
+    }
+
+    history.push({
+      version: TRACKING_VERSION,
+      phase: phase,
+      detail: detail || '',
+      document: reference,
+      href: window.location.href || '',
+      pathname: window.location.pathname || '',
+      at: now()
+    });
+
+    if (history.length > PROBE_LIMIT) {
+      history = history.slice(history.length - PROBE_LIMIT);
+    }
+
+    safeLocalStorageSet(PROBE_KEY, JSON.stringify(history));
+  }
 
   function getMetaContent(name) {
     var node = document.querySelector('meta[name="' + name + '"]');
@@ -94,7 +154,7 @@
 
   function readRecent(meta) {
     try {
-      var raw = window.localStorage.getItem(makeStorageKey(meta));
+      var raw = safeLocalStorageGet(makeStorageKey(meta));
       var parsed = raw ? JSON.parse(raw) : [];
       return Array.isArray(parsed) ? parsed : [];
     } catch (error) {
@@ -103,41 +163,60 @@
   }
 
   function writeRecent(meta, list) {
-    try {
-      window.localStorage.setItem(makeStorageKey(meta), JSON.stringify(list.slice(0, 10)));
-    } catch (error) {
-      // Le portail reste utilisable si le stockage navigateur est bloqué.
-    }
+    safeLocalStorageSet(makeStorageKey(meta), JSON.stringify(list.slice(0, 10)));
   }
 
   function writeStatus(meta, status, detail) {
-    try {
-      window.localStorage.setItem(makeStatusKey(meta), JSON.stringify({
-        version: TRACKING_VERSION,
-        status: status,
-        detail: detail || '',
-        document: getDocumentReferenceText(meta || {}),
-        at: Date.now()
-      }));
-    } catch (error) {
-      // Diagnostic facultatif.
-    }
+    safeLocalStorageSet(makeStatusKey(meta), JSON.stringify({
+      version: TRACKING_VERSION,
+      status: status,
+      detail: detail || '',
+      document: getDocumentReferenceText(meta || {}),
+      at: now()
+    }));
   }
 
   function readStatus(meta) {
     try {
-      var raw = window.localStorage.getItem(makeStatusKey(meta));
+      var raw = safeLocalStorageGet(makeStatusKey(meta));
       return raw ? JSON.parse(raw) : null;
     } catch (error) {
       return null;
     }
   }
 
-  function getDisplaySpace(documentReference) {
-    var localReference = documentReference;
-    var separator = localReference.indexOf(':');
-    if (separator >= 0) localReference = localReference.substring(separator + 1);
+  function localDocumentReference(documentReference) {
+    var separator = documentReference.indexOf(':');
+    return separator >= 0 ? documentReference.substring(separator + 1) : documentReference;
+  }
 
+  function isUnderDocumentationRoot(documentReference) {
+    var localReference = localDocumentReference(documentReference || '');
+    return localReference === DOCUMENTATION_ROOT || localReference.indexOf(DOCUMENTATION_ROOT + '.') === 0;
+  }
+
+  function pathLooksLikeDocumentation(pathname) {
+    var rootPath = '/' + DOCUMENTATION_ROOT.split('.').join('/') + '/';
+    var path = pathname || '';
+    return path.indexOf(rootPath) >= 0 || path.indexOf(rootPath.substring(0, rootPath.length - 1)) >= 0;
+  }
+
+  function latestDocumentationProbe() {
+    var history = readProbeHistory();
+    var index;
+
+    for (index = history.length - 1; index >= 0; index -= 1) {
+      var entry = history[index] || {};
+      if (isUnderDocumentationRoot(entry.document || '') || pathLooksLikeDocumentation(entry.pathname || '')) {
+        return entry;
+      }
+    }
+
+    return null;
+  }
+
+  function getDisplaySpace(documentReference) {
+    var localReference = localDocumentReference(documentReference || '');
     var lastDot = localReference.lastIndexOf('.');
     return lastDot > 0 ? localReference.substring(0, lastDot) : 'Document';
   }
@@ -155,7 +234,7 @@
       title: getPageTitle(),
       url: cleanCurrentURL(),
       space: getDisplaySpace(documentReference),
-      viewedAt: Date.now()
+      viewedAt: now()
     });
 
     writeRecent(meta, list);
@@ -175,26 +254,45 @@
     if (!chip) return;
 
     var status = readStatus(meta);
+    var probe = latestDocumentationProbe();
     chip.classList.remove('is-enabled');
     chip.classList.remove('is-disabled');
 
-    if (!status) {
-      chip.textContent = 'Tracking v4 · en attente d’une première consultation';
+    if (status && (status.status === 'tracked' || status.status === 'valid')) {
+      chip.textContent = 'Tracking v5 · suivi des documents actif';
+      chip.classList.add('is-enabled');
       return;
     }
 
-    if (status.status === 'tracked' || status.status === 'valid') {
-      chip.textContent = 'Tracking v4 · suivi des documents actif';
-      chip.classList.add('is-enabled');
-    } else if (status.status === 'no-edit-right') {
-      chip.textContent = 'Tracking v4 · historique local actif · compteur sans droit Edit';
+    if (status && status.status === 'no-edit-right') {
+      chip.textContent = 'Tracking v5 · historique local actif · compteur sans droit Edit';
       chip.classList.add('is-disabled');
-    } else if (status.status === 'requesting') {
-      chip.textContent = 'Tracking v4 · requête envoyée, réponse en attente';
-    } else {
-      chip.textContent = 'Tracking v4 · à vérifier : ' + status.status;
-      chip.classList.add('is-disabled');
+      return;
     }
+
+    if (status && status.status === 'requesting') {
+      chip.textContent = 'Tracking v5 · requête envoyée, réponse en attente';
+      return;
+    }
+
+    if (status && status.status && status.status !== 'no-document-reference') {
+      chip.textContent = 'Tracking v5 · à vérifier : ' + status.status;
+      chip.classList.add('is-disabled');
+      return;
+    }
+
+    if (probe) {
+      chip.textContent = 'Tracking v5 · JSX vue sur document · phase : ' + probe.phase;
+      if (probe.phase === 'tracked' || probe.phase === 'valid') {
+        chip.classList.add('is-enabled');
+      } else {
+        chip.classList.add('is-disabled');
+      }
+      return;
+    }
+
+    chip.textContent = 'Tracking v5 · aucune exécution détectée sur TestPage.PAGE.Doc';
+    chip.classList.add('is-disabled');
   }
 
   function renderRecent(meta) {
@@ -231,16 +329,6 @@
     updateStatusChip(meta);
   }
 
-  function localDocumentReference(documentReference) {
-    var separator = documentReference.indexOf(':');
-    return separator >= 0 ? documentReference.substring(separator + 1) : documentReference;
-  }
-
-  function isUnderDocumentationRoot(documentReference) {
-    var localReference = localDocumentReference(documentReference || '');
-    return localReference === DOCUMENTATION_ROOT || localReference.indexOf(DOCUMENTATION_ROOT + '.') === 0;
-  }
-
   function isViewAction() {
     var action = '';
     if (window.XWiki && XWiki.contextaction) action = String(XWiki.contextaction);
@@ -253,22 +341,12 @@
 
   function shouldCountView(documentReference) {
     var throttleKey = VIEW_THROTTLE_PREFIX + documentReference;
-    var now = Date.now();
-
-    try {
-      var previous = Number(window.localStorage.getItem(throttleKey) || 0);
-      return !previous || now - previous >= VIEW_THROTTLE_MS;
-    } catch (error) {
-      return true;
-    }
+    var previous = Number(safeLocalStorageGet(throttleKey) || 0);
+    return !previous || now() - previous >= VIEW_THROTTLE_MS;
   }
 
   function markViewCounted(documentReference) {
-    try {
-      window.localStorage.setItem(VIEW_THROTTLE_PREFIX + documentReference, String(Date.now()));
-    } catch (error) {
-      // Sans localStorage, le serveur continuera à recevoir les consultations.
-    }
+    safeLocalStorageSet(VIEW_THROTTLE_PREFIX + documentReference, String(now()));
   }
 
   function getTrackingEndpoint(meta) {
@@ -289,9 +367,11 @@
     meta = meta || {};
 
     var documentReference = getDocumentReferenceText(meta);
+    writeProbe('meta-ready', meta, documentReference);
     renderRecent(meta);
 
     if (!documentReference) {
+      writeProbe('no-document-reference', meta, '');
       writeStatus(meta, 'no-document-reference');
       updateStatusChip(meta);
       return;
@@ -299,17 +379,30 @@
 
     if (!isViewAction()) {
       if (isUnderDocumentationRoot(documentReference)) {
+        writeProbe('not-view-action', meta, documentReference);
         writeStatus(meta, 'not-view-action');
       }
+      return;
+    }
+
+    // Le suivi métier ne concerne que la racine documentaire configurée.
+    // Le probe global reste, lui, écrit sur toutes les pages et permet de
+    // vérifier que la JSX est réellement chargée avec le scope "Sur ce wiki".
+    if (!isUnderDocumentationRoot(documentReference)) {
       return;
     }
 
     var endpoint = getTrackingEndpoint(meta);
     if (!endpoint) {
       if (isUnderDocumentationRoot(documentReference)) {
+        writeProbe('endpoint-unavailable', meta, documentReference);
         writeStatus(meta, 'endpoint-unavailable');
       }
       return;
+    }
+
+    if (isUnderDocumentationRoot(documentReference)) {
+      writeProbe('endpoint-ready', meta, endpoint);
     }
 
     var countView = shouldCountView(documentReference);
@@ -319,6 +412,7 @@
     body.set('countView', countView ? '1' : '0');
 
     if (isUnderDocumentationRoot(documentReference)) {
+      writeProbe('requesting', meta, endpoint);
       writeStatus(meta, 'requesting');
     }
 
@@ -331,10 +425,9 @@
       },
       body: body.toString()
     }).then(function (response) {
-      if (!response.ok) {
-        if (isUnderDocumentationRoot(documentReference)) {
-          writeStatus(meta, 'http-' + response.status);
-        }
+      if (!response.ok && isUnderDocumentationRoot(documentReference)) {
+        writeProbe('http-' + response.status, meta, endpoint);
+        writeStatus(meta, 'http-' + response.status);
       }
       return response.text();
     }).then(function (text) {
@@ -343,23 +436,28 @@
       if (result.indexOf('tracked') !== -1) {
         if (countView) markViewCounted(documentReference);
         recordRecent(meta, documentReference);
+        writeProbe('tracked', meta, documentReference);
         writeStatus(meta, 'tracked');
       } else if (result.indexOf('valid') !== -1) {
         recordRecent(meta, documentReference);
+        writeProbe('valid', meta, documentReference);
         writeStatus(meta, 'valid');
       } else if (result.indexOf('no-edit-right') !== -1) {
         recordRecent(meta, documentReference);
+        writeProbe('no-edit-right', meta, documentReference);
         writeStatus(meta, 'no-edit-right');
-      } else if (result.indexOf('csrf') !== -1) {
-        if (isUnderDocumentationRoot(documentReference)) {
-          writeStatus(meta, 'csrf');
-        }
+      } else if (result.indexOf('csrf') !== -1 && isUnderDocumentationRoot(documentReference)) {
+        writeProbe('csrf', meta, documentReference);
+        writeStatus(meta, 'csrf');
       } else if (result.indexOf('ignored') !== -1 && isUnderDocumentationRoot(documentReference)) {
+        writeProbe('ignored-document', meta, documentReference);
         writeStatus(meta, 'ignored-document');
       }
     }).catch(function (error) {
       if (isUnderDocumentationRoot(documentReference)) {
-        writeStatus(meta, 'network-error', error && error.message ? error.message : '');
+        var message = error && error.message ? error.message : '';
+        writeProbe('network-error', meta, message);
+        writeStatus(meta, 'network-error', message);
       }
     });
   }
@@ -376,29 +474,42 @@
   function startWithMeta(meta) {
     if (started) return;
     started = true;
+    writeProbe('start-with-meta', meta || {}, '');
     track(meta || fallbackMeta());
   }
 
   function start() {
+    writeProbe('start', fallbackMeta(), '');
+
     if (typeof window.require === 'function') {
       try {
+        writeProbe('require-available', fallbackMeta(), '');
         window.require(['xwiki-meta'], function (meta) {
+          writeProbe('xwiki-meta-loaded', meta || {}, '');
           startWithMeta(meta || fallbackMeta());
         }, function () {
+          writeProbe('xwiki-meta-error', fallbackMeta(), '');
           startWithMeta(fallbackMeta());
         });
 
         window.setTimeout(function () {
+          if (!started) writeProbe('xwiki-meta-timeout', fallbackMeta(), '');
           startWithMeta(fallbackMeta());
         }, 1800);
         return;
       } catch (error) {
-        // Fallback ci-dessous.
+        writeProbe('require-exception', fallbackMeta(), error && error.message ? error.message : '');
       }
+    } else {
+      writeProbe('require-unavailable', fallbackMeta(), '');
     }
 
     startWithMeta(fallbackMeta());
   }
+
+  // Ce probe est écrit dès l'évaluation du fichier. Il permet de prouver
+  // que la JSX "Sur ce wiki" a réellement été injectée sur la page visitée.
+  writeProbe('script-evaluated', {}, '');
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', start, { once: true });
