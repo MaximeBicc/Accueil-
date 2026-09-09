@@ -2,175 +2,85 @@
 
 ## État actuel
 
-Version : **blanc moderne luxueux**, bleu profond + accent rouge discret.
+- thème blanc moderne / luxueux ;
+- cercles de modules mixtes blanc / bleu ;
+- logo central sous forme d'image ;
+- compteur Documentation filtré par `type=document` ;
+- Formation inchangée ;
+- `À la une` avec derniers documents créés et plus vus sur 30 jours ;
+- `Accès rapides` avec 10 derniers documents ouverts par l'utilisateur ;
+- prévisualisation web interactive dans `preview/`.
 
-Le centre de l'orbite affiche maintenant le symbole NAVAL GROUP en grand.
-
-Le livrable visuel est une **prévisualisation web interactive**, jamais une image générée.
-
----
-
-## Arborescence
-
-```text
-xwiki/
-├── Accueil/
-│   └── WebHome.xwiki
-└── extensions/
-    ├── stylesheet/
-    │   ├── Accueil-Base.css
-    │   ├── Accueil-Modules.css
-    │   ├── Accueil-Panneaux-Contact.css
-    │   └── Accueil-Flux.css
-    └── javascript/
-        ├── Accueil-Modules.js
-        ├── Accueil-Contact.js
-        └── Accueil-Flux.js
-
-preview/
-├── index.html
-└── Preview.css
-
-docs/
-├── CUSTOMISATION.md
-└── LIVRABLE-ACCUEIL.md
-```
-
----
-
-## Extensions XWiki à créer
-
-### SSX
+## Fichiers XWiki
 
 ```text
-Accueil - Base
-Accueil - Modules
-Accueil - Panneaux & Contact
-Accueil - Flux
+xwiki/Accueil/WebHome.xwiki
+
+xwiki/extensions/stylesheet/
+├── Accueil-Base.css
+├── Accueil-Modules.css
+├── Accueil-Branding.css
+├── Accueil-Panneaux-Contact.css
+└── Accueil-Flux.css
+
+xwiki/extensions/javascript/
+├── Accueil-Modules.js
+├── Accueil-Contact.js
+└── Accueil-Flux.js
 ```
 
-### JSX
+## Action manuelle obligatoire pour le logo
+
+Attacher à `Accueil.WebHome` le fichier :
 
 ```text
-Accueil - Modules
-Accueil - Contact
-Accueil - Flux
+naval-group-logo.png
 ```
 
----
+Le `WebHome.xwiki` pointe directement vers cette pièce jointe.
 
-## Documentation — logique exacte
+## Documentation
 
-Racine :
+Une page est comptée comme documentation uniquement si :
 
-```velocity
-#set ($documentationRootSpace = 'Documentation')
-```
+1. elle se trouve sous la racine `Documentation` ;
+2. elle n'est pas le `WebHome` racine ;
+3. elle possède un XWiki Object avec la propriété String exacte `type=document`.
 
-Tous les descendants sont inspectés récursivement.
-
-```text
-type=document → compté
-type=folder   → non compté
-autre type    → non compté
-sans type     → non compté
-```
-
-La racine elle-même est exclue.
-
----
-
-## Formation
-
-La logique Formation n'a pas été modifiée.
-
-```velocity
-#set ($formationRootSpace = 'Formation')
-```
-
-Elle continue à compter les pages descendantes de façon récursive.
-
----
+`type=folder` n'est jamais compté.
 
 ## À la une
 
-Le panneau contient deux onglets interactifs.
-
 ### Derniers créés
 
-Affiche automatiquement les 5 derniers documents créés qui :
+Affiche les 5 dernières pages `type=document` triées par `creationDate`.
 
-1. sont sous la racine Documentation ;
-2. ont un XWiki Object avec `type=document`.
+### Plus vus — 30 jours
 
-Aucune configuration supplémentaire n'est requise.
-
-### Plus vus · 30 jours
-
-Affiche les 5 documents les plus consultés sur les 30 derniers jours, filtrés eux aussi sur `type=document` et la racine Documentation.
-
-Cette fonction utilise le service Statistics natif de XWiki.
-
----
+Utilise le service Statistics de XWiki et filtre les résultats sur les pages réellement reconnues comme `type=document`.
 
 ## Accès rapides
 
-Affiche jusqu'à 10 derniers documents ouverts par l'utilisateur connecté.
+Utilise l'historique de consultations XWiki pour afficher jusqu'aux 10 derniers documents `type=document` ouverts par l'utilisateur courant, sans doublons.
 
-Les actions de consultation sont récupérées depuis XWiki, puis filtrées pour exclure les éléments `type=folder` et ne garder que `type=document`.
+## Sous-wiki
 
-Les doublons sont supprimés.
+La page teste l'état des statistiques pour **le wiki courant**.
 
----
+Si le serveur autorise Statistics globalement, le sous-wiki peut l'activer dans son propre `XWiki.XWikiPreferences` avec la propriété `statistics=true`.
 
-## Action humaine nécessaire
+Si le serveur a `xwiki.stats=0`, l'administrateur du sous-wiki ne peut pas corriger cela sans intervention de l'administrateur de la plateforme / serveur.
 
-Pour rendre **Plus vus · 30 jours** et **Accès rapides** réellement fonctionnels, les statistiques XWiki doivent être activées sur le serveur.
+Dans les deux cas, la page reste fonctionnelle : les blocs dépendant des statistiques affichent un message explicite quand Statistics n'est pas disponible.
 
-Si elles ne le sont pas déjà, il faut modifier `xwiki.cfg` :
+## Compatibilité Velocity
 
-```properties
-xwiki.stats=1
-xwiki.stats.default=1
-```
+Les appels Java de chaînes qui causaient des erreurs (`.trim()`, `.toLowerCase()`, `.startsWith()`, etc.) ont été retirés du `WebHome.xwiki` pour les nouveaux traitements.
 
-Puis redémarrer XWiki.
-
-Pour un sous-wiki, la propriété `statistics` de `XWiki.XWikiPreferences` peut également devoir être activée.
-
-**Aucune XClass personnalisée n'est nécessaire** pour ces deux fonctionnalités.
-
-Le code actuel détecte si Statistics est actif. S'il ne l'est pas, la page continue de fonctionner et affiche un état indisponible au lieu de provoquer une erreur.
-
----
-
-## Prévisualisation web interactive
-
-Ouvrir :
+## Preview
 
 ```text
 preview/index.html
 ```
 
-Le simulateur réutilise les vrais CSS et JavaScript du livrable et permet de tester :
-
-- l'orbite dynamique ;
-- le logo central ;
-- la sélection des modules ;
-- les onglets `Derniers créés` / `Plus vus · 30 jours` ;
-- la liste des 10 documents récemment ouverts ;
-- la popup administrateur ;
-- le responsive.
-
-Les données de documents et statistiques de la prévisualisation sont fictives. Les interactions et la mise en page correspondent au vrai code.
-
----
-
-## Règle projet
-
-```text
-Page XWiki = contenu + Velocity nécessaire
-SSX        = CSS
-JSX        = JavaScript
-Preview    = site web interactif de simulation
-```
+La preview reste interactive et utilise les vrais modules CSS / JavaScript. Le logo exact fourni est intégré dans la preview par `Preview.js`.
