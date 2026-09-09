@@ -13,7 +13,7 @@
 ## ============================================================
 
 #set ($viewClassName = 'InfoWiki.CODE.viewClass')
-#set ($documentationRootSpace = 'Documentation')
+#set ($documentationRootSpace = 'TestPage.PAGE.Doc')
 #set ($documentationRootPage = "${documentationRootSpace}.WebHome")
 #set ($documentationSpaceLike = "${documentationRootSpace}.%")
 #set ($result = 'ignored')
@@ -30,8 +30,7 @@
       #set ($sourceDocument = $xwiki.getDocument($sourceReference))
       #set ($sourceFullName = "$!sourceDocument.fullName")
 
-      ## Vérifie d'abord que la page appartient bien à Documentation avec
-      ## une requête XWQL sûre qui ne retourne que doc.fullName.
+      ## Vérifie d'abord que la page appartient bien à la racine Documentation.
       #set ($validScopeQuery = $services.query.xwql("where doc.fullName = :documentName and ((doc.space = :rootSpace) or (doc.space like :rootSpaceLike)) and doc.fullName <> :rootPage and doc.language = ''"))
       #set ($discard = $validScopeQuery.bindValue('documentName', $sourceFullName))
       #set ($discard = $validScopeQuery.bindValue('rootSpace', $documentationRootSpace))
@@ -41,7 +40,6 @@
 
       #set ($validDocument = false)
       #foreach ($validScopeName in $validScopeNames)
-        ## Puis vérifie le type directement via l'API publique du document.
         #set ($sourceTypeObject = $sourceDocument.getFirstObject('type'))
         #if ($sourceTypeObject && "$!sourceTypeObject.get('type')" == 'document')
           #set ($validDocument = true)
@@ -49,12 +47,9 @@
       #end
 
       #if ($validDocument)
-        ## Même lorsqu'une vue est volontairement non comptée (anti-refresh),
-        ## on confirme au navigateur que la page est bien un document.
         #set ($result = 'valid')
 
         #if ("$countView" == '1')
-          ## Une page de données par jour. Cela évite une page unique infinie.
           #set ($todayText = $datetool.format('yyyy-MM-dd', $datetool.date))
           #set ($todayPageKey = $datetool.format('yyyyMMdd', $datetool.date))
           #set ($todayDate = $datetool.toDate('yyyy-MM-dd', $todayText))
