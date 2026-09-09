@@ -3,16 +3,6 @@
    Direction : blanc, moderne luxueux, cohérent avec Accueil.
    ============================================================ */
 
-/*
- * La page Contacts possède son propre en-tête. XWiki génère aussi
- * un document-header natif au-dessus de #xwikicontent ; sur cette page
- * il créait un grand espace blanc inutile. Le :has() limite la règle
- * à la seule page contenant notre composant Contacts.
- */
-body:has(.contacts-page) #mainContentArea > .document-header {
-  display: none !important;
-}
-
 .contacts-page {
   --ct-white: #ffffff;
   --ct-surface: #ffffff;
@@ -42,7 +32,7 @@ body:has(.contacts-page) #mainContentArea > .document-header {
     radial-gradient(circle at 96% 12%, rgba(239, 35, 60, .03), transparent 20%),
     linear-gradient(180deg, rgba(23, 63, 152, .018), rgba(255, 255, 255, 0) 280px),
     #ffffff;
-  font-family: Inter, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: Inter, "Segoe UI UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
 .contacts-page *,
