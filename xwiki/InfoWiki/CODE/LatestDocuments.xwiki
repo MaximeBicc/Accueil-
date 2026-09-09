@@ -5,7 +5,7 @@
 ## Aucune requête HQL privilégiée : compatible sans Programming Right.
 ## ============================================================
 
-#set ($documentationRootSpace = 'Documentation')
+#set ($documentationRootSpace = 'TestPage.PAGE.Doc')
 #set ($documentationRootPage = "${documentationRootSpace}.WebHome")
 #set ($documentationSpaceLike = "${documentationRootSpace}.%")
 #set ($latestLimit = 30)
