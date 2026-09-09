@@ -98,6 +98,8 @@
   transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
 }
 
+.ct-member-card[hidden] { display: none !important; }
+
 .ct-member-card:hover { border-color: rgba(23, 63, 152, .22); box-shadow: 0 8px 18px rgba(22, 55, 104, .055); }
 .ct-member-copy { min-width: 0; }
 .ct-member-copy > strong { display: block; overflow: hidden; color: var(--ct-text); font-size: 12px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
