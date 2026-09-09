@@ -21,19 +21,20 @@
 #set ($displayDocExtra = false)
 
 ## ============================================================
-## COMPTEURS RÉCURSIFS
+## COMPTEURS
 ## ============================================================
 ##
-## Indiquer ici le dossier / espace racine de chaque catégorie.
-## Exemples :
-##   Documentation
-##   Ressources.Documentation
-##   Formation
-##   Ressources.Formation
+## Documentation :
+## - on part du dossier / espace racine configuré ;
+## - on parcourt tous ses descendants, sans limite de profondeur ;
+## - pour chaque page, on inspecte ses XWiki Objects ;
+## - seul un objet dont la propriété String `type` vaut `document` est compté ;
+## - `type = folder` (ou toute autre valeur) n'est pas compté ;
+## - la page racine elle-même est toujours exclue.
 ##
-## Le dossier racine lui-même (son WebHome) n'est PAS compté.
-## Tous ses enfants, sous-enfants, sous-sous-enfants, etc. sont comptés.
-##
+## Formation : logique précédente conservée, inchangée.
+## ============================================================
+
 #set ($documentationRootSpace = 'Documentation')
 #set ($formationRootSpace = 'Formation')
 
@@ -44,12 +45,25 @@
 #set ($documentationRootPage = "${documentationRootSpace}.WebHome")
 #set ($formationRootPage = "${formationRootSpace}.WebHome")
 
-#set ($documentationQuery = $services.query.xwql("where ((doc.space = :rootSpace) or (doc.space like :rootSpaceLike escape '!')) and doc.fullName <> :rootPage and doc.language = ''"))
-#set ($discard = $documentationQuery.bindValue('rootSpace', $documentationRootSpace))
-#set ($discard = $documentationQuery.bindValue('rootSpaceLike', $documentationSpaceLike))
-#set ($discard = $documentationQuery.bindValue('rootPage', $documentationRootPage))
-#set ($documentationCount = $documentationQuery.count())
+## ------------------------------------------------------------
+## Documentation : compter uniquement les descendants ayant un
+## XWiki Object avec la propriété `type = document`.
+## ------------------------------------------------------------
+#set ($documentationCount = 0)
+#set ($documentationCountQuery = $services.query.hql("select count(distinct doc.fullName) from XWikiDocument doc, BaseObject obj, StringProperty typeProp where doc.fullName = obj.name and obj.id = typeProp.id.id and typeProp.id.name = :typePropertyName and lower(typeProp.value) = :documentTypeValue and ((doc.space = :rootSpace) or (doc.space like :rootSpaceLike escape '!')) and doc.fullName <> :rootPage and doc.language = ''"))
+#set ($discard = $documentationCountQuery.bindValue('typePropertyName', 'type'))
+#set ($discard = $documentationCountQuery.bindValue('documentTypeValue', 'document'))
+#set ($discard = $documentationCountQuery.bindValue('rootSpace', $documentationRootSpace))
+#set ($discard = $documentationCountQuery.bindValue('rootSpaceLike', $documentationSpaceLike))
+#set ($discard = $documentationCountQuery.bindValue('rootPage', $documentationRootPage))
+#set ($documentationCountResult = $documentationCountQuery.execute())
+#if ($documentationCountResult && !$documentationCountResult.isEmpty())
+  #set ($documentationCount = $documentationCountResult.get(0))
+#end
 
+## ------------------------------------------------------------
+## Formation : logique précédente conservée à l'identique.
+## ------------------------------------------------------------
 #set ($formationQuery = $services.query.xwql("where ((doc.space = :rootSpace) or (doc.space like :rootSpaceLike escape '!')) and doc.fullName <> :rootPage and doc.language = ''"))
 #set ($discard = $formationQuery.bindValue('rootSpace', $formationRootSpace))
 #set ($discard = $formationQuery.bindValue('rootSpaceLike', $formationSpaceLike))
