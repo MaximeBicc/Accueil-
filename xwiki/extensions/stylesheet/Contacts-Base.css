@@ -40,7 +40,8 @@
 .contacts-page *::after { box-sizing: border-box; }
 
 .contacts-page button,
-.contacts-page input { font: inherit; }
+.contacts-page input,
+.contacts-page select { font: inherit; }
 
 .contacts-page::before {
   content: "";
@@ -164,6 +165,14 @@
   margin-bottom: 22px;
 }
 
+.ct-contact-filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .ct-search {
   display: flex;
   align-items: center;
@@ -182,6 +191,32 @@
 .ct-search-icon { color: var(--ct-blue); font-size: 20px; line-height: 1; }
 .ct-search input { width: 100%; border: 0; outline: 0; color: var(--ct-text); background: transparent; font-size: 14px; }
 .ct-search input::placeholder { color: #8999ad; }
+
+.ct-group-filter {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.ct-group-filter select {
+  min-width: 180px;
+  min-height: 42px;
+  padding: 0 34px 0 12px;
+  border: 1px solid var(--ct-line);
+  border-radius: 11px;
+  outline: 0;
+  color: var(--ct-text);
+  background: #ffffff;
+  box-shadow: 0 6px 20px rgba(22, 55, 104, .035);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 650;
+  transition: border-color .2s ease, box-shadow .2s ease;
+}
+
+.ct-group-filter select:focus {
+  border-color: rgba(23, 63, 152, .5);
+  box-shadow: 0 0 0 3px rgba(23, 63, 152, .08);
+}
 
 .ct-layout-switch {
   display: inline-flex;
@@ -274,6 +309,18 @@
   clip: rect(0, 0, 0, 0) !important;
   white-space: nowrap !important;
   border: 0 !important;
+}
+
+@media (max-width: 760px) {
+  .ct-contact-filters {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ct-group-filter,
+  .ct-group-filter select {
+    width: 100%;
+  }
 }
 
 @media (max-width: 620px) {
