@@ -19,10 +19,18 @@
 
 ## ------------------------------------------------------------
 ## CONFIGURATION
-## XWikiAllGroup est toujours masqué.
-## INVITE est masqué si le membre possède un autre groupe ;
-## s'il est son seul groupe utile, INVITE reste affiché.
+## Pour déplacer tout le stockage des contacts, modifier UNIQUEMENT
+## cette variable.
+##
+## Arborescence produite :
+##   $contactsStorageRoot.USERID.WebHome   = stockage de l'utilisateur
+##   $contactsStorageRoot.USERID.CONTACTID = un contact enregistré
+##
+## Exemple :
+##   TestPage.PAGE.Ivq.DATA.IVQDATA.BICCHIERAIM.WebHome
+##   TestPage.PAGE.Ivq.DATA.IVQDATA.BICCHIERAIM.BASTIEN
 ## ------------------------------------------------------------
+#set ($contactsStorageRoot = 'TestPage.PAGE.Ivq.DATA.IVQDATA')
 #set ($formationPageRef = 'Formation.WebHome')
 #set ($rolePageRef = 'Roles.WebHome')
 #set ($followupPageRef = 'Suivis.WebHome')
@@ -37,6 +45,7 @@
 #set ($allGroupRefs = $services.query.xwql("select distinct doc.fullName from Document doc, doc.object(XWiki.XWikiGroups) as grp order by doc.fullName").execute())
 #set ($visibleUserRefs = [])
 #set ($groupsByUser = {})
+#set ($memberRefById = {})
 #set ($currentUserRef = $services.model.serialize($xcontext.userReference, 'default'))
 
 #foreach ($groupRef in $allGroupRefs)
@@ -46,10 +55,18 @@
 
   #foreach ($memberReference in $groupMembers)
     #set ($memberRef = $services.model.serialize($memberReference, 'default'))
+    #set ($memberDoc = $xwiki.getDocument($memberReference))
+    #set ($memberId = "$!memberDoc.name")
 
-    #if ($memberRef != '' && $memberRef != $currentUserRef && $memberRef != 'XWiki.XWikiGuest')
+    #if ($memberRef != '' && $memberId != '' && $memberRef != $currentUserRef && $memberRef != 'XWiki.XWikiGuest')
       #if (!$visibleUserRefs.contains($memberRef))
         #set ($discard = $visibleUserRefs.add($memberRef))
+      #end
+
+      ## Le nom technique de la page utilisateur devient l'USERID
+      ## utilisé dans le stockage : BICCHIERAIM, pas XWiki.BICCHIERAIM.
+      #if (!$memberRefById.containsKey($memberId))
+        #set ($discard = $memberRefById.put($memberId, $memberRef))
       #end
 
       #if (!$groupsByUser.containsKey($memberRef))
@@ -65,56 +82,127 @@
 #end
 
 ## ------------------------------------------------------------
-## STOCKAGE DES CONTACTS
-## Une page cachée par utilisateur dans Contacts.Data.
+## STOCKAGE PAR PAGES
+##
+## Au chargement :
+## 1. USERID = nom de la référence utilisateur courante.
+## 2. Vérifie la présence de USERID.WebHome sous la racine.
+## 3. La crée automatiquement si elle n'existe pas.
+## 4. Les pages terminales directement dans cet espace sont les
+##    contacts ; leur nom technique est le CONTACTID.
 ## ------------------------------------------------------------
-#set ($currentUserKey = $xcontext.user.replace(':', '_').replace('.', '_'))
-#set ($contactsDataRef = "Contacts.Data.${currentUserKey}")
-#set ($contactsDataDoc = $xwiki.getDocument($contactsDataRef))
 #set ($savedContacts = [])
 #set ($saveStatus = '')
 #set ($saveMessage = '')
+#set ($storedContactIds = [])
 
 #if (!$isGuest)
-  #set ($rawContacts = "$!contactsDataDoc.content")
-  #if ($rawContacts.trim() != '')
-    #foreach ($rawLine in $rawContacts.split('\n'))
-      #set ($candidate = $rawLine.trim())
-      #if ($candidate != '' && $visibleUserRefs.contains($candidate) && !$savedContacts.contains($candidate))
-        #set ($discard = $savedContacts.add($candidate))
+  ## Ex. xwiki:XWiki.BICCHIERAIM -> BICCHIERAIM
+  #set ($currentUserId = "$!xcontext.userReference.name")
+  #set ($userStorageSpace = "${contactsStorageRoot}.${currentUserId}")
+  #set ($userStorageRef = "${userStorageSpace}.WebHome")
+  #set ($userStorageDoc = $xwiki.getDocument($userStorageRef))
+
+  ## Création automatique de la page de stockage personnelle.
+  #if ($userStorageDoc.isNew())
+    #set ($discard = $userStorageDoc.setTitle($currentUserId))
+    #set ($discard = $userStorageDoc.setContent(''))
+    #set ($discard = $userStorageDoc.setHidden(true))
+    #set ($discard = $userStorageDoc.save('Initialisation du stockage des contacts', true))
+  #end
+
+  ## Pages terminales directement sous l'espace utilisateur.
+  ## WebHome est la page conteneur et n'est donc jamais un contact.
+  #set ($storedContactsQuery = $services.query.xwql("select doc.name from Document doc where doc.space = :contactSpace and doc.name <> 'WebHome' order by doc.name"))
+  #set ($storedContactsQuery = $storedContactsQuery.bindValue('contactSpace', $userStorageSpace))
+  #set ($storedContactIds = $storedContactsQuery.execute())
+
+  ## Recharge les contacts en recroisant CONTACTID avec les membres
+  ## actuellement connus dans les groupes locaux du wiki.
+  #foreach ($storedContactId in $storedContactIds)
+    #set ($contactId = "$storedContactId")
+    #if ($memberRefById.containsKey($contactId))
+      #set ($contactRef = $memberRefById.get($contactId))
+      #if (!$savedContacts.contains($contactRef))
+        #set ($discard = $savedContacts.add($contactRef))
       #end
     #end
   #end
 
+  ## ----------------------------------------------------------
+  ## VALIDATION DES MODIFICATIONS
+  ## ----------------------------------------------------------
   #if ("$!request.getMethod()" == 'POST' && "$!request.getParameter('contactsAction')" == 'save-contacts')
     #if (!$services.csrf.isTokenValid("$!request.getParameter('form_token')"))
       #set ($saveStatus = 'error')
       #set ($saveMessage = 'Votre session a expiré. Rechargez la page puis réessayez.')
     #else
       #set ($finalContacts = [])
+      #set ($finalContactIds = [])
       #set ($requestedContacts = $request.getParameterValues('contact'))
 
+      ## L'état envoyé par le navigateur est revalidé contre les
+      ## membres réellement présents dans les groupes du wiki.
       #if ($requestedContacts)
         #foreach ($candidate in $requestedContacts)
           #if ($visibleUserRefs.contains($candidate) && !$finalContacts.contains($candidate))
             #set ($discard = $finalContacts.add($candidate))
+            #set ($candidateDoc = $xwiki.getDocument($candidate))
+            #set ($candidateId = "$!candidateDoc.name")
+            #if ($candidateId != '' && !$finalContactIds.contains($candidateId))
+              #set ($discard = $finalContactIds.add($candidateId))
+            #end
           #end
         #end
       #end
 
-      #set ($contactContent = '')
-      #foreach ($candidate in $finalContacts)
-        #set ($contactContent = "${contactContent}${candidate}\n")
+      ## Détermine avant toute écriture si une suppression est requise.
+      #set ($needsDeletion = false)
+      #foreach ($storedContactId in $storedContactIds)
+        #if (!$finalContactIds.contains("$storedContactId"))
+          #set ($needsDeletion = true)
+        #end
       #end
 
-      #set ($discard = $contactsDataDoc.setTitle("Contacts de ${xcontext.user}"))
-      #set ($discard = $contactsDataDoc.setHidden(true))
-      #set ($discard = $contactsDataDoc.setContent($contactContent))
-      #set ($discard = $contactsDataDoc.save('Mise à jour de la liste de contacts'))
+      ## La suppression physique d'une page utilise l'API cœur XWiki.
+      ## Elle nécessite que cette page de code dispose du Programming Right.
+      #if ($needsDeletion && !$xwiki.hasProgrammingRights())
+        #set ($saveStatus = 'error')
+        #set ($saveMessage = 'Impossible de supprimer un contact : la page Contacts doit disposer du Programming Right.')
+      #else
+        ## Création des nouvelles pages de contacts.
+        #foreach ($contactId in $finalContactIds)
+          #if (!$storedContactIds.contains($contactId))
+            #set ($contactStorageRef = "${userStorageSpace}.${contactId}")
+            #set ($contactStorageDoc = $xwiki.getDocument($contactStorageRef))
+            #if ($contactStorageDoc.isNew())
+              #set ($discard = $contactStorageDoc.setTitle($contactId))
+              #set ($discard = $contactStorageDoc.setContent(''))
+              #set ($discard = $contactStorageDoc.setHidden(true))
+              #set ($discard = $contactStorageDoc.save("Ajout du contact ${contactId}", true))
+            #end
+          #end
+        #end
 
-      #set ($savedContacts = $finalContacts)
-      #set ($saveStatus = 'success')
-      #set ($saveMessage = 'Votre liste de contacts a été mise à jour.')
+        ## Suppression des pages correspondant aux contacts retirés.
+        #if ($needsDeletion)
+          #foreach ($storedContactId in $storedContactIds)
+            #set ($storedId = "$storedContactId")
+            #if (!$finalContactIds.contains($storedId))
+              #set ($contactStorageRef = "${userStorageSpace}.${storedId}")
+              #set ($contactStorageDoc = $xwiki.getDocument($contactStorageRef))
+              #if (!$contactStorageDoc.isNew())
+                #set ($discard = $xwiki.getXWiki().deleteDocument($contactStorageDoc.getDocument(), true, $xcontext.context))
+              #end
+            #end
+          #end
+        #end
+
+        #set ($savedContacts = $finalContacts)
+        #set ($storedContactIds = $finalContactIds)
+        #set ($saveStatus = 'success')
+        #set ($saveMessage = 'Votre liste de contacts a été mise à jour.')
+      #end
     #end
   #end
 #end
