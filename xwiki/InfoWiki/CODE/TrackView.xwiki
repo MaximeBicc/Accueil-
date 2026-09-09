@@ -21,6 +21,7 @@
     #set ($result = 'csrf')
   #else
     #set ($documentReferenceText = "$!request.getParameter('documentReference')")
+    #set ($countView = "$!request.getParameter('countView')")
 
     #if ("$documentReferenceText" != '')
       #set ($sourceReference = $services.model.resolveDocument($documentReferenceText))
@@ -42,49 +43,55 @@
       #end
 
       #if ($validDocumentCount > 0)
-        ## Une page de données par jour. Cela évite une page unique infinie.
-        #set ($todayText = $datetool.format('yyyy-MM-dd', $datetool.date))
-        #set ($todayPageKey = $datetool.format('yyyyMMdd', $datetool.date))
-        #set ($todayDate = $datetool.toDate('yyyy-MM-dd', $todayText))
-        #set ($statsPageName = "InfoWiki.DATA.ViewStats.D${todayPageKey}")
-        #set ($statsDocument = $xwiki.getDocument($statsPageName))
+        ## Même lorsqu'une vue est volontairement non comptée (anti-refresh),
+        ## on confirme au navigateur que la page est bien un document.
+        #set ($result = 'valid')
 
-        #if (!$xwiki.hasAccessLevel('edit', "$xcontext.user", $statsPageName))
-          #set ($result = 'no-edit-right')
-        #else
-          #set ($viewObject = '')
+        #if ("$countView" == '1')
+          ## Une page de données par jour. Cela évite une page unique infinie.
+          #set ($todayText = $datetool.format('yyyy-MM-dd', $datetool.date))
+          #set ($todayPageKey = $datetool.format('yyyyMMdd', $datetool.date))
+          #set ($todayDate = $datetool.toDate('yyyy-MM-dd', $todayText))
+          #set ($statsPageName = "InfoWiki.DATA.ViewStats.D${todayPageKey}")
+          #set ($statsDocument = $xwiki.getDocument($statsPageName))
 
-          #foreach ($candidateObject in $statsDocument.getObjects($viewClassName))
-            #if ($candidateObject)
-              #set ($candidateDocument = "$!candidateObject.get('document')")
-              #set ($candidateDayValue = $candidateObject.get('day'))
-              #set ($candidateDay = '')
-              #if ($candidateDayValue)
-                #set ($candidateDay = $datetool.format('yyyy-MM-dd', $candidateDayValue))
-              #end
-
-              #if ("$candidateDocument" == "$sourceFullName" && "$candidateDay" == "$todayText")
-                #set ($viewObject = $candidateObject)
-              #end
-            #end
-          #end
-
-          #if ("$viewObject" == '')
-            #set ($viewObject = $statsDocument.newObject($viewClassName))
-            #set ($discard = $viewObject.set('document', $sourceFullName))
-            #set ($discard = $viewObject.set('day', $todayDate))
-            #set ($discard = $viewObject.set('views', 1))
+          #if (!$xwiki.hasAccessLevel('edit', "$xcontext.user", $statsPageName))
+            #set ($result = 'no-edit-right')
           #else
-            #set ($currentViews = $viewObject.get('views'))
-            #if (!$currentViews)
-              #set ($currentViews = 0)
-            #end
-            #set ($discard = $viewObject.set('views', $math.add($currentViews, 1)))
-          #end
+            #set ($viewObject = '')
 
-          #set ($discard = $statsDocument.setTitle("Statistiques ${todayText}"))
-          #set ($discard = $statsDocument.save("Consultation ${sourceFullName}", true))
-          #set ($result = 'tracked')
+            #foreach ($candidateObject in $statsDocument.getObjects($viewClassName))
+              #if ($candidateObject)
+                #set ($candidateDocument = "$!candidateObject.get('document')")
+                #set ($candidateDayValue = $candidateObject.get('day'))
+                #set ($candidateDay = '')
+                #if ($candidateDayValue)
+                  #set ($candidateDay = $datetool.format('yyyy-MM-dd', $candidateDayValue))
+                #end
+
+                #if ("$candidateDocument" == "$sourceFullName" && "$candidateDay" == "$todayText")
+                  #set ($viewObject = $candidateObject)
+                #end
+              #end
+            #end
+
+            #if ("$viewObject" == '')
+              #set ($viewObject = $statsDocument.newObject($viewClassName))
+              #set ($discard = $viewObject.set('document', $sourceFullName))
+              #set ($discard = $viewObject.set('day', $todayDate))
+              #set ($discard = $viewObject.set('views', 1))
+            #else
+              #set ($currentViews = $viewObject.get('views'))
+              #if (!$currentViews)
+                #set ($currentViews = 0)
+              #end
+              #set ($discard = $viewObject.set('views', $math.add($currentViews, 1)))
+            #end
+
+            #set ($discard = $statsDocument.setTitle("Statistiques ${todayText}"))
+            #set ($discard = $statsDocument.save("Consultation ${sourceFullName}", true))
+            #set ($result = 'tracked')
+          #end
         #end
       #end
     #end
