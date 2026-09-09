@@ -4,17 +4,21 @@
 
 - thème blanc moderne / luxueux ;
 - cercles de modules mixtes blanc / bleu ;
-- logo central sous forme d'image ;
+- logo central sous forme d'image attachée à `Accueil.WebHome` ;
 - compteur Documentation filtré par `type=document` ;
 - Formation inchangée ;
 - `À la une` avec derniers documents créés et plus vus sur 30 jours ;
-- `Accès rapides` avec 10 derniers documents ouverts par l'utilisateur ;
+- `Accès rapides` avec les 10 derniers documents ouverts par l'utilisateur ;
+- suivi des vues **manuel**, indépendant du module Statistics de XWiki ;
 - prévisualisation web interactive dans `preview/`.
 
 ## Fichiers XWiki
 
 ```text
 xwiki/Accueil/WebHome.xwiki
+
+xwiki/InfoWiki/CODE/
+└── TrackView.xwiki
 
 xwiki/extensions/stylesheet/
 ├── Accueil-Base.css
@@ -26,18 +30,19 @@ xwiki/extensions/stylesheet/
 xwiki/extensions/javascript/
 ├── Accueil-Modules.js
 ├── Accueil-Contact.js
-└── Accueil-Flux.js
+├── Accueil-Flux.js
+└── Accueil-Tracking.js
 ```
 
-## Action manuelle obligatoire pour le logo
+## Logo
 
-Attacher à `Accueil.WebHome` le fichier :
+La pièce jointe suivante doit rester attachée à `Accueil.WebHome` :
 
 ```text
 naval-group-logo.png
 ```
 
-Le `WebHome.xwiki` pointe directement vers cette pièce jointe.
+Le code récupère maintenant directement l'URL de la pièce jointe depuis `$doc`.
 
 ## Documentation
 
@@ -49,33 +54,51 @@ Une page est comptée comme documentation uniquement si :
 
 `type=folder` n'est jamais compté.
 
-## À la une
-
-### Derniers créés
+## À la une — derniers créés
 
 Affiche les 5 dernières pages `type=document` triées par `creationDate`.
 
-### Plus vus — 30 jours
+## À la une — plus vus sur 30 jours
 
-Utilise le service Statistics de XWiki et filtre les résultats sur les pages réellement reconnues comme `type=document`.
+Le module Statistics de XWiki n'est plus utilisé.
+
+Le classement provient de la classe :
+
+```text
+InfoWiki.CODE.viewClass
+```
+
+Le détail complet de sa configuration est dans :
+
+```text
+docs/TRACKING-MANUEL.md
+```
 
 ## Accès rapides
 
-Utilise l'historique de consultations XWiki pour afficher jusqu'aux 10 derniers documents `type=document` ouverts par l'utilisateur courant, sans doublons.
+Les 10 derniers documents sont conservés côté navigateur avec `localStorage`, séparés par utilisateur et par sous-wiki.
 
-## Sous-wiki
+Cela évite d'enregistrer un historique nominatif de navigation dans les objets XWiki.
 
-La page teste l'état des statistiques pour **le wiki courant**.
+Cette liste est donc propre au navigateur / appareil utilisé.
 
-Si le serveur autorise Statistics globalement, le sous-wiki peut l'activer dans son propre `XWiki.XWikiPreferences` avec la propriété `statistics=true`.
+## JavaScript Extension globale
 
-Si le serveur a `xwiki.stats=0`, l'administrateur du sous-wiki ne peut pas corriger cela sans intervention de l'administrateur de la plateforme / serveur.
+`Accueil - Tracking` doit être chargée **sur l'ensemble du sous-wiki**.
 
-Dans les deux cas, la page reste fonctionnelle : les blocs dépendant des statistiques affichent un message explicite quand Statistics n'est pas disponible.
+Elle utilise l'API JavaScript XWiki `xwiki-meta` pour connaître le document courant et le token CSRF, puis appelle :
+
+```text
+InfoWiki.CODE.TrackView
+```
+
+Le serveur vérifie de nouveau `type=document` avant d'enregistrer quoi que ce soit.
+
+Une même page ne compte qu'une nouvelle vue toutes les 30 minutes pour un même navigateur, afin de limiter les refresh artificiels et le nombre d'écritures XWiki.
 
 ## Compatibilité Velocity
 
-Les appels Java de chaînes qui causaient des erreurs (`.trim()`, `.toLowerCase()`, `.startsWith()`, etc.) ont été retirés du `WebHome.xwiki` pour les nouveaux traitements.
+Les traitements ajoutés n'utilisent pas `.trim()`, `.toLowerCase()`, `.startsWith()` ou `.replaceAll()` dans le Velocity.
 
 ## Preview
 
@@ -83,4 +106,4 @@ Les appels Java de chaînes qui causaient des erreurs (`.trim()`, `.toLowerCase(
 preview/index.html
 ```
 
-La preview reste interactive et utilise les vrais modules CSS / JavaScript. Le logo exact fourni est intégré dans la preview par `Preview.js`.
+La preview reste interactive. Les statistiques affichées y sont simulées : le vrai tracking nécessite l'environnement XWiki, sa XClass et ses droits.
