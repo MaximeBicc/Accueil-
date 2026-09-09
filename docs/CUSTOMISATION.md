@@ -6,6 +6,9 @@
 xwiki/
 ├── Accueil/
 │   └── WebHome.xwiki
+├── InfoWiki/
+│   └── CODE/
+│       └── TrackView.xwiki
 └── extensions/
     ├── stylesheet/
     │   ├── Accueil-Base.css
@@ -16,7 +19,8 @@ xwiki/
     └── javascript/
         ├── Accueil-Modules.js
         ├── Accueil-Contact.js
-        └── Accueil-Flux.js
+        ├── Accueil-Flux.js
+        └── Accueil-Tracking.js
 
 preview/
 ├── index.html
@@ -39,18 +43,19 @@ preview/
 - `Accueil - Modules`
 - `Accueil - Contact`
 - `Accueil - Flux`
+- `Accueil - Tracking`
+
+`Accueil - Tracking` est particulière : elle doit être chargée **sur tout le sous-wiki**, afin de détecter l'ouverture des pages Documentation.
 
 ## Logo central
 
-Le centre de l'orbite utilise maintenant une vraie image et non un logo redessiné en SVG.
-
-Action manuelle : joindre le fichier suivant à la page `Accueil.WebHome` :
+Le centre de l'orbite utilise une vraie image attachée à `Accueil.WebHome` :
 
 ```text
 naval-group-logo.png
 ```
 
-Le code le récupère automatiquement avec l'URL de téléchargement de la pièce jointe.
+Le code utilise `$doc.getAttachmentURL(...)`, ce qui fonctionne directement dans le sous-wiki courant.
 
 ## Documentation
 
@@ -76,8 +81,6 @@ autre          -> non compté
 
 La racine elle-même est exclue.
 
-Le code évite les appels Velocity problématiques de type `.trim()` et `.toLowerCase()` et compare directement la valeur attendue.
-
 ## Formation
 
 La logique Formation n'a pas été modifiée : tous les descendants de la racine Formation sont comptés, hors WebHome racine.
@@ -87,28 +90,57 @@ La logique Formation n'a pas été modifiée : tous les descendants de la racine
 Le panneau contient deux onglets :
 
 - `Derniers créés` : 5 derniers documents `type=document` par date de création ;
-- `Plus vus · 30 jours` : 5 documents les plus vus sur les 30 derniers jours si Statistics est actif.
+- `Plus vus · 30 jours` : 5 documents les plus consultés selon notre propre XClass `InfoWiki.CODE.viewClass`.
+
+Le module Statistics XWiki n'est plus utilisé.
 
 ## Accès rapides
 
-Affiche jusqu'aux 10 derniers documents ouverts par l'utilisateur courant, en supprimant les doublons et en filtrant sur les vraies documentations `type=document`.
+Les 10 derniers documents ouverts par l'utilisateur sont conservés côté navigateur dans `localStorage`.
 
-## Sous-wiki et Statistics
+Cette solution :
 
-Le code teste `enabledForCurrentWiki`, donc il travaille sur le sous-wiki courant.
+- évite d'enregistrer l'identité de l'utilisateur dans les statistiques serveur ;
+- filtre toujours les folders grâce à la validation de `InfoWiki.CODE.TrackView` ;
+- conserve les 10 derniers documents sans doublon.
 
-XWiki distingue deux niveaux :
+L'historique reste lié au navigateur / appareil.
 
-1. le service Statistics doit être autorisé globalement par le serveur (`xwiki.stats=1`) ;
-2. le sous-wiki peut ensuite décider de l'activer via la propriété `statistics` de son `XWiki.XWikiPreferences`.
+## Tracking manuel
 
-Si le niveau 1 est désactivé par l'administrateur de la plateforme, un administrateur limité au sous-wiki ne peut pas le réactiver seul.
+La configuration exacte est documentée dans :
 
-Si le service est disponible mais simplement désactivé pour le sous-wiki, il peut être activé dans les préférences du sous-wiki sans accéder au wiki principal.
+```text
+docs/TRACKING-MANUEL.md
+```
+
+Résumé :
+
+```text
+InfoWiki.CODE.viewClass
+├── document : String
+├── day      : Date
+└── views    : Number / Integer
+```
+
+Créer également :
+
+```text
+InfoWiki.CODE.TrackView
+InfoWiki.DATA.ViewStats.WebHome
+```
+
+Puis donner le droit **Edit** sur l'espace `InfoWiki.DATA.ViewStats` aux utilisateurs authentifiés qui doivent générer des statistiques.
+
+Le JavaScript limite une même page à une vue comptée toutes les 30 minutes par navigateur afin de réduire les refresh artificiels et le nombre d'écritures.
+
+## Compatibilité Velocity
+
+Les nouveaux traitements n'utilisent pas `.trim()`, `.toLowerCase()`, `.startsWith()` ou `.replaceAll()` dans le code Velocity.
 
 ## Prévisualisation
 
-`preview/index.html` reste la prévisualisation interactive. Le logo exact fourni est injecté localement par `Preview.js`, donc aucune image de maquette générée n'est utilisée.
+`preview/index.html` reste la prévisualisation interactive. Les données statistiques y sont simulées car le vrai tracking dépend des XObjects et droits du sous-wiki.
 
 ## Convention projet
 
