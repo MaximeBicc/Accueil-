@@ -5,6 +5,7 @@
 ## Extensions à attacher à cette page :
 ##   StyleSheet Extension : Accueil - Base
 ##   StyleSheet Extension : Accueil - Modules
+##   StyleSheet Extension : Accueil - Branding
 ##   StyleSheet Extension : Accueil - Panneaux & Contact
 ##   StyleSheet Extension : Accueil - Flux
 ##   JavaScript Extension : Accueil - Modules
@@ -22,42 +23,60 @@
 #set ($displayDocExtra = false)
 
 ## ============================================================
-## DOCUMENTATION / FORMATION
+## CONFIGURATION
 ## ============================================================
 #set ($documentationRootSpace = 'Documentation')
 #set ($formationRootSpace = 'Formation')
-
-#set ($documentationSpaceLike = $documentationRootSpace.replaceAll('([%_!])', '!$1').concat('.%'))
-#set ($formationSpaceLike = $formationRootSpace.replaceAll('([%_!])', '!$1').concat('.%'))
 #set ($documentationRootPage = "${documentationRootSpace}.WebHome")
 #set ($formationRootPage = "${formationRootSpace}.WebHome")
+#set ($documentationSpaceLike = "${documentationRootSpace}.%")
+#set ($formationSpaceLike = "${formationRootSpace}.%")
 
-## Documentation : uniquement les descendants qui portent type=document.
+## Logo : joindre `naval-group-logo.png` à la page Accueil.WebHome.
+#set ($navalLogoUrl = $xwiki.getURL('Accueil.WebHome', 'download', 'filename=naval-group-logo.png'))
+
+## ============================================================
+## DOCUMENTATION
+## ============================================================
+## Définition d'une documentation :
+## - descendante de la racine Documentation ;
+## - la racine elle-même est exclue ;
+## - possède un XWiki Object avec une propriété String `type=document`.
+
 #set ($documentationCount = 0)
-#set ($documentationCountQuery = $services.query.hql("select count(distinct doc.fullName) from XWikiDocument doc, BaseObject obj, StringProperty typeProp where doc.fullName = obj.name and obj.id = typeProp.id.id and typeProp.id.name = :typePropertyName and lower(typeProp.value) = :documentTypeValue and ((doc.space = :rootSpace) or (doc.space like :rootSpaceLike escape '!')) and doc.fullName <> :rootPage and doc.language = ''"))
+#set ($documentationCountQuery = $services.query.hql("select count(distinct doc.fullName) from XWikiDocument doc, BaseObject obj, StringProperty typeProp where doc.fullName = obj.name and obj.id = typeProp.id.id and typeProp.id.name = :typePropertyName and typeProp.value = :documentTypeValue and ((doc.space = :rootSpace) or (doc.space like :rootSpaceLike)) and doc.fullName <> :rootPage and doc.language = ''"))
 #set ($discard = $documentationCountQuery.bindValue('typePropertyName', 'type'))
 #set ($discard = $documentationCountQuery.bindValue('documentTypeValue', 'document'))
 #set ($discard = $documentationCountQuery.bindValue('rootSpace', $documentationRootSpace))
 #set ($discard = $documentationCountQuery.bindValue('rootSpaceLike', $documentationSpaceLike))
 #set ($discard = $documentationCountQuery.bindValue('rootPage', $documentationRootPage))
 #set ($documentationCountResult = $documentationCountQuery.execute())
-#if ($documentationCountResult && !$documentationCountResult.isEmpty())
-  #set ($documentationCount = $documentationCountResult.get(0))
+#foreach ($documentationCountValue in $documentationCountResult)
+  #set ($documentationCount = $documentationCountValue)
 #end
 
-## Formation : logique précédente inchangée.
-#set ($formationQuery = $services.query.xwql("where ((doc.space = :rootSpace) or (doc.space like :rootSpaceLike escape '!')) and doc.fullName <> :rootPage and doc.language = ''"))
+## Liste des pages réellement considérées comme documents.
+#set ($documentationNameQuery = $services.query.hql("select distinct doc.fullName from XWikiDocument doc, BaseObject obj, StringProperty typeProp where doc.fullName = obj.name and obj.id = typeProp.id.id and typeProp.id.name = :typePropertyName and typeProp.value = :documentTypeValue and ((doc.space = :rootSpace) or (doc.space like :rootSpaceLike)) and doc.fullName <> :rootPage and doc.language = ''"))
+#set ($discard = $documentationNameQuery.bindValue('typePropertyName', 'type'))
+#set ($discard = $documentationNameQuery.bindValue('documentTypeValue', 'document'))
+#set ($discard = $documentationNameQuery.bindValue('rootSpace', $documentationRootSpace))
+#set ($discard = $documentationNameQuery.bindValue('rootSpaceLike', $documentationSpaceLike))
+#set ($discard = $documentationNameQuery.bindValue('rootPage', $documentationRootPage))
+#set ($documentationDocumentNames = $documentationNameQuery.execute())
+
+## ============================================================
+## FORMATION — LOGIQUE CONSERVÉE
+## ============================================================
+#set ($formationQuery = $services.query.xwql("where ((doc.space = :rootSpace) or (doc.space like :rootSpaceLike)) and doc.fullName <> :rootPage and doc.language = ''"))
 #set ($discard = $formationQuery.bindValue('rootSpace', $formationRootSpace))
 #set ($discard = $formationQuery.bindValue('rootSpaceLike', $formationSpaceLike))
 #set ($discard = $formationQuery.bindValue('rootPage', $formationRootPage))
 #set ($formationCount = $formationQuery.count())
 
 ## ============================================================
-## À LA UNE — DERNIERS DOCUMENTS CRÉÉS
+## À LA UNE — 5 DERNIERS DOCUMENTS CRÉÉS
 ## ============================================================
-## Même définition de "document" que le compteur : descendant de la
-## racine Documentation + XWiki Object dont la propriété type=document.
-#set ($latestDocumentQuery = $services.query.hql("select doc.fullName from XWikiDocument doc, BaseObject obj, StringProperty typeProp where doc.fullName = obj.name and obj.id = typeProp.id.id and typeProp.id.name = :typePropertyName and lower(typeProp.value) = :documentTypeValue and ((doc.space = :rootSpace) or (doc.space like :rootSpaceLike escape '!')) and doc.fullName <> :rootPage and doc.language = '' group by doc.fullName, doc.creationDate order by doc.creationDate desc"))
+#set ($latestDocumentQuery = $services.query.hql("select doc.fullName from XWikiDocument doc, BaseObject obj, StringProperty typeProp where doc.fullName = obj.name and obj.id = typeProp.id.id and typeProp.id.name = :typePropertyName and typeProp.value = :documentTypeValue and ((doc.space = :rootSpace) or (doc.space like :rootSpaceLike)) and doc.fullName <> :rootPage and doc.language = '' group by doc.fullName, doc.creationDate order by doc.creationDate desc"))
 #set ($discard = $latestDocumentQuery.bindValue('typePropertyName', 'type'))
 #set ($discard = $latestDocumentQuery.bindValue('documentTypeValue', 'document'))
 #set ($discard = $latestDocumentQuery.bindValue('rootSpace', $documentationRootSpace))
@@ -68,8 +87,8 @@
 ## ============================================================
 ## STATISTIQUES DE CONSULTATION
 ## ============================================================
-## Les vues et les pages récemment ouvertes reposent sur le module
-## Statistics de XWiki. Aucun XClass supplémentaire n'est nécessaire.
+## Le test porte sur le wiki courant : le sous-wiki dans lequel cette
+## page s'exécute.
 #set ($statsEnabled = false)
 #if ($xwiki.statsService)
   #set ($statsEnabled = $xwiki.statsService.enabledForCurrentWiki)
@@ -78,16 +97,11 @@
 #set ($mostViewedStats = [])
 #set ($recentActionNames = [])
 #if ($statsEnabled)
-  ## On prend les 30 derniers jours puis on filtre les résultats sur
-  ## nos documents type=document dans le HTML ci-dessous.
   #set ($statsPeriod = $xwiki.criteriaService.periodFactory.createSinceDaysPeriod(30))
   #set ($statsScope = $xwiki.criteriaService.scopeFactory.ALL_PAGES)
-  #set ($statsRange = $xwiki.criteriaService.rangeFactory.createHeadRange(1000))
+  #set ($statsRange = $xwiki.criteriaService.rangeFactory.createHeadRange(250))
   #set ($mostViewedStats = $xwiki.statsService.getDocumentStatistics('view', $statsScope, $statsPeriod, $statsRange))
-
-  ## On récupère davantage d'actions afin de pouvoir filtrer folder et
-  ## conserver jusqu'à 10 vrais documents uniques pour l'utilisateur.
-  #set ($recentActionNames = $xwiki.getRecentActions('view', 80))
+  #set ($recentActionNames = $xwiki.getRecentActions('view', 100))
 #end
 
 ## ============================================================
@@ -105,19 +119,15 @@
     #set ($contactStatus = 'error')
     #set ($contactMessage = "Aucune adresse administrateur n'est configurée dans XWiki.")
   #else
-    #set ($senderName = "$!request.getParameter('senderName')".trim())
-    #set ($senderEmail = "$!request.getParameter('senderEmail')".trim())
-    #set ($userMessage = "$!request.getParameter('message')".trim())
+    #set ($senderName = "$!request.getParameter('senderName')")
+    #set ($senderEmail = "$!request.getParameter('senderEmail')")
+    #set ($userMessage = "$!request.getParameter('message')")
 
-    #if ($senderName.length() == 0 || $userMessage.length() == 0)
+    #if ("$senderName" == '' || "$userMessage" == '')
       #set ($contactStatus = 'error')
       #set ($contactMessage = 'Le nom et le message sont obligatoires.')
-    #elseif ($senderName.length() > 120 || $senderEmail.length() > 180 || $userMessage.length() > 5000)
-      #set ($contactStatus = 'error')
-      #set ($contactMessage = 'Le message dépasse la taille autorisée.')
     #else
-      #set ($safeSubjectName = $senderName.replace('\r', ' ').replace('\n', ' '))
-      #set ($mailSubject = "[Wiki] Message depuis la page d'accueil — ${safeSubjectName}")
+      #set ($mailSubject = "[Wiki] Message depuis la page d'accueil")
       #set ($mailBody = "Message envoyé depuis la page d'accueil du wiki.\n\nNom : ${senderName}\nEmail : ${senderEmail}\nUtilisateur XWiki : ${xcontext.user}\n\nMessage :\n${userMessage}")
       #set ($mail = $services.mail.sender.createMessage($adminEmail, $mailSubject))
       #set ($discard = $mail.addPart('text/plain; charset=UTF-8', $mailBody))
@@ -177,10 +187,7 @@
       <div class="nh-orbit-stage">
         <div class="nh-orbit" data-module-orbit>
           <div class="nh-hub" aria-label="Naval Group">
-            <svg class="nh-hub-logo" viewBox="0 0 140 112" role="img" aria-label="Logo Naval Group">
-              <polygon class="nh-hub-logo-blue" points="14,18 67,18 116,95 91,110 48,39 27,39 68,110 45,110" />
-              <polygon class="nh-hub-logo-red" points="84,10 121,10 102.5,40" />
-            </svg>
+            <img class="nh-hub-logo-image" src="$escapetool.xml($navalLogoUrl)" alt="Naval Group" />
           </div>
           <div data-module-nodes></div>
         </div>
@@ -215,65 +222,61 @@
         </div>
 
         <div class="nh-feed-panel" data-feed-panel="latest" role="tabpanel">
-          #if ($latestDocumentNames && !$latestDocumentNames.isEmpty())
-            <ol class="nh-doc-list">
-              #foreach ($latestDocumentName in $latestDocumentNames)
-                #set ($latestDocument = $xwiki.getDocument($latestDocumentName).getTranslatedDocument())
-                #set ($latestTitle = "$!latestDocument.plainTitle")
-                #if ($latestTitle.trim() == '')
-                  #set ($latestTitle = "$!latestDocument.name")
-                #end
-                <li class="nh-doc-item">
-                  <a class="nh-doc-link" href="$escapetool.xml($latestDocument.getURL('view'))">
-                    <span class="nh-doc-symbol" aria-hidden="true">D</span>
-                    <span class="nh-doc-copy">
-                      <span class="nh-doc-title">$escapetool.xml($latestTitle)</span>
-                      <span class="nh-doc-meta">Créé le $escapetool.xml($datetool.format('dd/MM/yyyy', $latestDocument.creationDate))</span>
-                    </span>
-                    <span class="nh-doc-value">Nouveau</span>
-                  </a>
-                </li>
+          #set ($latestShown = 0)
+          <ol class="nh-doc-list">
+            #foreach ($latestDocumentName in $latestDocumentNames)
+              #set ($latestDocument = $xwiki.getDocument($latestDocumentName).getTranslatedDocument())
+              #set ($latestTitle = "$!latestDocument.plainTitle")
+              #if ("$latestTitle" == '')
+                #set ($latestTitle = "$!latestDocument.name")
               #end
-            </ol>
-          #else
-            <div class="nh-feed-empty">Aucun document de type <strong>document</strong> n’a encore été créé dans ce dossier.</div>
+              <li class="nh-doc-item">
+                <a class="nh-doc-link" href="$escapetool.xml($latestDocument.getURL('view'))">
+                  <span class="nh-doc-symbol" aria-hidden="true">D</span>
+                  <span class="nh-doc-copy">
+                    <span class="nh-doc-title">$escapetool.xml($latestTitle)</span>
+                    <span class="nh-doc-meta">Créé le $escapetool.xml($datetool.format('dd/MM/yyyy', $latestDocument.creationDate))</span>
+                  </span>
+                  <span class="nh-doc-value">Nouveau</span>
+                </a>
+              </li>
+              #set ($latestShown = $latestShown + 1)
+            #end
+          </ol>
+          #if ($latestShown == 0)
+            <div class="nh-feed-empty">Aucun document n’a encore été créé dans ce dossier.</div>
           #end
         </div>
 
         <div class="nh-feed-panel" data-feed-panel="popular" role="tabpanel" hidden>
           #if (!$statsEnabled)
-            <div class="nh-feed-disabled"><span><strong>Statistiques de consultation désactivées</strong>Activez le module Statistics pour afficher les documents les plus vus sur les 30 derniers jours.</span></div>
+            <div class="nh-feed-disabled"><span><strong>Statistiques indisponibles pour ce sous-wiki</strong>Le service Statistics doit être actif sur le serveur et activé pour le wiki courant.</span></div>
           #else
             #set ($popularShown = 0)
             <ol class="nh-doc-list">
               #foreach ($viewStat in $mostViewedStats)
-                #if ($popularShown < 5)
+                #if ($popularShown < 5 && $documentationDocumentNames.contains("$viewStat.name"))
                   #set ($popularDocument = $xwiki.getDocument($viewStat.name).getTranslatedDocument())
-                  #set ($popularTypeObject = $popularDocument.getFirstObject('type'))
-                  #set ($popularSpace = "$!popularDocument.space")
-                  #set ($popularIsInDocumentation = $popularSpace == $documentationRootSpace || $popularSpace.startsWith("${documentationRootSpace}."))
-                  #if ($popularTypeObject && "$!popularTypeObject.get('type')".trim().toLowerCase() == 'document' && $popularIsInDocumentation && "$!popularDocument.fullName" != $documentationRootPage)
-                    #set ($popularTitle = "$!popularDocument.plainTitle")
-                    #if ($popularTitle.trim() == '')
-                      #set ($popularTitle = "$!popularDocument.name")
-                    #end
-                    <li class="nh-doc-item">
-                      <a class="nh-doc-link" href="$escapetool.xml($popularDocument.getURL('view'))">
-                        <span class="nh-doc-symbol" aria-hidden="true">D</span>
-                        <span class="nh-doc-copy">
-                          <span class="nh-doc-title">$escapetool.xml($popularTitle)</span>
-                          <span class="nh-doc-meta">Consultations sur les 30 derniers jours</span>
-                        </span>
-                        <span class="nh-doc-value">$escapetool.xml($viewStat.pageViews) vues</span>
-                      </a>
-                    </li>
-                    #set ($popularShown = $popularShown + 1)
+                  #set ($popularTitle = "$!popularDocument.plainTitle")
+                  #if ("$popularTitle" == '')
+                    #set ($popularTitle = "$!popularDocument.name")
                   #end
+                  <li class="nh-doc-item">
+                    <a class="nh-doc-link" href="$escapetool.xml($popularDocument.getURL('view'))">
+                      <span class="nh-doc-symbol" aria-hidden="true">D</span>
+                      <span class="nh-doc-copy">
+                        <span class="nh-doc-title">$escapetool.xml($popularTitle)</span>
+                        <span class="nh-doc-meta">Consultations sur les 30 derniers jours</span>
+                      </span>
+                      <span class="nh-doc-value">$escapetool.xml($viewStat.pageViews) vues</span>
+                    </a>
+                  </li>
+                  #set ($popularShown = $popularShown + 1)
                 #end
               #end
             </ol>
             #if ($popularShown == 0)
-              <div class="nh-feed-empty">Aucune statistique de consultation n’est encore disponible pour les documents.</div>
+              <div class="nh-feed-empty">Aucune statistique disponible pour les documents.</div>
             #end
           #end
         </div>
@@ -291,7 +294,7 @@
         </div>
 
         #if (!$statsEnabled)
-          <div class="nh-feed-disabled"><span><strong>Historique de consultation indisponible</strong>Le module Statistics doit être actif pour mémoriser les pages récemment ouvertes.</span></div>
+          <div class="nh-feed-disabled"><span><strong>Historique indisponible pour ce sous-wiki</strong>Le service Statistics doit être actif sur le serveur et activé pour le wiki courant.</span></div>
         #elseif ($isGuest)
           <div class="nh-feed-empty">Connectez-vous pour retrouver vos derniers documents ouverts.</div>
         #else
@@ -299,26 +302,23 @@
           #set ($recentSeen = [])
           <ol class="nh-doc-list">
             #foreach ($recentName in $recentActionNames)
-              #if ($recentShown < 10 && !$recentSeen.contains("$recentName"))
+              #if ($recentShown < 10 && !$recentSeen.contains("$recentName") && $documentationDocumentNames.contains("$recentName"))
                 #set ($recentDocument = $xwiki.getDocument($recentName).getTranslatedDocument())
-                #set ($recentTypeObject = $recentDocument.getFirstObject('type'))
-                #if ($recentTypeObject && "$!recentTypeObject.get('type')".trim().toLowerCase() == 'document')
-                  #set ($recentTitle = "$!recentDocument.plainTitle")
-                  #if ($recentTitle.trim() == '')
-                    #set ($recentTitle = "$!recentDocument.name")
-                  #end
-                  <li class="nh-doc-item">
-                    <a class="nh-doc-link" href="$escapetool.xml($recentDocument.getURL('view'))">
-                      <span class="nh-doc-symbol" aria-hidden="true">$recentShown</span>
-                      <span class="nh-doc-copy">
-                        <span class="nh-doc-title">$escapetool.xml($recentTitle)</span>
-                        <span class="nh-doc-meta">$escapetool.xml($recentDocument.space)</span>
-                      </span>
-                    </a>
-                  </li>
-                  #set ($discard = $recentSeen.add("$recentName"))
-                  #set ($recentShown = $recentShown + 1)
+                #set ($recentTitle = "$!recentDocument.plainTitle")
+                #if ("$recentTitle" == '')
+                  #set ($recentTitle = "$!recentDocument.name")
                 #end
+                <li class="nh-doc-item">
+                  <a class="nh-doc-link" href="$escapetool.xml($recentDocument.getURL('view'))">
+                    <span class="nh-doc-symbol" aria-hidden="true">$mathtool.add($recentShown, 1)</span>
+                    <span class="nh-doc-copy">
+                      <span class="nh-doc-title">$escapetool.xml($recentTitle)</span>
+                      <span class="nh-doc-meta">$escapetool.xml($recentDocument.space)</span>
+                    </span>
+                  </a>
+                </li>
+                #set ($discard = $recentSeen.add("$recentName"))
+                #set ($recentShown = $recentShown + 1)
               #end
             #end
           </ol>
