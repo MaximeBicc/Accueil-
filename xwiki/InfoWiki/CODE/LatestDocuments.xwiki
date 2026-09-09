@@ -1,0 +1,51 @@
+{{velocity}}
+## ============================================================
+## InfoWiki.CODE.LatestDocuments
+## Fournit jusqu'à 30 documentations récentes au panneau À la une.
+## Aucune requête HQL privilégiée : compatible sans Programming Right.
+## ============================================================
+
+#set ($documentationRootSpace = 'Documentation')
+#set ($documentationRootPage = "${documentationRootSpace}.WebHome")
+#set ($documentationSpaceLike = "${documentationRootSpace}.%")
+#set ($latestLimit = 30)
+
+#set ($candidateQuery = $services.query.xwql("where ((doc.space = :rootSpace) or (doc.space like :rootSpaceLike)) and doc.fullName <> :rootPage and doc.language = '' order by doc.creationDate desc"))
+#set ($discard = $candidateQuery.bindValue('rootSpace', $documentationRootSpace))
+#set ($discard = $candidateQuery.bindValue('rootSpaceLike', $documentationSpaceLike))
+#set ($discard = $candidateQuery.bindValue('rootPage', $documentationRootPage))
+#set ($candidateNames = $candidateQuery.execute())
+
+#set ($shown = 0)
+
+{{html clean="false"}}
+<ol class="nh-doc-list">
+#foreach ($candidateName in $candidateNames)
+  #if ($shown < $latestLimit)
+    #set ($candidateDocument = $xwiki.getDocument($candidateName).getTranslatedDocument())
+    #set ($typeObject = $candidateDocument.getFirstObject('type'))
+    #if ($typeObject && "$!typeObject.get('type')" == 'document')
+      #set ($candidateTitle = "$!candidateDocument.plainTitle")
+      #if ("$candidateTitle" == '')
+        #set ($candidateTitle = "$!candidateDocument.name")
+      #end
+      <li class="nh-doc-item">
+        <a class="nh-doc-link" href="$escapetool.xml($candidateDocument.getURL('view'))">
+          <span class="nh-doc-symbol" aria-hidden="true">D</span>
+          <span class="nh-doc-copy">
+            <span class="nh-doc-title">$escapetool.xml($candidateTitle)</span>
+            <span class="nh-doc-meta">Créé le $escapetool.xml($datetool.format('dd/MM/yyyy', $candidateDocument.creationDate))</span>
+          </span>
+          <span class="nh-doc-value">Nouveau</span>
+        </a>
+      </li>
+      #set ($shown = $shown + 1)
+    #end
+  #end
+#end
+</ol>
+#if ($shown == 0)
+  <div class="nh-feed-empty">Aucun document n’a encore été créé dans ce dossier.</div>
+#end
+{{/html}}
+{{/velocity}}
