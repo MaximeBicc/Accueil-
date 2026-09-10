@@ -2,15 +2,18 @@
 ## ============================================================
 ## Sheet liée à TestPage.Doc.CODE.docClass
 ##
-## Son seul rôle est de demander le chargement de la JSX de tracking.
-## IMPORTANT : ne pas réinjecter $doc.content depuis ce bloc Velocity.
-## Si le contenu du document contient lui-même un script (Velocity, Groovy,
-## etc.), XWiki le considérerait comme un script imbriqué et le refuserait.
+## Charge UNIQUEMENT la JSX de tracking depuis une page dédiée.
+## La page InfoWiki.CODE.Tracking doit contenir un seul objet
+## XWiki.JavaScriptExtension configuré en "À la demande uniquement".
+##
+## Important : le titre de CETTE PAGE Sheet doit être configuré dans XWiki
+## pour conserver le titre du document affiché :
+## #if($doc.name == 'docClassTrackingSheet')docClass Tracking Sheet#{else}$services.display.title($doc, {'displayerHint': 'default'})#end
 ## ============================================================
-#set ($discard = $xwiki.jsx.use('TestPage.acceuilV2'))
+#set ($discard = $xwiki.jsx.use('InfoWiki.CODE.Tracking'))
 {{/velocity}}
 
 (% id="docclass-tracking-sheet-probe" style="margin:10px 0;padding:10px 12px;border:1px solid #b7c7e6;border-radius:8px;background:#f4f7fc;color:#0d2d73;font-size:13px;font-weight:700;" %)
 (((
-✅ TEST SHEET docClass actif — chargement du tracking demandé.
+✅ TEST SHEET docClass actif — tracking demandé via InfoWiki.CODE.Tracking.
 )))
