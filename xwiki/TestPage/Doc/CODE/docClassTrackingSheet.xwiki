@@ -7,7 +7,7 @@
 ## Si le contenu du document contient lui-même un script (Velocity, Groovy,
 ## etc.), XWiki le considérerait comme un script imbriqué et le refuserait.
 ## ============================================================
-#set ($discard = $xwiki.jsx.use('TestPage.accueilV2'))
+#set ($discard = $xwiki.jsx.use('TestPage.acceuilV2'))
 {{/velocity}}
 
 (% id="docclass-tracking-sheet-probe" style="margin:10px 0;padding:10px 12px;border:1px solid #b7c7e6;border-radius:8px;background:#f4f7fc;color:#0d2d73;font-size:13px;font-weight:700;" %)
