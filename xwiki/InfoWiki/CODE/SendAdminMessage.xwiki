@@ -1,0 +1,43 @@
+{{velocity}}
+## ============================================================
+## InfoWiki.CODE.SendAdminMessage.WebHome
+## Enregistre un message interne dans InfoWiki.DATA.AdminMessages.WebHome.
+## ============================================================
+
+#set ($messageClassName = 'InfoWiki.CODE.AdminMessageClass.WebHome')
+#set ($storagePageName = 'InfoWiki.DATA.AdminMessages.WebHome')
+#set ($result = 'ignored')
+
+#if ("$!request.getMethod()" == 'POST')
+  #if (!$services.csrf.isTokenValid("$!request.getParameter('form_token')"))
+    #set ($result = 'csrf')
+  #elseif (!$xwiki.exists($messageClassName))
+    #set ($result = 'class-missing')
+  #elseif (!$xwiki.hasAccessLevel('edit', "$xcontext.user", $storagePageName))
+    #set ($result = 'no-edit-right')
+  #else
+    #set ($senderName = "$!request.getParameter('senderName')")
+    #set ($userMessage = "$!request.getParameter('message')")
+
+    #if ("$senderName" == '' || "$userMessage" == '')
+      #set ($result = 'missing-fields')
+    #else
+      #set ($storageDocument = $xwiki.getDocument($storagePageName))
+      #set ($messageObject = $storageDocument.newObject($messageClassName))
+      #set ($discard = $messageObject.set('senderName', $senderName))
+      #set ($discard = $messageObject.set('senderUser', "$xcontext.user"))
+      #set ($discard = $messageObject.set('message', $userMessage))
+      #set ($discard = $messageObject.set('created', $datetool.date))
+      #set ($discard = $messageObject.set('isRead', 0))
+      #set ($discard = $messageObject.set('isDone', 0))
+      #set ($discard = $storageDocument.setTitle('Messages administrateur'))
+      #set ($discard = $storageDocument.save("Nouveau message administrateur de ${senderName}", true))
+      #set ($result = 'saved')
+    #end
+  #end
+#end
+
+{{html clean="false"}}
+$result
+{{/html}}
+{{/velocity}}
