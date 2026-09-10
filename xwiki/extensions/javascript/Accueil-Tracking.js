@@ -1,11 +1,11 @@
 (function () {
   'use strict';
 
-  var TRACKING_VERSION = 'v5.3';
+  var TRACKING_VERSION = 'v5.4';
   var DOCUMENTATION_ROOT = 'TestPage.PAGE.Doc';
   var STORAGE_PREFIX = 'infowiki.recentDocuments.v5.2.';
   var VIEW_THROTTLE_PREFIX = 'infowiki.viewThrottle.v5.3.';
-  var TRACKING_STATUS_PREFIX = 'infowiki.trackingStatus.v5.3.';
+  var TRACKING_STATUS_PREFIX = 'infowiki.trackingStatus.v5.4.';
   var VIEW_THROTTLE_MS = 30 * 60 * 1000;
   var started = false;
 
@@ -195,27 +195,50 @@
     chip.classList.remove('is-disabled');
 
     if (!status) {
-      chip.textContent = 'Tracking v5.3 · en attente d’une première consultation';
+      chip.textContent = 'Tracking v5.4 · en attente d’une première consultation';
       return;
     }
 
     if (status.status === 'tracked' || status.status === 'valid') {
-      chip.textContent = 'Tracking v5.3 · suivi des documents actif';
+      chip.textContent = 'Tracking v5.4 · suivi des documents actif';
       chip.classList.add('is-enabled');
     } else if (status.status === 'no-edit-right') {
-      chip.textContent = 'Tracking v5.3 · historique local actif · compteur sans droit Edit';
+      chip.textContent = 'Tracking v5.4 · historique local actif · compteur sans droit Edit';
       chip.classList.add('is-disabled');
     } else if (status.status === 'requesting') {
-      chip.textContent = 'Tracking v5.3 · requête envoyée, réponse en attente';
+      chip.textContent = 'Tracking v5.4 · requête envoyée, réponse en attente';
     } else {
-      chip.textContent = 'Tracking v5.3 · à vérifier : ' + status.status;
+      chip.textContent = 'Tracking v5.4 · à vérifier : ' + status.status;
       chip.classList.add('is-disabled');
     }
   }
 
-  function isViewAction() {
-    if (window.XWiki && String(XWiki.contextaction || '') === 'view') return true;
+  function isTopLevelWindow() {
+    try {
+      return window.self === window.top;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  function isRealViewAction() {
+    var action = '';
     var path = window.location.pathname || '';
+
+    if (window.XWiki) {
+      action = String(XWiki.contextaction || '');
+    }
+
+    // XWiki "get" sert notamment aux prévisualisations / chargements AJAX.
+    // Une vraie navigation utilisateur vers le document est une action "view".
+    if (action === 'get') return false;
+    if (path.indexOf('/bin/get/') >= 0 || path.indexOf('/get/') >= 0) return false;
+
+    // Une prévisualisation rendue dans un iframe ne doit pas compter comme vue.
+    if (!isTopLevelWindow()) return false;
+
+    if (action) return action === 'view';
+
     return path.indexOf('/bin/view/') >= 0 || path.indexOf('/view/') >= 0;
   }
 
@@ -261,7 +284,7 @@
     renderRecent(meta);
     updateStatusChip(meta);
 
-    if (!documentReference || !isViewAction()) return;
+    if (!documentReference || !isRealViewAction()) return;
     if (!isUnderDocumentationRoot(documentReference)) return;
 
     var endpoint = getTrackingEndpoint();
