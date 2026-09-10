@@ -1,20 +1,22 @@
-{{velocity output="false"}}
+{{velocity}}
 ## ============================================================
 ## Sheet liée à TestPage.Doc.CODE.docClass
 ##
-## 1. Charge les JavaScriptExtension portées par la vraie page d'accueil.
-## 2. Laisse ensuite XWiki afficher le contenu réel du document courant.
+## Pour un vrai document portant docClass :
+## - charge le tracking ;
+## - génère l'include de son contenu réel.
 ##
-## La référence XWiki de l'accueil inclut WebHome car acceuilV2 est une
-## page imbriquée non terminale dans cette instance.
+## Pour la page de sheet elle-même : aucun include n'est généré, ce qui
+## évite la récursion sur docClassTrackingSheet.
+##
+## L'include est généré par Velocity puis exécuté après la fin de ce bloc.
+## On évite ainsi de réinjecter $doc.content dans un script Velocity.
 ## ============================================================
-#set ($discard = $xwiki.jsx.use('TestPage.acceuilV2.WebHome'))
-{{/velocity}}
-
-## Les documentations sont des pages imbriquées : leur document physique
-## est WebHome dans leur propre espace. Une référence "WebHome" sans espace
-## est relative au document courant. Le macro include reprend uniquement le
-## contenu de la page, sans réappliquer sa ClassSheet, ce qui évite la boucle.
-## Il est volontairement placé HORS du macro Velocity afin qu'un éventuel
-## script présent dans le document ne devienne pas un script imbriqué.
+#set ($docClassObject = $doc.getObject('TestPage.Doc.CODE.docClass'))
+#if ($docClassObject)
+  #set ($discard = $xwiki.jsx.use('TestPage.acceuilV2.WebHome'))
 {{include reference="WebHome" /}}
+#else
+Page technique de présentation liée à TestPage.Doc.CODE.docClass.
+#end
+{{/velocity}}
