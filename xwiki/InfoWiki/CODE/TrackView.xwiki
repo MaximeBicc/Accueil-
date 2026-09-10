@@ -9,7 +9,7 @@
 ## serveur qui bloque ou échoue.
 ## ============================================================
 
-#set ($viewClassName = 'InfoWiki.CODE.viewClass')
+#set ($viewClassName = 'InfoWiki.CODE.viewClass.WebHome')
 #set ($documentationRootSpace = 'TestPage.PAGE.Doc')
 #set ($documentationRootPage = "${documentationRootSpace}.WebHome")
 #set ($documentationSpaceLike = "${documentationRootSpace}.%")
