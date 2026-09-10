@@ -106,7 +106,7 @@
         var body = new URLSearchParams();
         body.set('form_token', token);
         body.set('senderName', senderName);
-        body.set('message', message);
+        body.set('adminMessageText', message);
 
         sending = true;
 
@@ -134,8 +134,6 @@
 
             var result = String(request.responseText || '');
 
-            /* Selon la façon dont la page a été créée dans XWiki, elle peut
-               être terminale ou imbriquée (WebHome). On essaie les deux. */
             if (request.status === 404 && endpointIndex + 1 < MESSAGE_ENDPOINTS.length) {
               sendToEndpoint(endpointIndex + 1);
               return;
