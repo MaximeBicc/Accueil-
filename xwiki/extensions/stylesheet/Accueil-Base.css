@@ -145,25 +145,6 @@
   min-height: 550px;
 }
 
-@media (max-width: 980px) {
-  .nh-hero {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 620px) {
-  .naval-home {
-    margin-left: -10px;
-    margin-right: -10px;
-    padding: 24px 15px 36px;
-  }
-
-  .nh-header {
-    margin-bottom: 12px;
-    padding-left: 16px;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .naval-home *,
   .naval-home *::before,
