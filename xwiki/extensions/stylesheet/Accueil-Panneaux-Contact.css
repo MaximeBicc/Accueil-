@@ -381,33 +381,3 @@
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
-
-@media (max-width: 980px) {
-  .nh-cards {
-    grid-template-columns: 1fr;
-  }
-
-  .nh-bottom {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .nh-admin {
-    grid-column: 1 / -1;
-  }
-}
-
-@media (max-width: 620px) {
-  .nh-bottom {
-    grid-template-columns: 1fr;
-  }
-
-  .nh-admin {
-    grid-column: auto;
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .nh-contact-button {
-    width: 100%;
-  }
-}
