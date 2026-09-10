@@ -75,9 +75,13 @@
                 #set ($currentViews = 0)
               #end
 
-              ## Important : pas de $math.add ici. Sur cette instance le MathTool
-              ## renvoie une valeur vide. L'arithmétique Velocity garde un entier.
-              #set ($nextViews = $currentViews + 1)
+              ## $mathtool est le MathTool exposé par XWiki.
+              ## Il convertit aussi les représentations texte des nombres,
+              ## ce qui évite la concaténation "1" + 1 => "11".
+              #set ($nextViews = $mathtool.add($currentViews, 1))
+              #if (!$nextViews)
+                #set ($nextViews = 1)
+              #end
               #set ($discard = $viewObject.set('views', $nextViews))
             #end
 
