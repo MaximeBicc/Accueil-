@@ -116,7 +116,9 @@
         #if (!$existingViews)
           #set ($existingViews = 0)
         #end
-        #set ($discard = $popularTotals.put("$trackedDocumentName", $math.add($existingViews, $trackedViews)))
+        ## Ne pas utiliser $math.add sur cette instance : il renvoie une valeur vide.
+        #set ($nextTotalViews = $existingViews + $trackedViews)
+        #set ($discard = $popularTotals.put("$trackedDocumentName", $nextTotalViews))
       #end
     #end
   #end
