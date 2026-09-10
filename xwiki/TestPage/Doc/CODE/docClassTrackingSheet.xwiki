@@ -2,21 +2,19 @@
 ## ============================================================
 ## Sheet liée à TestPage.Doc.CODE.docClass
 ##
-## Charge les JavaScriptExtension portées par la vraie page d'accueil.
-## La référence XWiki utilisée ici doit inclure WebHome car acceuilV2
-## est une page imbriquée non terminale dans cette instance.
+## 1. Charge les JavaScriptExtension portées par la vraie page d'accueil.
+## 2. Laisse ensuite XWiki afficher le contenu réel du document courant.
 ##
-## IMPORTANT POUR LE TITRE DE LA SHEET : dans le champ "Titre" de cette
-## page XWiki, utiliser une valeur dynamique afin de conserver le titre
-## propre au document affiché :
-## #if($doc.pageReference.name == 'docClassTrackingSheet')docClass Tracking Sheet#{else}$services.display.title($doc, {'displayerHint': 'default', 'outputSyntaxId': 'plain/1.0'})#end
-## La Sheet n'écrit jamais le titre des documents ; elle ne fait que
-## contrôler leur rendu lorsqu'ils sont affichés.
+## La référence XWiki de l'accueil inclut WebHome car acceuilV2 est une
+## page imbriquée non terminale dans cette instance.
 ## ============================================================
 #set ($discard = $xwiki.jsx.use('TestPage.acceuilV2.WebHome'))
 {{/velocity}}
 
-(% id="docclass-tracking-sheet-probe" style="margin:10px 0;padding:10px 12px;border:1px solid #b7c7e6;border-radius:8px;background:#f4f7fc;color:#0d2d73;font-size:13px;font-weight:700;" %)
-(((
-✅ TEST SHEET docClass actif — tracking demandé via TestPage.acceuilV2.WebHome.
-)))
+## Les documentations sont des pages imbriquées : leur document physique
+## est WebHome dans leur propre espace. Une référence "WebHome" sans espace
+## est relative au document courant. Le macro include reprend uniquement le
+## contenu de la page, sans réappliquer sa ClassSheet, ce qui évite la boucle.
+## Il est volontairement placé HORS du macro Velocity afin qu'un éventuel
+## script présent dans le document ne devienne pas un script imbriqué.
+{{include reference="WebHome" /}}
