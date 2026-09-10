@@ -285,18 +285,3 @@
 
 .nh-stats-chip.is-enabled::before { background: #28a56b; }
 .nh-stats-chip.is-disabled::before { background: var(--nh-red); }
-
-@media (max-width: 1180px) {
-  .nh-cards { grid-template-columns: 1fr 1fr; }
-  .nh-info-card { grid-column: 1 / -1; min-height: 0; }
-  .nh-info-stack { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
-
-@media (max-width: 760px) {
-  .nh-cards { grid-template-columns: 1fr; }
-  .nh-feed-card,
-  .nh-recent-card,
-  .nh-info-card { min-height: 0; grid-column: auto; }
-  .nh-info-stack { grid-template-columns: 1fr; }
-  .nh-feed-tabs { flex-direction: column; }
-}
