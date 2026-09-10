@@ -1,11 +1,11 @@
 (function () {
   'use strict';
 
-  var TRACKING_VERSION = 'v5.2';
+  var TRACKING_VERSION = 'v5.3';
   var DOCUMENTATION_ROOT = 'TestPage.PAGE.Doc';
   var STORAGE_PREFIX = 'infowiki.recentDocuments.v5.2.';
-  var VIEW_THROTTLE_PREFIX = 'infowiki.viewThrottle.v5.2.';
-  var TRACKING_STATUS_PREFIX = 'infowiki.trackingStatus.v5.2.';
+  var VIEW_THROTTLE_PREFIX = 'infowiki.viewThrottle.v5.3.';
+  var TRACKING_STATUS_PREFIX = 'infowiki.trackingStatus.v5.3.';
   var VIEW_THROTTLE_MS = 30 * 60 * 1000;
   var started = false;
 
@@ -195,20 +195,20 @@
     chip.classList.remove('is-disabled');
 
     if (!status) {
-      chip.textContent = 'Tracking v5.2 · en attente d’une première consultation';
+      chip.textContent = 'Tracking v5.3 · en attente d’une première consultation';
       return;
     }
 
     if (status.status === 'tracked' || status.status === 'valid') {
-      chip.textContent = 'Tracking v5.2 · suivi des documents actif';
+      chip.textContent = 'Tracking v5.3 · suivi des documents actif';
       chip.classList.add('is-enabled');
     } else if (status.status === 'no-edit-right') {
-      chip.textContent = 'Tracking v5.2 · historique local actif · compteur sans droit Edit';
+      chip.textContent = 'Tracking v5.3 · historique local actif · compteur sans droit Edit';
       chip.classList.add('is-disabled');
     } else if (status.status === 'requesting') {
-      chip.textContent = 'Tracking v5.2 · requête envoyée, réponse en attente';
+      chip.textContent = 'Tracking v5.3 · requête envoyée, réponse en attente';
     } else {
-      chip.textContent = 'Tracking v5.2 · à vérifier : ' + status.status;
+      chip.textContent = 'Tracking v5.3 · à vérifier : ' + status.status;
       chip.classList.add('is-disabled');
     }
   }
@@ -219,9 +219,16 @@
     return path.indexOf('/bin/view/') >= 0 || path.indexOf('/view/') >= 0;
   }
 
-  function shouldCountView(documentReference) {
+  function makeThrottleKey(meta, documentReference) {
+    return VIEW_THROTTLE_PREFIX +
+      getWikiName(meta) + '.' +
+      getUserKey(meta) + '.' +
+      documentReference;
+  }
+
+  function shouldCountView(meta, documentReference) {
     try {
-      var key = VIEW_THROTTLE_PREFIX + documentReference;
+      var key = makeThrottleKey(meta, documentReference);
       var previous = Number(window.localStorage.getItem(key) || 0);
       return !previous || Date.now() - previous >= VIEW_THROTTLE_MS;
     } catch (error) {
@@ -229,10 +236,10 @@
     }
   }
 
-  function markViewCounted(documentReference) {
+  function markViewCounted(meta, documentReference) {
     try {
       window.localStorage.setItem(
-        VIEW_THROTTLE_PREFIX + documentReference,
+        makeThrottleKey(meta, documentReference),
         String(Date.now())
       );
     } catch (error) {
@@ -263,7 +270,7 @@
       return;
     }
 
-    var countView = shouldCountView(documentReference);
+    var countView = shouldCountView(meta, documentReference);
     var body = new URLSearchParams();
     body.set('form_token', getFormToken(meta));
     body.set('documentReference', documentReference);
@@ -291,7 +298,7 @@
       }
 
       if (result.indexOf('tracked') !== -1) {
-        if (countView) markViewCounted(documentReference);
+        if (countView) markViewCounted(meta, documentReference);
         recordRecent(meta, documentReference);
         writeStatus(meta, 'tracked');
       } else if (result.indexOf('valid') !== -1) {
