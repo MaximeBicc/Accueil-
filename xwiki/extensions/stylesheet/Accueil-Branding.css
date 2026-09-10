@@ -20,6 +20,7 @@
   height: 104px;
   object-fit: contain;
   object-position: center;
+  transform: translateY(3px);
   filter: drop-shadow(0 8px 14px rgba(13, 45, 115, .10));
 }
 
@@ -31,5 +32,6 @@
   .nh-hub-logo-image {
     width: 92px;
     height: 82px;
+    transform: translateY(2px);
   }
 }
