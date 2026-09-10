@@ -23,13 +23,17 @@
     #set ($actionStatus = 'error')
     #set ($actionMessage = 'Tu n’as pas le droit de modifier la boîte de réception.')
   #else
-    #set ($targetNumber = "$!request.getParameter('messageNumber')")
+    #set ($targetNumberText = "$!request.getParameter('messageNumber')")
     #set ($adminMessageAction = "$!request.getParameter('adminMessageAction')")
     #set ($targetObject = '')
 
+    ## Recherche explicite de l'objet par son numéro.
     #foreach ($candidateObject in $storageDocument.getObjects($messageClassName))
-      #if ($candidateObject && "$!candidateObject.number" == "$targetNumber")
-        #set ($targetObject = $candidateObject)
+      #if ($candidateObject)
+        #set ($candidateNumber = "$!candidateObject.number")
+        #if ("$candidateNumber" == "$targetNumberText")
+          #set ($targetObject = $candidateObject)
+        #end
       #end
     #end
 
@@ -37,8 +41,8 @@
       #set ($actionStatus = 'error')
       #set ($actionMessage = 'Message introuvable.')
     #elseif ("$adminMessageAction" == 'toggle-read')
-      #set ($currentRead = "$!targetObject.get('isRead')")
-      #if ("$currentRead" == '1' || "$currentRead" == 'true')
+      #set ($currentRead = $targetObject.get('isRead'))
+      #if ($currentRead == 1)
         #set ($discard = $targetObject.set('isRead', 0))
       #else
         #set ($discard = $targetObject.set('isRead', 1))
@@ -47,8 +51,8 @@
       #set ($actionStatus = 'success')
       #set ($actionMessage = 'État de lecture mis à jour.')
     #elseif ("$adminMessageAction" == 'toggle-done')
-      #set ($currentDone = "$!targetObject.get('isDone')")
-      #if ("$currentDone" == '1' || "$currentDone" == 'true')
+      #set ($currentDone = $targetObject.get('isDone'))
+      #if ($currentDone == 1)
         #set ($discard = $targetObject.set('isDone', 0))
       #else
         #set ($discard = $targetObject.set('isDone', 1))
@@ -57,6 +61,9 @@
       #set ($actionStatus = 'success')
       #set ($actionMessage = 'État de traitement mis à jour.')
     #end
+
+    ## Recharge le document après sauvegarde pour afficher l'état réellement persisté.
+    #set ($storageDocument = $xwiki.getDocument($storagePageName))
   #end
 #end
 
@@ -67,12 +74,12 @@
 
 #foreach ($messageObject in $messageObjects)
   #if ($messageObject)
-    #set ($readValue = "$!messageObject.get('isRead')")
-    #set ($doneValue = "$!messageObject.get('isDone')")
-    #if ("$readValue" != '1' && "$readValue" != 'true')
+    #set ($readValue = $messageObject.get('isRead'))
+    #set ($doneValue = $messageObject.get('isDone'))
+    #if ($readValue != 1)
       #set ($unreadCount = $unreadCount + 1)
     #end
-    #if ("$doneValue" != '1' && "$doneValue" != 'true')
+    #if ($doneValue != 1)
       #set ($todoCount = $todoCount + 1)
     #end
   #end
@@ -94,9 +101,7 @@
   #end
 
   #if (!$xwiki.exists($messageClassName))
-    <div class="alert alert-warning">
-      La classe <strong>InfoWiki.CODE.AdminMessageClass</strong> n’existe pas encore. Crée-la avec les propriétés décrites dans le fichier de configuration du dépôt.
-    </div>
+    <div class="alert alert-warning">La classe <strong>InfoWiki.CODE.AdminMessageClass</strong> n’existe pas encore.</div>
   #elseif ($messageCount == 0)
     <div class="alert alert-info">Aucun message pour le moment.</div>
   #else
@@ -116,17 +121,28 @@
         <tbody>
           #foreach ($messageObject in $messageObjects)
             #if ($messageObject)
-              #set ($readValue = "$!messageObject.get('isRead')")
-              #set ($doneValue = "$!messageObject.get('isDone')")
+              #set ($readValue = $messageObject.get('isRead'))
+              #set ($doneValue = $messageObject.get('isDone'))
               #set ($isRead = false)
               #set ($isDone = false)
-              #if ("$readValue" == '1' || "$readValue" == 'true')
+              #if ($readValue == 1)
                 #set ($isRead = true)
               #end
-              #if ("$doneValue" == '1' || "$doneValue" == 'true')
+              #if ($doneValue == 1)
                 #set ($isDone = true)
               #end
+
+              #set ($createdText = '')
               #set ($createdValue = $messageObject.get('created'))
+              #if ($createdValue)
+                #set ($createdText = $datetool.format('dd/MM/yyyy HH:mm', $createdValue))
+              #end
+
+              #set ($senderUserText = "$!messageObject.get('senderUser')")
+              #set ($senderNameText = "$!messageObject.get('senderName')")
+              #set ($messageText = "$!messageObject.get('message')")
+              #set ($messageNumberText = "$!messageObject.number")
+
               <tr>
                 <td>
                   #if ($isRead)
@@ -142,30 +158,22 @@
                     <span class="label label-default">Pas fait</span>
                   #end
                 </td>
-                <td>
-                  #if ($createdValue)
-                    $escapetool.xml($datetool.format('dd/MM/yyyy HH:mm', $createdValue))
-                  #end
-                </td>
-                <td>$escapetool.xml("$!messageObject.get('senderUser')")</td>
-                <td>$escapetool.xml("$!messageObject.get('senderName')")</td>
-                <td style="white-space:pre-wrap;max-width:520px;">$escapetool.xml("$!messageObject.get('message')")</td>
+                <td>$escapetool.xml($createdText)</td>
+                <td>$escapetool.xml($senderUserText)</td>
+                <td>$escapetool.xml($senderNameText)</td>
+                <td style="white-space:pre-wrap;max-width:520px;">$escapetool.xml($messageText)</td>
                 <td>
                   <form method="post" action="" style="display:inline-block;margin-right:5px;">
                     <input type="hidden" name="form_token" value="$escapetool.xml($services.csrf.getToken())" />
-                    <input type="hidden" name="messageNumber" value="$escapetool.xml($messageObject.number)" />
+                    <input type="hidden" name="messageNumber" value="$escapetool.xml($messageNumberText)" />
                     <input type="hidden" name="adminMessageAction" value="toggle-read" />
-                    <button type="submit" class="btn btn-default btn-xs">
-                      #if ($isRead)Marquer non lu#else Marquer lu#end
-                    </button>
+                    <button type="submit" class="btn btn-default btn-xs">#if ($isRead)Marquer non lu#else Marquer lu#end</button>
                   </form>
                   <form method="post" action="" style="display:inline-block;">
                     <input type="hidden" name="form_token" value="$escapetool.xml($services.csrf.getToken())" />
-                    <input type="hidden" name="messageNumber" value="$escapetool.xml($messageObject.number)" />
+                    <input type="hidden" name="messageNumber" value="$escapetool.xml($messageNumberText)" />
                     <input type="hidden" name="adminMessageAction" value="toggle-done" />
-                    <button type="submit" class="btn btn-primary btn-xs">
-                      #if ($isDone)Remettre à faire#else Marquer fait#end
-                    </button>
+                    <button type="submit" class="btn btn-primary btn-xs">#if ($isDone)Remettre à faire#else Marquer fait#end</button>
                   </form>
                 </td>
               </tr>
