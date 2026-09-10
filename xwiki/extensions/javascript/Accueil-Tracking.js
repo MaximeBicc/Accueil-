@@ -1,11 +1,11 @@
 (function () {
   'use strict';
 
-  var TRACKING_VERSION = 'v5.1';
+  var TRACKING_VERSION = 'v5.2';
   var DOCUMENTATION_ROOT = 'TestPage.PAGE.Doc';
-  var STORAGE_PREFIX = 'infowiki.recentDocuments.v5.1.';
-  var VIEW_THROTTLE_PREFIX = 'infowiki.viewThrottle.v5.1.';
-  var TRACKING_STATUS_PREFIX = 'infowiki.trackingStatus.v5.1.';
+  var STORAGE_PREFIX = 'infowiki.recentDocuments.v5.2.';
+  var VIEW_THROTTLE_PREFIX = 'infowiki.viewThrottle.v5.2.';
+  var TRACKING_STATUS_PREFIX = 'infowiki.trackingStatus.v5.2.';
   var VIEW_THROTTLE_MS = 30 * 60 * 1000;
   var started = false;
 
@@ -195,20 +195,20 @@
     chip.classList.remove('is-disabled');
 
     if (!status) {
-      chip.textContent = 'Tracking v5.1 · en attente d’une première consultation';
+      chip.textContent = 'Tracking v5.2 · en attente d’une première consultation';
       return;
     }
 
     if (status.status === 'tracked' || status.status === 'valid') {
-      chip.textContent = 'Tracking v5.1 · suivi des documents actif';
+      chip.textContent = 'Tracking v5.2 · suivi des documents actif';
       chip.classList.add('is-enabled');
     } else if (status.status === 'no-edit-right') {
-      chip.textContent = 'Tracking v5.1 · historique local actif · compteur sans droit Edit';
+      chip.textContent = 'Tracking v5.2 · historique local actif · compteur sans droit Edit';
       chip.classList.add('is-disabled');
     } else if (status.status === 'requesting') {
-      chip.textContent = 'Tracking v5.1 · requête envoyée, réponse en attente';
+      chip.textContent = 'Tracking v5.2 · requête envoyée, réponse en attente';
     } else {
-      chip.textContent = 'Tracking v5.1 · à vérifier : ' + status.status;
+      chip.textContent = 'Tracking v5.2 · à vérifier : ' + status.status;
       chip.classList.add('is-disabled');
     }
   }
@@ -240,26 +240,11 @@
     }
   }
 
-  function getTrackingEndpoint(meta) {
-    if (!window.XWiki || !XWiki.Model || typeof XWiki.Document !== 'function') return '';
+  var TRACKVIEW_URL =
+    '$escapetool.javascript($xwiki.getURL("InfoWiki.CODE.TrackView.WebHome", "get"))';
 
-    var wikiName = getWikiName(meta);
-    var endpointReferenceText =
-      (wikiName && wikiName !== 'current' ? wikiName + ':' : '') +
-      'InfoWiki.CODE.TrackView.WebHome';
-
-    try {
-      var reference = XWiki.Model.resolve(
-        endpointReferenceText,
-        XWiki.EntityType.DOCUMENT
-      );
-      return new XWiki.Document(reference).getURL(
-        'get',
-        'xpage=plain&outputSyntax=plain'
-      );
-    } catch (error) {
-      return '';
-    }
+  function getTrackingEndpoint() {
+    return TRACKVIEW_URL || '';
   }
 
   function track(meta) {
@@ -272,7 +257,7 @@
     if (!documentReference || !isViewAction()) return;
     if (!isUnderDocumentationRoot(documentReference)) return;
 
-    var endpoint = getTrackingEndpoint(meta);
+    var endpoint = getTrackingEndpoint();
     if (!endpoint) {
       writeStatus(meta, 'endpoint-unavailable');
       return;
@@ -286,28 +271,22 @@
 
     writeStatus(meta, 'requesting', endpoint);
 
-    window.fetch(endpoint, {
-      method: 'POST',
-      credentials: 'same-origin',
-      keepalive: true,
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-        'X-Requested-With': 'XMLHttpRequest'
-      },
-      body: body.toString()
-    }).then(function (response) {
-      return response.text().then(function (text) {
-        return {
-          ok: response.ok,
-          status: response.status,
-          text: String(text)
-        };
-      });
-    }).then(function (response) {
-      var result = response.text;
+    var request = new XMLHttpRequest();
+    request.open('POST', endpoint, true);
+    request.withCredentials = true;
+    request.setRequestHeader(
+      'Content-Type',
+      'application/x-www-form-urlencoded; charset=UTF-8'
+    );
+    request.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
 
-      if (!response.ok) {
-        writeStatus(meta, 'http-' + response.status, result.slice(0, 180));
+    request.onreadystatechange = function () {
+      if (request.readyState !== 4) return;
+
+      var result = String(request.responseText || '');
+
+      if (request.status < 200 || request.status >= 300) {
+        writeStatus(meta, 'http-' + request.status, result.slice(0, 180));
         return;
       }
 
@@ -328,13 +307,18 @@
       } else {
         writeStatus(meta, 'unexpected-response', result.slice(0, 180));
       }
-    }).catch(function (error) {
-      writeStatus(
-        meta,
-        'network-error',
-        error && error.message ? error.message : ''
-      );
-    });
+    };
+
+    request.onerror = function () {
+      writeStatus(meta, 'network-error');
+    };
+
+    request.timeout = 8000;
+    request.ontimeout = function () {
+      writeStatus(meta, 'timeout');
+    };
+
+    request.send(body.toString());
   }
 
   function fallbackMeta() {
