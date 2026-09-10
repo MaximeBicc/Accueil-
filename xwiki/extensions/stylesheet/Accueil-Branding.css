@@ -5,7 +5,7 @@
 
 .nh-hub {
   width: 148px;
-  overflow: hidden;
+  overflow: visible;
 }
 
 /* Désactive l'ancienne décoration CSS du centre. */
@@ -22,16 +22,4 @@
   object-position: center;
   transform: translateY(3px);
   filter: drop-shadow(0 8px 14px rgba(13, 45, 115, .10));
-}
-
-@media (max-width: 620px) {
-  .nh-hub {
-    width: 118px;
-  }
-
-  .nh-hub-logo-image {
-    width: 92px;
-    height: 82px;
-    transform: translateY(2px);
-  }
 }
