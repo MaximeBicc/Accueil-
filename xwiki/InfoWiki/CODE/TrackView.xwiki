@@ -1,15 +1,12 @@
 {{velocity}}
 ## ============================================================
-## InfoWiki.CODE.TrackView
-## Endpoint interne appelé par Accueil - Tracking.js.
+## InfoWiki.CODE.TrackView.WebHome
+## Endpoint interne appelé par le tracking.
 ##
-## Prérequis :
-## - XClass : InfoWiki.CODE.viewClass
-## - propriétés : document (String), day (Date), views (Number/Integer)
-## - droits Edit hérités pour les utilisateurs authentifiés sur
-##   l'espace InfoWiki.DATA.ViewStats
-##
-## Important : aucune requête HQL privilégiée ici.
+## Mode normal : comportement de tracking habituel.
+## Mode diagnostic : diagnostic=1 + diagnosticStep=0..7.
+## Chaque étape est indépendante afin d'identifier exactement l'opération
+## serveur qui bloque ou échoue.
 ## ============================================================
 
 #set ($viewClassName = 'InfoWiki.CODE.viewClass')
@@ -17,81 +14,255 @@
 #set ($documentationRootPage = "${documentationRootSpace}.WebHome")
 #set ($documentationSpaceLike = "${documentationRootSpace}.%")
 #set ($result = 'ignored')
+#set ($diagnostic = "$!request.getParameter('diagnostic')")
+#set ($diagnosticStep = "$!request.getParameter('diagnosticStep')")
 
-#if ("$!request.getMethod()" == 'POST')
-  #if (!$services.csrf.isTokenValid("$!request.getParameter('form_token')"))
-    #set ($result = 'csrf')
-  #else
+## ============================================================
+## DIAGNOSTIC PAR ÉTAPES
+## ============================================================
+#if ("$diagnostic" == '1')
+
+  ## Étape 0 : prouve que la page TrackView elle-même s'exécute.
+  #if ("$diagnosticStep" == '0')
+    #set ($result = "diag-0|executed|method=$!request.getMethod()")
+
+  ## Étape 1 : POST + CSRF uniquement.
+  #elseif ("$diagnosticStep" == '1')
+    #if ("$!request.getMethod()" != 'POST')
+      #set ($result = 'diag-1|not-post')
+    #elseif (!$services.csrf.isTokenValid("$!request.getParameter('form_token')"))
+      #set ($result = 'diag-1|csrf-failed')
+    #else
+      #set ($result = 'diag-1|csrf-ok')
+    #end
+
+  ## Étape 2 : résolution de la référence du document.
+  #elseif ("$diagnosticStep" == '2')
     #set ($documentReferenceText = "$!request.getParameter('documentReference')")
-    #set ($countView = "$!request.getParameter('countView')")
-
-    #if ("$documentReferenceText" != '')
+    #if ("$documentReferenceText" == '')
+      #set ($result = 'diag-2|missing-document-reference')
+    #else
       #set ($sourceReference = $services.model.resolveDocument($documentReferenceText))
       #set ($sourceDocument = $xwiki.getDocument($sourceReference))
       #set ($sourceFullName = "$!sourceDocument.fullName")
+      #set ($result = "diag-2|resolved|$sourceFullName")
+    #end
 
-      ## Vérifie d'abord que la page appartient bien à la racine Documentation.
-      #set ($validScopeQuery = $services.query.xwql("where doc.fullName = :documentName and ((doc.space = :rootSpace) or (doc.space like :rootSpaceLike)) and doc.fullName <> :rootPage and doc.language = ''"))
-      #set ($discard = $validScopeQuery.bindValue('documentName', $sourceFullName))
-      #set ($discard = $validScopeQuery.bindValue('rootSpace', $documentationRootSpace))
-      #set ($discard = $validScopeQuery.bindValue('rootSpaceLike', $documentationSpaceLike))
-      #set ($discard = $validScopeQuery.bindValue('rootPage', $documentationRootPage))
-      #set ($validScopeNames = $validScopeQuery.setLimit(1).execute())
+  ## Étape 3 : requête XWQL de contrôle de la racine documentaire.
+  #elseif ("$diagnosticStep" == '3')
+    #set ($documentReferenceText = "$!request.getParameter('documentReference')")
+    #set ($sourceReference = $services.model.resolveDocument($documentReferenceText))
+    #set ($sourceDocument = $xwiki.getDocument($sourceReference))
+    #set ($sourceFullName = "$!sourceDocument.fullName")
+    #set ($validScopeQuery = $services.query.xwql("where doc.fullName = :documentName and ((doc.space = :rootSpace) or (doc.space like :rootSpaceLike)) and doc.fullName <> :rootPage and doc.language = ''"))
+    #set ($discard = $validScopeQuery.bindValue('documentName', $sourceFullName))
+    #set ($discard = $validScopeQuery.bindValue('rootSpace', $documentationRootSpace))
+    #set ($discard = $validScopeQuery.bindValue('rootSpaceLike', $documentationSpaceLike))
+    #set ($discard = $validScopeQuery.bindValue('rootPage', $documentationRootPage))
+    #set ($validScopeNames = $validScopeQuery.setLimit(1).execute())
+    #set ($scopeFound = false)
+    #foreach ($validScopeName in $validScopeNames)
+      #set ($scopeFound = true)
+    #end
+    #if ($scopeFound)
+      #set ($result = "diag-3|scope-ok|$sourceFullName")
+    #else
+      #set ($result = "diag-3|scope-failed|$sourceFullName")
+    #end
 
-      #set ($validDocument = false)
-      #foreach ($validScopeName in $validScopeNames)
-        #set ($sourceTypeObject = $sourceDocument.getFirstObject('type'))
-        #if ($sourceTypeObject && "$!sourceTypeObject.get('type')" == 'document')
-          #set ($validDocument = true)
+  ## Étape 4 : lecture de l'objet qui contient la propriété type.
+  #elseif ("$diagnosticStep" == '4')
+    #set ($documentReferenceText = "$!request.getParameter('documentReference')")
+    #set ($sourceReference = $services.model.resolveDocument($documentReferenceText))
+    #set ($sourceDocument = $xwiki.getDocument($sourceReference))
+    #set ($sourceFullName = "$!sourceDocument.fullName")
+    #set ($sourceTypeObject = $sourceDocument.getFirstObject('type'))
+    #if (!$sourceTypeObject)
+      #set ($result = "diag-4|type-object-missing|$sourceFullName")
+    #else
+      #set ($sourceType = "$!sourceTypeObject.get('type')")
+      #set ($result = "diag-4|type=$sourceType|$sourceFullName")
+    #end
+
+  ## Étape 5 : calcul de la page de stats + droit Edit.
+  #elseif ("$diagnosticStep" == '5')
+    #set ($todayPageKey = $datetool.format('yyyyMMdd', $datetool.date))
+    #set ($statsPageName = "InfoWiki.DATA.ViewStats.D${todayPageKey}")
+    #if ($xwiki.hasAccessLevel('edit', "$xcontext.user", $statsPageName))
+      #set ($result = "diag-5|edit-right=true|$statsPageName")
+    #else
+      #set ($result = "diag-5|edit-right=false|$statsPageName")
+    #end
+
+  ## Étape 6 : accès à la page de stats et à la XClass, sans sauvegarde.
+  #elseif ("$diagnosticStep" == '6')
+    #set ($documentReferenceText = "$!request.getParameter('documentReference')")
+    #set ($sourceReference = $services.model.resolveDocument($documentReferenceText))
+    #set ($sourceDocument = $xwiki.getDocument($sourceReference))
+    #set ($sourceFullName = "$!sourceDocument.fullName")
+    #set ($todayText = $datetool.format('yyyy-MM-dd', $datetool.date))
+    #set ($todayPageKey = $datetool.format('yyyyMMdd', $datetool.date))
+    #set ($statsPageName = "InfoWiki.DATA.ViewStats.D${todayPageKey}")
+    #set ($statsDocument = $xwiki.getDocument($statsPageName))
+    #set ($viewObject = '')
+    #foreach ($candidateObject in $statsDocument.getObjects($viewClassName))
+      #if ($candidateObject)
+        #set ($candidateDocument = "$!candidateObject.get('document')")
+        #set ($candidateDayValue = $candidateObject.get('day'))
+        #set ($candidateDay = '')
+        #if ($candidateDayValue)
+          #set ($candidateDay = $datetool.format('yyyy-MM-dd', $candidateDayValue))
+        #end
+        #if ("$candidateDocument" == "$sourceFullName" && "$candidateDay" == "$todayText")
+          #set ($viewObject = $candidateObject)
         #end
       #end
+    #end
+    #if ("$viewObject" == '')
+      #set ($result = "diag-6|stats-access-ok|object=new|$statsPageName")
+    #else
+      #set ($result = "diag-6|stats-access-ok|object=existing|$statsPageName")
+    #end
 
-      #if ($validDocument)
-        #set ($result = 'valid')
+  ## Étape 7 : vraie écriture d'une vue. À utiliser uniquement après 0..6.
+  #elseif ("$diagnosticStep" == '7')
+    #set ($documentReferenceText = "$!request.getParameter('documentReference')")
+    #set ($sourceReference = $services.model.resolveDocument($documentReferenceText))
+    #set ($sourceDocument = $xwiki.getDocument($sourceReference))
+    #set ($sourceFullName = "$!sourceDocument.fullName")
+    #set ($sourceTypeObject = $sourceDocument.getFirstObject('type'))
+    #set ($validDocument = false)
+    #if ($sourceTypeObject && "$!sourceTypeObject.get('type')" == 'document')
+      #set ($validDocument = true)
+    #end
 
-        #if ("$countView" == '1')
-          #set ($todayText = $datetool.format('yyyy-MM-dd', $datetool.date))
-          #set ($todayPageKey = $datetool.format('yyyyMMdd', $datetool.date))
-          #set ($todayDate = $datetool.toDate('yyyy-MM-dd', $todayText))
-          #set ($statsPageName = "InfoWiki.DATA.ViewStats.D${todayPageKey}")
-          #set ($statsDocument = $xwiki.getDocument($statsPageName))
+    #if (!$validDocument)
+      #set ($result = "diag-7|not-document|$sourceFullName")
+    #else
+      #set ($todayText = $datetool.format('yyyy-MM-dd', $datetool.date))
+      #set ($todayPageKey = $datetool.format('yyyyMMdd', $datetool.date))
+      #set ($todayDate = $datetool.toDate('yyyy-MM-dd', $todayText))
+      #set ($statsPageName = "InfoWiki.DATA.ViewStats.D${todayPageKey}")
+      #set ($statsDocument = $xwiki.getDocument($statsPageName))
 
-          #if (!$xwiki.hasAccessLevel('edit', "$xcontext.user", $statsPageName))
-            #set ($result = 'no-edit-right')
-          #else
-            #set ($viewObject = '')
-
-            #foreach ($candidateObject in $statsDocument.getObjects($viewClassName))
-              #if ($candidateObject)
-                #set ($candidateDocument = "$!candidateObject.get('document')")
-                #set ($candidateDayValue = $candidateObject.get('day'))
-                #set ($candidateDay = '')
-                #if ($candidateDayValue)
-                  #set ($candidateDay = $datetool.format('yyyy-MM-dd', $candidateDayValue))
-                #end
-
-                #if ("$candidateDocument" == "$sourceFullName" && "$candidateDay" == "$todayText")
-                  #set ($viewObject = $candidateObject)
-                #end
-              #end
+      #if (!$xwiki.hasAccessLevel('edit', "$xcontext.user", $statsPageName))
+        #set ($result = "diag-7|no-edit-right|$statsPageName")
+      #else
+        #set ($viewObject = '')
+        #foreach ($candidateObject in $statsDocument.getObjects($viewClassName))
+          #if ($candidateObject)
+            #set ($candidateDocument = "$!candidateObject.get('document')")
+            #set ($candidateDayValue = $candidateObject.get('day'))
+            #set ($candidateDay = '')
+            #if ($candidateDayValue)
+              #set ($candidateDay = $datetool.format('yyyy-MM-dd', $candidateDayValue))
             #end
+            #if ("$candidateDocument" == "$sourceFullName" && "$candidateDay" == "$todayText")
+              #set ($viewObject = $candidateObject)
+            #end
+          #end
+        #end
 
-            #if ("$viewObject" == '')
-              #set ($viewObject = $statsDocument.newObject($viewClassName))
-              #set ($discard = $viewObject.set('document', $sourceFullName))
-              #set ($discard = $viewObject.set('day', $todayDate))
-              #set ($discard = $viewObject.set('views', 1))
+        #if ("$viewObject" == '')
+          #set ($viewObject = $statsDocument.newObject($viewClassName))
+          #set ($discard = $viewObject.set('document', $sourceFullName))
+          #set ($discard = $viewObject.set('day', $todayDate))
+          #set ($discard = $viewObject.set('views', 1))
+        #else
+          #set ($currentViews = $viewObject.get('views'))
+          #if (!$currentViews)
+            #set ($currentViews = 0)
+          #end
+          #set ($discard = $viewObject.set('views', $math.add($currentViews, 1)))
+        #end
+
+        #set ($discard = $statsDocument.setTitle("Statistiques ${todayText}"))
+        #set ($discard = $statsDocument.save("Diagnostic consultation ${sourceFullName}", true))
+        #set ($result = "diag-7|tracked|$sourceFullName")
+      #end
+    #end
+  #else
+    #set ($result = "diag-unknown-step|$diagnosticStep")
+  #end
+
+## ============================================================
+## MODE NORMAL
+## ============================================================
+#else
+  #if ("$!request.getMethod()" == 'POST')
+    #if (!$services.csrf.isTokenValid("$!request.getParameter('form_token')"))
+      #set ($result = 'csrf')
+    #else
+      #set ($documentReferenceText = "$!request.getParameter('documentReference')")
+      #set ($countView = "$!request.getParameter('countView')")
+
+      #if ("$documentReferenceText" != '')
+        #set ($sourceReference = $services.model.resolveDocument($documentReferenceText))
+        #set ($sourceDocument = $xwiki.getDocument($sourceReference))
+        #set ($sourceFullName = "$!sourceDocument.fullName")
+
+        #set ($validScopeQuery = $services.query.xwql("where doc.fullName = :documentName and ((doc.space = :rootSpace) or (doc.space like :rootSpaceLike)) and doc.fullName <> :rootPage and doc.language = ''"))
+        #set ($discard = $validScopeQuery.bindValue('documentName', $sourceFullName))
+        #set ($discard = $validScopeQuery.bindValue('rootSpace', $documentationRootSpace))
+        #set ($discard = $validScopeQuery.bindValue('rootSpaceLike', $documentationSpaceLike))
+        #set ($discard = $validScopeQuery.bindValue('rootPage', $documentationRootPage))
+        #set ($validScopeNames = $validScopeQuery.setLimit(1).execute())
+
+        #set ($validDocument = false)
+        #foreach ($validScopeName in $validScopeNames)
+          #set ($sourceTypeObject = $sourceDocument.getFirstObject('type'))
+          #if ($sourceTypeObject && "$!sourceTypeObject.get('type')" == 'document')
+            #set ($validDocument = true)
+          #end
+        #end
+
+        #if ($validDocument)
+          #set ($result = 'valid')
+
+          #if ("$countView" == '1')
+            #set ($todayText = $datetool.format('yyyy-MM-dd', $datetool.date))
+            #set ($todayPageKey = $datetool.format('yyyyMMdd', $datetool.date))
+            #set ($todayDate = $datetool.toDate('yyyy-MM-dd', $todayText))
+            #set ($statsPageName = "InfoWiki.DATA.ViewStats.D${todayPageKey}")
+            #set ($statsDocument = $xwiki.getDocument($statsPageName))
+
+            #if (!$xwiki.hasAccessLevel('edit', "$xcontext.user", $statsPageName))
+              #set ($result = 'no-edit-right')
             #else
-              #set ($currentViews = $viewObject.get('views'))
-              #if (!$currentViews)
-                #set ($currentViews = 0)
-              #end
-              #set ($discard = $viewObject.set('views', $math.add($currentViews, 1)))
-            #end
+              #set ($viewObject = '')
 
-            #set ($discard = $statsDocument.setTitle("Statistiques ${todayText}"))
-            #set ($discard = $statsDocument.save("Consultation ${sourceFullName}", true))
-            #set ($result = 'tracked')
+              #foreach ($candidateObject in $statsDocument.getObjects($viewClassName))
+                #if ($candidateObject)
+                  #set ($candidateDocument = "$!candidateObject.get('document')")
+                  #set ($candidateDayValue = $candidateObject.get('day'))
+                  #set ($candidateDay = '')
+                  #if ($candidateDayValue)
+                    #set ($candidateDay = $datetool.format('yyyy-MM-dd', $candidateDayValue))
+                  #end
+
+                  #if ("$candidateDocument" == "$sourceFullName" && "$candidateDay" == "$todayText")
+                    #set ($viewObject = $candidateObject)
+                  #end
+                #end
+              #end
+
+              #if ("$viewObject" == '')
+                #set ($viewObject = $statsDocument.newObject($viewClassName))
+                #set ($discard = $viewObject.set('document', $sourceFullName))
+                #set ($discard = $viewObject.set('day', $todayDate))
+                #set ($discard = $viewObject.set('views', 1))
+              #else
+                #set ($currentViews = $viewObject.get('views'))
+                #if (!$currentViews)
+                  #set ($currentViews = 0)
+                #end
+                #set ($discard = $viewObject.set('views', $math.add($currentViews, 1)))
+              #end
+
+              #set ($discard = $statsDocument.setTitle("Statistiques ${todayText}"))
+              #set ($discard = $statsDocument.save("Consultation ${sourceFullName}", true))
+              #set ($result = 'tracked')
+            #end
           #end
         #end
       #end
