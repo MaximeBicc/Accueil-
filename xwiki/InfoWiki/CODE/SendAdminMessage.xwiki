@@ -17,7 +17,7 @@
     #set ($result = 'no-edit-right')
   #else
     #set ($senderName = "$!request.getParameter('senderName')")
-    #set ($userMessage = "$!request.getParameter('message')")
+    #set ($userMessage = "$!request.getParameter('adminMessageText')")
 
     #if ("$senderName" == '' || "$userMessage" == '')
       #set ($result = 'missing-fields')
