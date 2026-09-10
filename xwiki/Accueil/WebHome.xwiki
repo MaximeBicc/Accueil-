@@ -82,43 +82,51 @@
 #set ($formationCount = $formationQuery.count())
 
 ## ============================================================
-## À LA UNE — PLUS VUS SUR 30 JOURS, SANS DROIT PROGRAMMING
+## À LA UNE — PLUS VUS SUR 30 JOURS
 ## ============================================================
-## Les pages quotidiennes de stats sont listées avec une requête XWQL
-## sûre qui retourne uniquement les noms de documents. L'agrégation est
-## ensuite faite en Velocity sur les XObjects de InfoWiki.CODE.viewClass.WebHome.
-#set ($cutoffCalendar = $datetool.systemCalendar)
-#set ($discard = $cutoffCalendar.add(5, -29))
-#set ($cutoffText = $datetool.format('yyyy-MM-dd', $datetool.toDate($cutoffCalendar)))
-#set ($cutoffDate = $datetool.toDate('yyyy-MM-dd', $cutoffText))
-
-#set ($statsRootSpace = 'InfoWiki.DATA.ViewStats')
-#set ($statsRootSpaceLike = "${statsRootSpace}.%")
-#set ($statsPageQuery = $services.query.xwql("where ((doc.space = :statsRootSpace) or (doc.space like :statsRootSpaceLike)) and doc.language = ''"))
-#set ($discard = $statsPageQuery.bindValue('statsRootSpace', $statsRootSpace))
-#set ($discard = $statsPageQuery.bindValue('statsRootSpaceLike', $statsRootSpaceLike))
-#set ($statsPageNames = $statsPageQuery.execute())
-
+## Les pages de statistiques sont déterministes : une page par jour,
+## InfoWiki.DATA.ViewStats.DYYYYMMDD. On lit donc directement les 30 pages
+## attendues au lieu de dépendre d'une requête XWQL puis du champ day.
+## Cela élimine les deux filtres qui pouvaient vider popularTotals.
 #set ($popularTotals = {})
-#foreach ($statsPageName in $statsPageNames)
+
+#foreach ($dayOffset in [0..29])
+  #set ($statsCalendar = $datetool.systemCalendar)
+  #if ($dayOffset > 0)
+    #set ($negativeOffset = 0 - $dayOffset)
+    #set ($discard = $statsCalendar.add(5, $negativeOffset))
+  #end
+  #set ($statsDayKey = $datetool.format('yyyyMMdd', $datetool.toDate($statsCalendar)))
+  #set ($statsPageName = "InfoWiki.DATA.ViewStats.D${statsDayKey}")
   #set ($statsPageDocument = $xwiki.getDocument($statsPageName))
+
   #foreach ($viewObject in $statsPageDocument.getObjects($viewClassName))
     #if ($viewObject)
       #set ($trackedDocumentName = "$!viewObject.get('document')")
-      #set ($trackedDay = $viewObject.get('day'))
       #set ($trackedViews = $viewObject.get('views'))
-      #if (!$trackedViews)
-        #set ($trackedViews = 0)
-      #end
 
-      #if ($trackedDay && $trackedDay.time >= $cutoffDate.time && $documentationDocumentNames.contains("$trackedDocumentName"))
-        #set ($existingViews = $popularTotals.get("$trackedDocumentName"))
-        #if (!$existingViews)
-          #set ($existingViews = 0)
+      ## On revalide directement le document suivi au lieu de comparer deux
+      ## chaînes issues de sources différentes.
+      #if ("$trackedDocumentName" != '')
+        #set ($trackedDocument = $xwiki.getDocument($trackedDocumentName))
+        #set ($trackedTypeObject = $trackedDocument.getFirstObject('type'))
+
+        #if ($trackedTypeObject && "$!trackedTypeObject.get('type')" == 'document')
+          #if (!$trackedViews)
+            #set ($trackedViews = 0)
+          #end
+          #set ($existingViews = $popularTotals.get("$trackedDocumentName"))
+          #if (!$existingViews)
+            #set ($existingViews = 0)
+          #end
+
+          ## $mathtool est le MathTool réellement exposé par XWiki et accepte
+          ## aussi les nombres représentés sous forme de texte.
+          #set ($nextTotalViews = $mathtool.add($existingViews, $trackedViews))
+          #if ($nextTotalViews)
+            #set ($discard = $popularTotals.put("$trackedDocumentName", $nextTotalViews))
+          #end
         #end
-        ## Ne pas utiliser $math.add sur cette instance : il renvoie une valeur vide.
-        #set ($nextTotalViews = $existingViews + $trackedViews)
-        #set ($discard = $popularTotals.put("$trackedDocumentName", $nextTotalViews))
       #end
     #end
   #end
