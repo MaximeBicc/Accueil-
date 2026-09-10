@@ -262,7 +262,7 @@
       <article class="nh-card nh-feed-card">
         <div class="nh-card-heading">
           <div class="nh-card-heading-main">
-            <div class="nh-card-icon" aria-hidden="true">◎</div>
+            <div class="nh-card-icon" aria-hidden="true"><span class="fa fa-bullhorn"></span></div>
             <div>
               <h3>À la une</h3>
               <span class="nh-card-kicker">Les documents à suivre en priorité</span>
@@ -335,7 +335,7 @@
       <article class="nh-card nh-recent-card">
         <div class="nh-card-heading">
           <div class="nh-card-heading-main">
-            <div class="nh-card-icon" aria-hidden="true">↗</div>
+            <div class="nh-card-icon" aria-hidden="true"><span class="fa fa-bolt"></span></div>
             <div>
               <h3>Accès rapides</h3>
               <span class="nh-card-kicker">Vos 10 derniers documents ouverts</span>
@@ -346,34 +346,29 @@
         <ol class="nh-doc-list" data-recent-documents>
           <li class="nh-feed-empty">Chargement de votre historique récent…</li>
         </ol>
-        <span class="nh-stats-chip is-enabled">Historique personnel navigateur</span>
       </article>
 
-      <article class="nh-card nh-info-card">
+      <article class="nh-card nh-favorites-card">
         <div class="nh-card-heading">
           <div class="nh-card-heading-main">
-            <div class="nh-card-icon" aria-hidden="true">◌</div>
+            <div class="nh-card-icon" aria-hidden="true"><span class="fa fa-star"></span></div>
             <div>
-              <h3>Informations utiles</h3>
-              <span class="nh-card-kicker">Repères du portail</span>
+              <h3>Favoris</h3>
+              <span class="nh-card-kicker">Vos documents favoris</span>
             </div>
           </div>
         </div>
-        <div class="nh-info-stack">
-          <div class="nh-info-row"><strong>Documentation</strong><span>$escapetool.xml($documentationCount) documents disponibles.</span></div>
-          <div class="nh-info-row"><strong>Formation</strong><span>$escapetool.xml($formationCount) éléments de formation disponibles.</span></div>
-          <div class="nh-info-row"><strong>Suivi des vues</strong><span>Comptage interne InfoWiki, indépendant du module Statistics.</span></div>
-        </div>
+        <div class="nh-feed-empty">Vos documents favoris apparaîtront ici.</div>
       </article>
     </section>
 
     <section class="nh-bottom" aria-label="Ressources du wiki">
       <div class="nh-stat">
-        <span class="nh-stat-orb" aria-hidden="true">D</span>
+        <div class="nh-stat-orb" aria-hidden="true"><i class="fa fa-book"></i></div>
         <div><strong>$escapetool.xml($documentationCount)</strong><span>Documentations</span></div>
       </div>
       <div class="nh-stat">
-        <span class="nh-stat-orb" aria-hidden="true">F</span>
+        <div class="nh-stat-orb" aria-hidden="true"><i class="fa fa-graduation-cap"></i></div>
         <div><strong>$escapetool.xml($formationCount)</strong><span>Formations</span></div>
       </div>
       <div class="nh-admin">
