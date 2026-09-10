@@ -1,0 +1,180 @@
+{{velocity}}
+#set ($showcomments = false)
+#set ($showannotations = false)
+#set ($showattachments = false)
+#set ($showhistory = false)
+#set ($showinformation = false)
+#set ($displayDocExtra = false)
+
+#set ($messageClassName = 'InfoWiki.CODE.AdminMessageClass.WebHome')
+#set ($storagePageName = 'InfoWiki.DATA.AdminMessages.WebHome')
+#set ($storageDocument = $xwiki.getDocument($storagePageName))
+#set ($actionStatus = '')
+#set ($actionMessage = '')
+
+## ============================================================
+## ACTIONS : LU / NON LU — FAIT / PAS FAIT
+## ============================================================
+#if ("$!request.getMethod()" == 'POST' && "$!request.getParameter('adminMessageAction')" != '')
+  #if (!$services.csrf.isTokenValid("$!request.getParameter('form_token')"))
+    #set ($actionStatus = 'error')
+    #set ($actionMessage = 'Session expirée. Recharge la page puis réessaie.')
+  #elseif (!$xwiki.hasAccessLevel('edit', "$xcontext.user", $storagePageName))
+    #set ($actionStatus = 'error')
+    #set ($actionMessage = 'Tu n’as pas le droit de modifier la boîte de réception.')
+  #else
+    #set ($targetNumber = "$!request.getParameter('messageNumber')")
+    #set ($adminMessageAction = "$!request.getParameter('adminMessageAction')")
+    #set ($targetObject = '')
+
+    #foreach ($candidateObject in $storageDocument.getObjects($messageClassName))
+      #if ($candidateObject && "$!candidateObject.number" == "$targetNumber")
+        #set ($targetObject = $candidateObject)
+      #end
+    #end
+
+    #if ("$targetObject" == '')
+      #set ($actionStatus = 'error')
+      #set ($actionMessage = 'Message introuvable.')
+    #elseif ("$adminMessageAction" == 'toggle-read')
+      #set ($currentRead = "$!targetObject.get('isRead')")
+      #if ("$currentRead" == '1' || "$currentRead" == 'true')
+        #set ($discard = $targetObject.set('isRead', 0))
+      #else
+        #set ($discard = $targetObject.set('isRead', 1))
+      #end
+      #set ($discard = $storageDocument.save('Mise à jour état lu du message administrateur', true))
+      #set ($actionStatus = 'success')
+      #set ($actionMessage = 'État de lecture mis à jour.')
+    #elseif ("$adminMessageAction" == 'toggle-done')
+      #set ($currentDone = "$!targetObject.get('isDone')")
+      #if ("$currentDone" == '1' || "$currentDone" == 'true')
+        #set ($discard = $targetObject.set('isDone', 0))
+      #else
+        #set ($discard = $targetObject.set('isDone', 1))
+      #end
+      #set ($discard = $storageDocument.save('Mise à jour état fait du message administrateur', true))
+      #set ($actionStatus = 'success')
+      #set ($actionMessage = 'État de traitement mis à jour.')
+    #end
+  #end
+#end
+
+#set ($messageObjects = $storageDocument.getObjects($messageClassName))
+#set ($messageCount = $messageObjects.size())
+#set ($unreadCount = 0)
+#set ($todoCount = 0)
+
+#foreach ($messageObject in $messageObjects)
+  #if ($messageObject)
+    #set ($readValue = "$!messageObject.get('isRead')")
+    #set ($doneValue = "$!messageObject.get('isDone')")
+    #if ("$readValue" != '1' && "$readValue" != 'true')
+      #set ($unreadCount = $unreadCount + 1)
+    #end
+    #if ("$doneValue" != '1' && "$doneValue" != 'true')
+      #set ($todoCount = $todoCount + 1)
+    #end
+  #end
+#end
+
+{{html clean="false"}}
+<div class="container-fluid">
+  <div class="page-header">
+    <h1>Messages administrateur</h1>
+    <p class="text-muted">$escapetool.xml($messageCount) message(s) · $escapetool.xml($unreadCount) non lu(s) · $escapetool.xml($todoCount) à faire</p>
+  </div>
+
+  #if ("$actionMessage" != '')
+    #if ("$actionStatus" == 'success')
+      <div class="alert alert-success">$escapetool.xml($actionMessage)</div>
+    #else
+      <div class="alert alert-danger">$escapetool.xml($actionMessage)</div>
+    #end
+  #end
+
+  #if (!$xwiki.exists($messageClassName))
+    <div class="alert alert-warning">
+      La classe <strong>InfoWiki.CODE.AdminMessageClass</strong> n’existe pas encore. Crée-la avec les propriétés décrites dans le fichier de configuration du dépôt.
+    </div>
+  #elseif ($messageCount == 0)
+    <div class="alert alert-info">Aucun message pour le moment.</div>
+  #else
+    <div class="table-responsive">
+      <table class="table table-hover table-striped">
+        <thead>
+          <tr>
+            <th>Lu</th>
+            <th>Fait</th>
+            <th>Date</th>
+            <th>Utilisateur</th>
+            <th>Nom</th>
+            <th>Message</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          #foreach ($messageObject in $messageObjects)
+            #if ($messageObject)
+              #set ($readValue = "$!messageObject.get('isRead')")
+              #set ($doneValue = "$!messageObject.get('isDone')")
+              #set ($isRead = false)
+              #set ($isDone = false)
+              #if ("$readValue" == '1' || "$readValue" == 'true')
+                #set ($isRead = true)
+              #end
+              #if ("$doneValue" == '1' || "$doneValue" == 'true')
+                #set ($isDone = true)
+              #end
+              #set ($createdValue = $messageObject.get('created'))
+              <tr>
+                <td>
+                  #if ($isRead)
+                    <span class="label label-success">Lu</span>
+                  #else
+                    <span class="label label-warning">Non lu</span>
+                  #end
+                </td>
+                <td>
+                  #if ($isDone)
+                    <span class="label label-success">Fait</span>
+                  #else
+                    <span class="label label-default">Pas fait</span>
+                  #end
+                </td>
+                <td>
+                  #if ($createdValue)
+                    $escapetool.xml($datetool.format('dd/MM/yyyy HH:mm', $createdValue))
+                  #end
+                </td>
+                <td>$escapetool.xml("$!messageObject.get('senderUser')")</td>
+                <td>$escapetool.xml("$!messageObject.get('senderName')")</td>
+                <td style="white-space:pre-wrap;max-width:520px;">$escapetool.xml("$!messageObject.get('message')")</td>
+                <td>
+                  <form method="post" action="" style="display:inline-block;margin-right:5px;">
+                    <input type="hidden" name="form_token" value="$escapetool.xml($services.csrf.getToken())" />
+                    <input type="hidden" name="messageNumber" value="$escapetool.xml($messageObject.number)" />
+                    <input type="hidden" name="adminMessageAction" value="toggle-read" />
+                    <button type="submit" class="btn btn-default btn-xs">
+                      #if ($isRead)Marquer non lu#else Marquer lu#end
+                    </button>
+                  </form>
+                  <form method="post" action="" style="display:inline-block;">
+                    <input type="hidden" name="form_token" value="$escapetool.xml($services.csrf.getToken())" />
+                    <input type="hidden" name="messageNumber" value="$escapetool.xml($messageObject.number)" />
+                    <input type="hidden" name="adminMessageAction" value="toggle-done" />
+                    <button type="submit" class="btn btn-primary btn-xs">
+                      #if ($isDone)Remettre à faire#else Marquer fait#end
+                    </button>
+                  </form>
+                </td>
+              </tr>
+            #end
+          #end
+        </tbody>
+      </table>
+    </div>
+  #end
+</div>
+{{/html}}
+{{/velocity}}
