@@ -94,13 +94,12 @@
       #set ($result = "diag-5|edit-right=false|$statsPageName")
     #end
 
-  ## Étape 6 : accès à la page de stats et à la XClass, sans sauvegarde.
+  ## Étape 6 : accès à la page de stats et recherche du compteur existant.
   #elseif ("$diagnosticStep" == '6')
     #set ($documentReferenceText = "$!request.getParameter('documentReference')")
     #set ($sourceReference = $services.model.resolveDocument($documentReferenceText))
     #set ($sourceDocument = $xwiki.getDocument($sourceReference))
     #set ($sourceFullName = "$!sourceDocument.fullName")
-    #set ($todayText = $datetool.format('yyyy-MM-dd', $datetool.date))
     #set ($todayPageKey = $datetool.format('yyyyMMdd', $datetool.date))
     #set ($statsPageName = "InfoWiki.DATA.ViewStats.D${todayPageKey}")
     #set ($statsDocument = $xwiki.getDocument($statsPageName))
@@ -108,12 +107,7 @@
     #foreach ($candidateObject in $statsDocument.getObjects($viewClassName))
       #if ($candidateObject)
         #set ($candidateDocument = "$!candidateObject.get('document')")
-        #set ($candidateDayValue = $candidateObject.get('day'))
-        #set ($candidateDay = '')
-        #if ($candidateDayValue)
-          #set ($candidateDay = $datetool.format('yyyy-MM-dd', $candidateDayValue))
-        #end
-        #if ("$candidateDocument" == "$sourceFullName" && "$candidateDay" == "$todayText")
+        #if ("$candidateDocument" == "$sourceFullName")
           #set ($viewObject = $candidateObject)
         #end
       #end
@@ -152,12 +146,7 @@
         #foreach ($candidateObject in $statsDocument.getObjects($viewClassName))
           #if ($candidateObject)
             #set ($candidateDocument = "$!candidateObject.get('document')")
-            #set ($candidateDayValue = $candidateObject.get('day'))
-            #set ($candidateDay = '')
-            #if ($candidateDayValue)
-              #set ($candidateDay = $datetool.format('yyyy-MM-dd', $candidateDayValue))
-            #end
-            #if ("$candidateDocument" == "$sourceFullName" && "$candidateDay" == "$todayText")
+            #if ("$candidateDocument" == "$sourceFullName")
               #set ($viewObject = $candidateObject)
             #end
           #end
@@ -231,16 +220,12 @@
             #else
               #set ($viewObject = '')
 
+              ## Une page DYYYYMMDD représente déjà un jour unique :
+              ## le document suffit donc pour retrouver le compteur à incrémenter.
               #foreach ($candidateObject in $statsDocument.getObjects($viewClassName))
                 #if ($candidateObject)
                   #set ($candidateDocument = "$!candidateObject.get('document')")
-                  #set ($candidateDayValue = $candidateObject.get('day'))
-                  #set ($candidateDay = '')
-                  #if ($candidateDayValue)
-                    #set ($candidateDay = $datetool.format('yyyy-MM-dd', $candidateDayValue))
-                  #end
-
-                  #if ("$candidateDocument" == "$sourceFullName" && "$candidateDay" == "$todayText")
+                  #if ("$candidateDocument" == "$sourceFullName")
                     #set ($viewObject = $candidateObject)
                   #end
                 #end
