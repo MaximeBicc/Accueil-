@@ -1,23 +1,16 @@
-{{velocity}}
+{{velocity output="false"}}
 ## ============================================================
-## TEST TEMPORAIRE — Sheet liée à TestPage.Doc.CODE.docClass
-## Objectif : prouver qu'une Sheet de classe s'exécute bien sur chaque
-## document portant cette XClass, puis charger la JSX de tracking.
+## Sheet liée à TestPage.Doc.CODE.docClass
 ##
-## À supprimer / simplifier après validation.
+## Son seul rôle est de demander le chargement de la JSX de tracking.
+## IMPORTANT : ne pas réinjecter $doc.content depuis ce bloc Velocity.
+## Si le contenu du document contient lui-même un script (Velocity, Groovy,
+## etc.), XWiki le considérerait comme un script imbriqué et le refuserait.
 ## ============================================================
-
 #set ($discard = $xwiki.jsx.use('TestPage.accueilV2'))
-
-{{html clean="false"}}
-<div id="docclass-tracking-sheet-probe" style="margin:10px 0;padding:10px 12px;border:1px solid #b7c7e6;border-radius:8px;background:#f4f7fc;color:#0d2d73;font-size:13px;font-weight:700;">
-  ✅ TEST SHEET docClass actif sur : $escapetool.xml($doc.fullName)
-</div>
-{{/html}}
-
-## Les pages sont actuellement blanches par défaut. Si du contenu de page
-## existe malgré tout, on le restitue afin de ne pas le masquer pendant le test.
-#if ("$!doc.content" != '')
-  $doc.content
-#end
 {{/velocity}}
+
+(% id="docclass-tracking-sheet-probe" style="margin:10px 0;padding:10px 12px;border:1px solid #b7c7e6;border-radius:8px;background:#f4f7fc;color:#0d2d73;font-size:13px;font-weight:700;" %)
+(((
+✅ TEST SHEET docClass actif — chargement du tracking demandé.
+)))
