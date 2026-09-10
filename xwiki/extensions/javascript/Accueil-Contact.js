@@ -1,8 +1,10 @@
 (function () {
   'use strict';
 
-  var MESSAGE_ENDPOINT =
-    '$escapetool.javascript($xwiki.getURL("InfoWiki.CODE.SendAdminMessage.WebHome", "get"))';
+  var MESSAGE_ENDPOINTS = [
+    '$escapetool.javascript($xwiki.getURL("InfoWiki.CODE.SendAdminMessage.WebHome", "get"))',
+    '$escapetool.javascript($xwiki.getURL("InfoWiki.CODE.SendAdminMessage", "get"))'
+  ];
 
   function ready(callback) {
     if (document.readyState === 'loading') {
@@ -27,7 +29,6 @@
 
     if (!modal || !openButton) return;
 
-    /* Plus d'email : le formulaire alimente la boîte interne XWiki. */
     if (description) {
       description.textContent = 'Votre message sera enregistré dans la boîte interne de l’administrateur.';
     }
@@ -102,11 +103,6 @@
           return;
         }
 
-        if (!MESSAGE_ENDPOINT) {
-          showToast('La boîte de réception interne est indisponible.', true);
-          return;
-        }
-
         var body = new URLSearchParams();
         body.set('form_token', token);
         body.set('senderName', senderName);
@@ -114,58 +110,78 @@
 
         sending = true;
 
-        var request = new XMLHttpRequest();
-        request.open('POST', MESSAGE_ENDPOINT, true);
-        request.withCredentials = true;
-        request.setRequestHeader(
-          'Content-Type',
-          'application/x-www-form-urlencoded; charset=UTF-8'
-        );
-        request.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-        request.timeout = 8000;
+        function sendToEndpoint(endpointIndex) {
+          var endpoint = MESSAGE_ENDPOINTS[endpointIndex] || '';
 
-        request.onreadystatechange = function () {
-          if (request.readyState !== 4) return;
-          sending = false;
-
-          var result = String(request.responseText || '');
-
-          if (request.status < 200 || request.status >= 300) {
-            showToast(
-              'Impossible d’enregistrer le message (HTTP ' + request.status + ').',
-              true
-            );
+          if (!endpoint) {
+            sending = false;
+            showToast('La boîte de réception interne est indisponible.', true);
             return;
           }
 
-          if (result.indexOf('saved') !== -1) {
-            if (messageField) messageField.value = '';
-            closeModal();
-            showToast('Votre message a bien été transmis à l’administrateur.', false);
-          } else if (result.indexOf('class-missing') !== -1) {
-            showToast('La classe AdminMessageClass doit être créée dans XWiki.', true);
-          } else if (result.indexOf('no-edit-right') !== -1) {
-            showToast('Vous n’avez pas le droit d’enregistrer un message dans la boîte interne.', true);
-          } else if (result.indexOf('csrf') !== -1) {
-            showToast('Votre session a expiré. Rechargez la page puis réessayez.', true);
-          } else if (result.indexOf('missing-fields') !== -1) {
-            showToast('Le nom et le message sont obligatoires.', true);
-          } else {
-            showToast('Le message n’a pas pu être enregistré. Réponse : ' + result.slice(0, 120), true);
-          }
-        };
+          var request = new XMLHttpRequest();
+          request.open('POST', endpoint, true);
+          request.withCredentials = true;
+          request.setRequestHeader(
+            'Content-Type',
+            'application/x-www-form-urlencoded; charset=UTF-8'
+          );
+          request.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+          request.timeout = 8000;
 
-        request.onerror = function () {
-          sending = false;
-          showToast('Erreur réseau pendant l’enregistrement du message.', true);
-        };
+          request.onreadystatechange = function () {
+            if (request.readyState !== 4) return;
 
-        request.ontimeout = function () {
-          sending = false;
-          showToast('L’enregistrement du message a expiré.', true);
-        };
+            var result = String(request.responseText || '');
 
-        request.send(body.toString());
+            /* Selon la façon dont la page a été créée dans XWiki, elle peut
+               être terminale ou imbriquée (WebHome). On essaie les deux. */
+            if (request.status === 404 && endpointIndex + 1 < MESSAGE_ENDPOINTS.length) {
+              sendToEndpoint(endpointIndex + 1);
+              return;
+            }
+
+            sending = false;
+
+            if (request.status < 200 || request.status >= 300) {
+              showToast(
+                'Impossible d’enregistrer le message (HTTP ' + request.status + ').',
+                true
+              );
+              return;
+            }
+
+            if (result.indexOf('saved') !== -1) {
+              if (messageField) messageField.value = '';
+              closeModal();
+              showToast('Votre message a bien été transmis à l’administrateur.', false);
+            } else if (result.indexOf('class-missing') !== -1) {
+              showToast('La classe AdminMessageClass doit être créée dans XWiki.', true);
+            } else if (result.indexOf('no-edit-right') !== -1) {
+              showToast('Vous n’avez pas le droit d’enregistrer un message dans la boîte interne.', true);
+            } else if (result.indexOf('csrf') !== -1) {
+              showToast('Votre session a expiré. Rechargez la page puis réessayez.', true);
+            } else if (result.indexOf('missing-fields') !== -1) {
+              showToast('Le nom et le message sont obligatoires.', true);
+            } else {
+              showToast('Le message n’a pas pu être enregistré. Réponse : ' + result.slice(0, 120), true);
+            }
+          };
+
+          request.onerror = function () {
+            sending = false;
+            showToast('Erreur réseau pendant l’enregistrement du message.', true);
+          };
+
+          request.ontimeout = function () {
+            sending = false;
+            showToast('L’enregistrement du message a expiré.', true);
+          };
+
+          request.send(body.toString());
+        }
+
+        sendToEndpoint(0);
       });
     }
   }
