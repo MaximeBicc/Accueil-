@@ -5,6 +5,13 @@
 ## Charge les JavaScriptExtension portées par la vraie page d'accueil.
 ## La référence XWiki utilisée ici doit inclure WebHome car acceuilV2
 ## est une page imbriquée non terminale dans cette instance.
+##
+## IMPORTANT POUR LE TITRE DE LA SHEET : dans le champ "Titre" de cette
+## page XWiki, utiliser une valeur dynamique afin de conserver le titre
+## propre au document affiché :
+## #if($doc.pageReference.name == 'docClassTrackingSheet')docClass Tracking Sheet#{else}$services.display.title($doc, {'displayerHint': 'default', 'outputSyntaxId': 'plain/1.0'})#end
+## La Sheet n'écrit jamais le titre des documents ; elle ne fait que
+## contrôler leur rendu lorsqu'ils sont affichés.
 ## ============================================================
 #set ($discard = $xwiki.jsx.use('TestPage.acceuilV2.WebHome'))
 {{/velocity}}
