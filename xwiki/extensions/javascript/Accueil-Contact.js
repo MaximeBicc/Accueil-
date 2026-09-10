@@ -131,7 +131,10 @@
           var result = String(request.responseText || '');
 
           if (request.status < 200 || request.status >= 300) {
-            showToast('Impossible d’enregistrer le message.', true);
+            showToast(
+              'Impossible d’enregistrer le message (HTTP ' + request.status + ').',
+              true
+            );
             return;
           }
 
@@ -145,8 +148,10 @@
             showToast('Vous n’avez pas le droit d’enregistrer un message dans la boîte interne.', true);
           } else if (result.indexOf('csrf') !== -1) {
             showToast('Votre session a expiré. Rechargez la page puis réessayez.', true);
+          } else if (result.indexOf('missing-fields') !== -1) {
+            showToast('Le nom et le message sont obligatoires.', true);
           } else {
-            showToast('Le message n’a pas pu être enregistré.', true);
+            showToast('Le message n’a pas pu être enregistré. Réponse : ' + result.slice(0, 120), true);
           }
         };
 
