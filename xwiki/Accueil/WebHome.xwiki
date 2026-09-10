@@ -11,9 +11,7 @@
 ##   JavaScript Extension : Accueil - Modules
 ##   JavaScript Extension : Accueil - Contact
 ##   JavaScript Extension : Accueil - Flux
-##
-## Extension globale du sous-wiki :
-##   JavaScript Extension : Accueil - Tracking
+##   JavaScript Extension : Accueil - Tracking (chargée via la ClassSheet)
 ##
 ## Règle : aucun CSS et aucun JavaScript métier dans WebHome.xwiki.
 ## ============================================================
@@ -28,13 +26,13 @@
 ## ============================================================
 ## CONFIGURATION
 ## ============================================================
-#set ($documentationRootSpace = 'Documentation')
+#set ($documentationRootSpace = 'TestPage.PAGE.Doc')
 #set ($formationRootSpace = 'Formation')
 #set ($documentationRootPage = "${documentationRootSpace}.WebHome")
 #set ($formationRootPage = "${formationRootSpace}.WebHome")
 #set ($documentationSpaceLike = "${documentationRootSpace}.%")
 #set ($formationSpaceLike = "${formationRootSpace}.%")
-#set ($viewClassName = 'InfoWiki.CODE.viewClass')
+#set ($viewClassName = 'InfoWiki.CODE.viewClass.WebHome')
 
 ## Logo NAVAL GROUP attaché à cette page.
 #set ($navalLogoAttachmentName = 'naval-group-logo.png')
@@ -88,7 +86,7 @@
 ## ============================================================
 ## Les pages quotidiennes de stats sont listées avec une requête XWQL
 ## sûre qui retourne uniquement les noms de documents. L'agrégation est
-## ensuite faite en Velocity sur les XObjects de InfoWiki.CODE.viewClass.
+## ensuite faite en Velocity sur les XObjects de InfoWiki.CODE.viewClass.WebHome.
 #set ($cutoffCalendar = $datetool.systemCalendar)
 #set ($discard = $cutoffCalendar.add(5, -29))
 #set ($cutoffText = $datetool.format('yyyy-MM-dd', $datetool.toDate($cutoffCalendar)))
@@ -193,7 +191,7 @@
     </header>
 
     <div class="nh-module-source" aria-hidden="true">
-      <div data-home-module data-label="Documentation" data-icon="D" data-title="Documentation" data-description="Retrouvez les procédures, les guides de référence et les connaissances partagées de votre organisation." data-url="$escapetool.xml($xwiki.getURL('Documentation.WebHome', 'view'))">
+      <div data-home-module data-label="Documentation" data-icon="D" data-title="Documentation" data-description="Retrouvez les procédures, les guides de référence et les connaissances partagées de votre organisation." data-url="$escapetool.xml($xwiki.getURL('TestPage.PAGE.Doc.WebHome', 'view'))">
         <span data-module-point>Procédures et modes opératoires</span>
         <span data-module-point>Référentiels techniques</span>
         <span data-module-point>Guides et bonnes pratiques</span>
