@@ -46,7 +46,7 @@
   function endpointURL(meta) {
     try {
       var reference = XWiki.Model.resolve(
-        'InfoWiki.CODE.TrackView',
+        'InfoWiki.CODE.TrackView.WebHome',
         XWiki.EntityType.DOCUMENT,
         meta.documentReference
       );
