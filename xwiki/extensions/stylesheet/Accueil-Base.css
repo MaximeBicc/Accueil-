@@ -144,14 +144,3 @@
   align-items: center;
   min-height: 550px;
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .naval-home *,
-  .naval-home *::before,
-  .naval-home *::after {
-    animation-duration: .001ms !important;
-    animation-iteration-count: 1 !important;
-    scroll-behavior: auto !important;
-    transition-duration: .001ms !important;
-  }
-}
