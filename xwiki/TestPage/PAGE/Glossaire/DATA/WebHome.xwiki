@@ -36,10 +36,12 @@ GLOSSAIRE_ERROR|Objet glossaire introuvable
       #elseif(!$acronymParam || !$labelParam || !$definitionParam)
 GLOSSAIRE_ERROR|Données incomplètes
       #else
+        ## Pas de .trim() côté Velocity : cette instance XWiki les rejette.
+        ## Les champs sont déjà nettoyés côté JavaScript avant l'envoi.
         #set($oldAcronym = "$!glossaireObj.getValue('acronyme')")
-        #set($newAcronym = $acronymParam.trim())
-        #set($newLabel = $labelParam.trim())
-        #set($newDefinition = $definitionParam.trim())
+        #set($newAcronym = "$!acronymParam")
+        #set($newLabel = "$!labelParam")
+        #set($newDefinition = "$!definitionParam")
 
         #if($newAcronym == "")
 GLOSSAIRE_ERROR|L'acronyme ne peut pas être vide
@@ -150,26 +152,37 @@ GLOSSAIRE_ERROR|Nombre de lignes d'import invalide
 
       #if($rowCount <= 0)
 GLOSSAIRE_ERROR|Aucune ligne à importer
+      #elseif($rowCount > 500)
+GLOSSAIRE_ERROR|Import limité à 500 lignes par fichier
       #else
-        #set($lastIndex = $rowCount - 1)
+        ## Ne pas utiliser une plage dynamique [0..$lastIndex] ici.
+        ## Sur cette instance elle ne parcourait qu'une seule ligne dans certains cas.
+        ## On utilise une plage statique et on s'arrête dès que rowCount est atteint.
+        #foreach($i in [0..499])
+          #if($i >= $rowCount)
+            #break
+          #end
 
-        #foreach($i in [0..$lastIndex])
           #set($acronymParam = "acronym_$i")
           #set($labelParam = "label_$i")
           #set($definitionParam = "definition_$i")
-          #set($importAcronym = "$!request.getParameter($acronymParam)".trim())
-          #set($importLabel = "$!request.getParameter($labelParam)".trim())
-          #set($importDefinition = "$!request.getParameter($definitionParam)".trim())
+          #set($importAcronymRaw = $request.getParameter($acronymParam))
+          #set($importLabelRaw = $request.getParameter($labelParam))
+          #set($importDefinitionRaw = $request.getParameter($definitionParam))
 
-          #if(!$importAcronym || !$importLabel || !$importDefinition)
+          ## Pas de .trim() côté Velocity. Les valeurs envoyées par le JS sont déjà nettoyées.
+          #set($importAcronym = "$!importAcronymRaw")
+          #set($importLabel = "$!importLabelRaw")
+          #set($importDefinition = "$!importDefinitionRaw")
+
+          #if(!$importAcronymRaw || !$importLabelRaw || !$importDefinitionRaw || $importAcronym == "" || $importLabel == "" || $importDefinition == "")
 ROW_ERROR|$i|Données incomplètes
             #set($skippedCount = $skippedCount + 1)
           #elseif($importAcronym.contains('$') || $importAcronym.contains('{') || $importAcronym.contains('}') || $importAcronym.contains('/'))
 ROW_ERROR|$i|Nom technique d'acronyme invalide
             #set($skippedCount = $skippedCount + 1)
           #else
-            ## Vérification serveur des doublons. Elle est refaite pour chaque ligne :
-            ## les lignes déjà créées pendant ce même import sont donc prises en compte.
+            ## Vérification serveur des doublons. Elle est refaite pour chaque ligne.
             #set($acronymExists = false)
             #set($labelExists = false)
             #set($existingDocNames = $xwiki.getSpaceDocsName($dataSpace))
@@ -180,8 +193,9 @@ ROW_ERROR|$i|Nom technique d'acronyme invalide
               #set($existingObj = $existingDoc.getObject($classPath))
 
               #if($existingObj)
-                #set($existingAcronym = "$!existingObj.getValue('acronyme')".trim())
-                #set($existingLabel = "$!existingObj.getValue('libelle')".trim())
+                ## Pas de .trim() ici non plus.
+                #set($existingAcronym = "$!existingObj.getValue('acronyme')")
+                #set($existingLabel = "$!existingObj.getValue('libelle')")
 
                 #if($existingAcronym.equalsIgnoreCase($importAcronym))
                   #set($acronymExists = true)
@@ -205,8 +219,6 @@ ROW_SKIP|$i|LABEL_DUPLICATE
               #end
               #set($skippedCount = $skippedCount + 1)
             #else
-              ## Trouve un nom de page technique disponible. Un acronyme accepté en
-              ## double reçoit automatiquement _1, _2... pour la page XWiki.
               #set($baseCandidateName = $importAcronym)
               #set($candidateName = $baseCandidateName)
               #set($counter = 1)
