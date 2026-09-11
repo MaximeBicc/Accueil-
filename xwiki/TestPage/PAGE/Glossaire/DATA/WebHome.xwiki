@@ -1,18 +1,18 @@
 {{velocity}}
 #set($classPath = "TestPage.PAGE.Glossaire.CODE.glossaireClass.WebHome")
+#set($dataSpace = "TestPage.PAGE.Glossaire.DATA")
 #set($dataSpaces = ['TestPage', 'PAGE', 'Glossaire', 'DATA'])
 #set($action = "$!request.action")
 
 ## Cette page sert d'endpoint AJAX pour le tableau du glossaire.
-## Un accès normal à DATA ne doit pas être refusé : le CSRF n'est contrôlé
-## que lorsqu'une vraie opération d'écriture (save/delete) est demandée.
-#if($action != "save" && $action != "delete")
+#if($action != "save" && $action != "delete" && $action != "import")
 GLOSSAIRE_READY
 #else
   #set($csrfToken = $request.getParameter("form_token"))
 
   #if(!$csrfToken || !$services.csrf.isTokenValid($csrfToken))
 GLOSSAIRE_ERROR|Jeton CSRF invalide ou absent
+
   #elseif($action == "save")
     #set($targetRef = "$!request.targetRef")
     #set($targetDoc = $xwiki.getDocument($targetRef))
@@ -35,18 +35,11 @@ GLOSSAIRE_ERROR|Données incomplètes
         #if($newAcronym == "")
 GLOSSAIRE_ERROR|L'acronyme ne peut pas être vide
         #else
-          ## On travaille avec de vraies DocumentReference XWiki.
-          ## Ne pas utiliser $xwiki.cleanName() ici : sur cette instance cet appel
-          ## peut rester sous forme d'expression Velocity non résolue et rendre tous
-          ## les acronymes invalides.
           #set($workingDoc = $targetDoc)
           #set($workingObj = $glossaireObj)
           #set($renameError = "")
 
           #if($newAcronym != $oldAcronym)
-            ## Le nom technique part directement de l'acronyme saisi.
-            ## On bloque seulement les caractères capables de produire une
-            ## expression Velocity littérale ou un sous-chemin accidentel.
             #set($baseCandidateName = $newAcronym)
 
             #if(!$baseCandidateName || $baseCandidateName == "" || $baseCandidateName.contains('$') || $baseCandidateName.contains('{') || $baseCandidateName.contains('}') || $baseCandidateName.contains('/'))
@@ -59,8 +52,6 @@ GLOSSAIRE_ERROR|L'acronyme ne peut pas être vide
               #set($candidateReference = false)
 
               #foreach($i in [1..100])
-                ## Les fiches du glossaire restent des pages TERMINALES directement
-                ## dans DATA, comme lors de leur création.
                 #set($terminalCandidateReference = $services.model.createDocumentReference('', $dataSpaces, $candidateName))
                 #set($nestedCandidateSpaces = ['TestPage', 'PAGE', 'Glossaire', 'DATA', $candidateName])
                 #set($nestedCandidateReference = $services.model.createDocumentReference('', $nestedCandidateSpaces, 'WebHome'))
@@ -85,19 +76,15 @@ GLOSSAIRE_ERROR|L'acronyme ne peut pas être vide
               #if(!$nameAvailable || !$candidateReference)
                 #set($renameError = "Impossible de trouver un nom de page disponible")
               #elseif(!$candidateReference.equals($sourceReference))
-                ## L'API reçoit uniquement des références typées : aucune chaîne du
-                ## type ${candidateName} n'est utilisée pour construire la destination.
                 #set($renameJob = $services.refactoring.rename($sourceReference, $candidateReference))
 
                 #if(!$renameJob)
                   #set($renameError = "Le service XWiki de renommage n'a pas pu démarrer")
                 #else
                   #set($discard = $renameJob.join())
-
-                  ## On recharge le document à sa destination réelle.
                   #set($renamedDoc = $xwiki.getDocument($candidateReference))
+
                   #if($renamedDoc.isNew())
-                    ## Compatibilité avec une page éventuellement convertie en page imbriquée.
                     #set($renamedDoc = $xwiki.getDocument($nestedCandidateReference))
                   #end
 
@@ -120,14 +107,12 @@ GLOSSAIRE_ERROR|L'acronyme ne peut pas être vide
           #if($renameError != "")
 GLOSSAIRE_ERROR|$renameError
           #else
-            ## On modifie les données seulement APRÈS avoir sécurisé le renommage.
             #set($discard = $workingObj.set("acronyme", $newAcronym))
             #set($discard = $workingObj.set("libelle", $newLabel))
             #set($discard = $workingObj.set("definition", $newDefinition))
             #set($discard = $workingDoc.setTitle($newAcronym))
             #set($discard = $workingDoc.save("Modification via interface Glossaire", true))
 
-            ## On renvoie toujours la référence du document réellement chargé par XWiki.
             #set($finalRef = $workingDoc.getFullName())
             #set($finalDocName = $workingDoc.getName())
 
@@ -140,6 +125,125 @@ GLOSSAIRE_OK|$finalRef|$finalDocName
         #end
       #end
     #end
+
+  #elseif($action == "import")
+    #set($rowCountNumber = $numbertool.toNumber("$!request.rowCount"))
+
+    #if(!$rowCountNumber)
+GLOSSAIRE_ERROR|Nombre de lignes d'import invalide
+    #else
+      #set($rowCount = $rowCountNumber.intValue())
+      #set($allowAcronymDuplicates = "$!request.allowAcronymDuplicates" == "true")
+      #set($allowLabelDuplicates = "$!request.allowLabelDuplicates" == "true")
+      #set($createdCount = 0)
+      #set($skippedCount = 0)
+
+      #if($rowCount <= 0)
+GLOSSAIRE_ERROR|Aucune ligne à importer
+      #else
+        #set($lastIndex = $rowCount - 1)
+
+        #foreach($i in [0..$lastIndex])
+          #set($acronymParam = "acronym_$i")
+          #set($labelParam = "label_$i")
+          #set($definitionParam = "definition_$i")
+          #set($importAcronym = "$!request.getParameter($acronymParam)".trim())
+          #set($importLabel = "$!request.getParameter($labelParam)".trim())
+          #set($importDefinition = "$!request.getParameter($definitionParam)".trim())
+
+          #if(!$importAcronym || !$importLabel || !$importDefinition)
+ROW_ERROR|$i|Données incomplètes
+            #set($skippedCount = $skippedCount + 1)
+          #elseif($importAcronym.contains('$') || $importAcronym.contains('{') || $importAcronym.contains('}') || $importAcronym.contains('/'))
+ROW_ERROR|$i|Nom technique d'acronyme invalide
+            #set($skippedCount = $skippedCount + 1)
+          #else
+            ## Vérification serveur des doublons. Elle est refaite pour chaque ligne :
+            ## les lignes déjà créées pendant ce même import sont donc prises en compte.
+            #set($acronymExists = false)
+            #set($labelExists = false)
+            #set($existingDocNames = $xwiki.getSpaceDocsName($dataSpace))
+
+            #foreach($existingDocName in $existingDocNames)
+              #set($existingRef = "${dataSpace}.${existingDocName}")
+              #set($existingDoc = $xwiki.getDocument($existingRef))
+              #set($existingObj = $existingDoc.getObject($classPath))
+
+              #if($existingObj)
+                #set($existingAcronym = "$!existingObj.getValue('acronyme')".trim())
+                #set($existingLabel = "$!existingObj.getValue('libelle')".trim())
+
+                #if($existingAcronym.equalsIgnoreCase($importAcronym))
+                  #set($acronymExists = true)
+                #end
+                #if($existingLabel.equalsIgnoreCase($importLabel))
+                  #set($labelExists = true)
+                #end
+              #end
+            #end
+
+            #set($blockedByAcronym = $acronymExists && !$allowAcronymDuplicates)
+            #set($blockedByLabel = $labelExists && !$allowLabelDuplicates)
+
+            #if($blockedByAcronym || $blockedByLabel)
+              #if($blockedByAcronym && $blockedByLabel)
+ROW_SKIP|$i|ACRONYM_AND_LABEL_DUPLICATE
+              #elseif($blockedByAcronym)
+ROW_SKIP|$i|ACRONYM_DUPLICATE
+              #else
+ROW_SKIP|$i|LABEL_DUPLICATE
+              #end
+              #set($skippedCount = $skippedCount + 1)
+            #else
+              ## Trouve un nom de page technique disponible. Un acronyme accepté en
+              ## double reçoit automatiquement _1, _2... pour la page XWiki.
+              #set($baseCandidateName = $importAcronym)
+              #set($candidateName = $baseCandidateName)
+              #set($counter = 1)
+              #set($candidateReference = false)
+
+              #foreach($n in [1..100])
+                #set($terminalReference = $services.model.createDocumentReference('', $dataSpaces, $candidateName))
+                #set($nestedSpaces = ['TestPage', 'PAGE', 'Glossaire', 'DATA', $candidateName])
+                #set($nestedReference = $services.model.createDocumentReference('', $nestedSpaces, 'WebHome'))
+                #set($terminalDoc = $xwiki.getDocument($terminalReference))
+                #set($nestedDoc = $xwiki.getDocument($nestedReference))
+
+                #if($terminalDoc.isNew() && $nestedDoc.isNew())
+                  #set($candidateReference = $terminalReference)
+                  #break
+                #else
+                  #set($suffix = "_$counter")
+                  #set($candidateName = "$baseCandidateName$suffix")
+                  #set($counter = $counter + 1)
+                #end
+              #end
+
+              #if(!$candidateReference)
+ROW_ERROR|$i|Impossible de trouver un nom de page disponible
+                #set($skippedCount = $skippedCount + 1)
+              #else
+                #set($newDoc = $xwiki.getDocument($candidateReference))
+                #set($newObj = $newDoc.newObject($classPath))
+                #set($discard = $newObj.set("acronyme", $importAcronym))
+                #set($discard = $newObj.set("libelle", $importLabel))
+                #set($discard = $newObj.set("definition", $importDefinition))
+                #set($discard = $newDoc.setTitle($importAcronym))
+                #set($discard = $newDoc.save("Import Excel via interface Glossaire", true))
+
+                #set($finalImportRef = $newDoc.getFullName())
+                #set($finalImportName = $newDoc.getName())
+ROW_OK|$i|$finalImportRef|$finalImportName
+                #set($createdCount = $createdCount + 1)
+              #end
+            #end
+          #end
+        #end
+
+GLOSSAIRE_IMPORT_OK|$createdCount|$skippedCount
+      #end
+    #end
+
   #elseif($action == "delete")
     #set($targetRef = "$!request.targetRef")
     #set($targetDoc = $xwiki.getDocument($targetRef))
