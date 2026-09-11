@@ -1,0 +1,611 @@
+{{velocity}}
+{{html}}
+#set($classPath = 'TestPage.PAGE.Liens.CODE.lienClass.WebHome')
+#set($dataSpace = 'TestPage.PAGE.Liens.DATA.LIENDATA')
+
+## Appel des extensions de peau (Skin Extensions) JavaScript et CSS
+$xwiki.jsx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
+$xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
+
+#set($discard = $xwiki.jsx.use('uicomponents/suggest/xwiki-selectize.js'))
+
+#set($user = $xcontext.user)
+#set($userDoc = $xwiki.getDocument($user))
+#set($userId = $userDoc.name)
+
+#if("$!request.action" == "checkAndCreate" && $request.acronyme && $request.libelle && $request.type && $request.definition)
+  #set($acronymeInput = $request.acronyme.trim())
+  #set($libelleInput = $request.libelle.trim())
+  #set($definitionInput = $request.definition.trim())
+  #set($typeInput = $request.type.trim())
+
+  ## 1. Génération du nom technique de base
+  #set($cleanName = $xwiki.clearName($acronymeInput))
+  #set($newPageRef = "${dataSpace}.${userId}.${cleanName}")
+  #set($newPage = $xwiki.getDocument($newPageRef))
+
+  ## 2. Détection de doublon à des fins d'information (sans bloquer)
+  #set($alreadyExists = false)
+  #if(!$newPage.isNew())
+    #set($alreadyExists = true)
+  #end
+
+  ## 3. Boucle de sécurité pour trouver un nom de page disponible (ex: API_1, API_2)
+  #set($counter = 1)
+  #set($basePageRef = $newPageRef)
+  #foreach($i in [1..100])
+    #if(!$newPage.isNew())
+      #set($newPageRef = "${basePageRef}_${counter}")
+      #set($newPage = $xwiki.getDocument($newPageRef))
+      #set($counter = $counter + 1)
+    #else
+      #break
+    #end
+  #end
+
+  ## 4. Création et population de l'objet
+  #set($newObj = $newPage.newObject($classPath))
+  #set($discard = $newObj.set('nom_lien', $acronymeInput))
+  #set($discard = $newObj.set('lien', $libelleInput))
+  #set($discard = $newObj.set('definition', $definitionInput))
+  #set($discard = $newObj.set('type', $typeInput))
+  #set($discard = $newObj.set('proprietaire', $userId))
+  #set($discard = $newPage.save("Ajout via interface Glossaire", true))
+
+  ## 5. Stockage du statut en session pour l'affichage après redirection
+  #if($alreadyExists)
+    $request.session.setAttribute('liens_status', 'warning')
+  #else
+    $request.session.setAttribute('liens_status', 'success')
+  #end
+  $request.session.setAttribute('liens_msg', $acronymeInput)
+  $request.session.setAttribute('liens_url', $newPage.getURL())
+
+  ## Redirection et arrêt immédiat du script courant pour forcer le rafraîchissement propre
+  $response.sendRedirect($doc.getURL())
+  #stop
+#end
+
+
+## --- 1. AFFICHAGE DES NOTIFICATIONS (POST-REDIRECTION) ---
+#set($status = $request.session.getAttribute('liens_status'))
+#if($status)
+  #set($msg = $request.session.getAttribute('liens_msg'))
+  #set($url = $request.session.getAttribute('liens_url'))
+
+  #if($status == 'success')
+    <div class="alert alert-success" style="margin-bottom: 20px;">
+      <strong>Succès !</strong> Le terme <strong>$msg</strong> a été ajouté à la base de données.
+      <a href="$url" target="_blank" class="btn btn-xs btn-default" style="margin-left: 10px;">Ouvrir la fiche</a>
+    </div>
+  #elseif($status == 'warning')
+    <div class="alert alert-warning" style="margin-bottom: 20px;">
+      <strong>Information :</strong> L'acronyme <strong>$msg</strong> existait déjà. Une nouvelle fiche distincte a tout de même été créée avec succès.
+      <a href="$url" target="_blank" class="btn btn-xs btn-default" style="margin-left: 10px;">Ouvrir la nouvelle fiche</a>
+    </div>
+  #end
+
+  $request.session.removeAttribute('liens_status')
+  $request.session.removeAttribute('liens_msg')
+  $request.session.removeAttribute('liens_url')
+#end
+
+
+## --- CODE VELOCITY INITIAL ---
+## Remplacez 'XWiki.MonGroupeAutorise' par le nom technique exact de votre groupe XWiki
+#set($managerGroup = "XWiki.IVQ_Gestionnaires") ##droit
+##set($managerGroup = "XWiki.RIVQ") ##pas droit
+#set($managers = $services.user.group.getMembers($managerGroup, true))
+#set($currentUserIsManager = false)
+#foreach($managerReference in $managers)
+  #if("$managerReference" == "$user")
+    #set($currentUserIsManager = true)
+  #end
+#end
+
+<button class="tablinks btn-primary" onclick="openTab(event, 'Tab1')">Mes Liens</button>
+<button class="tablinks btn-primary" onclick="openTab(event, 'Tab2')">Liens Communs</button>
+
+## --- 3. BOUTON D'AJOUT ---
+<div class="row" style="margin-bottom: 15px;">
+  <div class="col-md-6">
+    <button type="button" class="btn btn-success" data-toggle="modal" data-target="#glossaryModal">
+      + Ajouter un nouvel acronyme
+    </button>
+  </div>
+</div>
+
+
+## ----- TAB1 ----- ##
+<div id="Tab1" class="tabcontent">
+  <div id="debug1"></div>
+
+  ## --- BLOC DE NAVIGATION POUR LA PAGINATION ---
+  <div class="pagination-container" style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px; padding: 10px; background: #f9f9f9; border: 1px solid #ddd; border-radius: 4px;">
+    <!-- Sélecteur de taille de page -->
+    <div>
+      <label for="pageSizeSelect1" style="margin-right: 5px; font-weight: normal;">Éléments par page :</label>
+      <select id="pageSizeSelect1" onchange="changePageSize();" style="padding: 4px 8px; border-radius: 4px; border: 1px solid #ccc;">
+        <option value="5">5</option>
+        <option value="10" selected>10</option>
+        <option value="25">25</option>
+        <option value="50">50</option>
+        <option value="all">Tout afficher</option>
+      </select>
+    </div>
+
+    <!-- Flèches et indicateur de page -->
+    <div style="display: flex; align-items: center; gap: 15px;">
+      <button type="button" id="btnPrevPage1" class="btn btn-default btn-sm" onclick="navigatePage(-1);" style="padding: 5px 10px;">
+        <span class="glyphicon glyphicon-chevron-left"></span>
+      </button>
+      <span id="pageIndicator1" style="font-weight: bold; min-width: 80px; text-align: center;">Page 1 / 1</span>
+      <button type="button" id="btnNextPage1" class="btn btn-default btn-sm" onclick="navigatePage(1);" style="padding: 5px 10px;">
+        <span class="glyphicon glyphicon-chevron-right"></span>
+      </button>
+    </div>
+  </div>
+
+  ## --- 5. TABLEAU PRINCIPAL GLOSSAIRE MAISON WITH COLUMN FILTERS & PAGINATION ---
+  <div class="table-responsive">
+    <!-- On conserve data-csrf et data-class-path sur la table -->
+    <table class="table table-striped table-hover table-bordered hide-type-column"
+           id="mainGlossaryTable"
+           data-csrf="$services.csrf.getToken()"
+           data-class-path="$!classPath">
+      <thead>
+        <tr>
+          <th style="width: 15%;">Acronyme</th>
+          <th style="width: 25%;">Libellé complet</th>
+          <th style="width: 25%;">Définition</th>
+          <!-- La colonne Type a désormais sa propre classe pour être masquée -->
+          <th class="col-type" style="width: 10%;">Type</th>
+          <th style="width: 15%;">Actions</th>
+        </tr>
+        <tr class="filter-row">
+          <th><input type="text" id="filterAcronym" placeholder="Filtrer..." oninput="filterMainTableColumns();"></th>
+          <th><input type="text" id="filterLabel" placeholder="Filtrer..." oninput="filterMainTableColumns();"></th>
+          <th><input type="text" id="filterDefinition" placeholder="Filtrer..." oninput="filterMainTableColumns();"></th>
+          <!-- Case vide pour le filtre de la colonne Type lorsqu'elle apparaît -->
+          <th class="col-type" style="background-color: #f9f9f9;"></th>
+          <th style="background-color: #f9f9f9;"></th>
+        </tr>
+      </thead>
+      <tbody>
+        #set ($statement = "select distinct doc.fullName from Document doc, doc.object($classPath) obj")
+        #set ($query = $services.query.xwql($statement))
+        #set ($documentRefs = $query.execute())
+        ## 3. On boucle sur chaque document trouvé
+        #foreach ($fullRef in $documentRefs)
+          ## On charge la page
+          #set ($targetDoc = $xwiki.getDocument($fullRef))
+          #set ($docName = $targetDoc.getName())
+          ## On récupère l'objet lié à cette page
+          #set ($targetObject = $targetDoc.getObject($classPath))
+
+          #if ($targetObject)
+            #set ($acronymeValue = $targetObject.getValue('nom_lien'))
+            #set ($libelleValue = $targetObject.getValue('lien'))
+            #set ($definitionValue = $targetObject.getValue('definition'))
+            #set ($typeValue = $targetObject.getValue('type'))
+            #set ($proprietaireValue = $targetObject.getValue('proprietaire'))
+            #if ($typeValue == "personnel" && $proprietaireValue == $userId)
+              <tr class="main-term-row" data-acronym="$escapetool.html($!acronymeValue.toUpperCase())" data-doc-name="$!docName" data-full-ref="$!fullRef">
+                <td class="main-acronym">
+                  <span class="view-mode"><strong>$escapetool.html($!acronymeValue)</strong></span>
+                  <input type="text" class="form-control edit-mode edit-acronym" value="$escapetool.html($!acronymeValue)" style="display:none; width:100%;">
+                </td>
+                <td class="main-label">
+                  <span class="view-mode">$escapetool.html($!libelleValue)</span>
+                  <input type="text" class="form-control edit-mode edit-label" value="$escapetool.html($!libelleValue)" style="display:none; width:100%;">
+                </td>
+                <td class="main-definition">
+                  <span class="view-mode">$escapetool.html($!definitionValue)</span>
+                  <textarea class="form-control edit-mode edit-definition" style="display:none; width:100%;" rows="2">$escapetool.html($!definitionValue)</textarea>
+                </td>
+
+                <!-- NOUVELLE COLONNE TYPE : Toujours présente mais masquée par le CSS du tableau -->
+                <td class="col-type main-type">
+                  <span class="view-mode">$!typeValue</span>
+
+                  <select id="typeVisibilite" class="form-control edit-mode edit-type-input" style="display:none;" required>
+                    <option value="personnel" selected>Personnel</option>
+                    #if ($currentUserIsManager)
+                      <option value="commun" name="type">Commun</option>
+                    #else
+                      <option value="commun" name="type" disabled>Commun (Réservé aux RIVQ)</option>
+                    #end
+                  </select>
+                </td>
+
+                <td>
+                  <div class="view-buttons">
+                    <button type="button" class="btn btn-xs btn-primary custom-action-btn" onclick="toggleEditMode(this, true);">
+                      <span class="glyphicon glyphicon-pencil"></span>
+                    </button>
+                    <button type="button" class="btn btn-xs btn-danger custom-action-btn" onclick="openDeleteModal(this);">
+                      <span class="glyphicon glyphicon-trash"></span>
+                    </button>
+                  </div>
+                  <div class="edit-buttons" style="display:none; gap: 5px;">
+                    <button type="button" class="btn btn-xs btn-success" onclick="saveRowEdition(this);">
+                      <span class="glyphicon glyphicon-ok"></span> Sauver
+                    </button>
+                    <button type="button" class="btn btn-xs btn-default" onclick="toggleEditMode(this, false);">
+                      <span class="glyphicon glyphicon-remove"></span>
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            #end
+          #end
+        #end
+      </tbody>
+    </table>
+  </div>
+</div>
+
+
+## ----- TAB2 ----- ##
+<div id="Tab2" class="tabcontent">
+  <div id="debug2"></div>
+
+  ## --- BLOC DE NAVIGATION POUR LA PAGINATION ---
+  <div class="pagination-container" style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px; padding: 10px; background: #f9f9f9; border: 1px solid #ddd; border-radius: 4px;">
+    <!-- Sélecteur de taille de page -->
+    <div>
+      <label for="pageSizeSelect2" style="margin-right: 5px; font-weight: normal;">Éléments par page :</label>
+      <select id="pageSizeSelect2" onchange="changePageSize2();" style="padding: 4px 8px; border-radius: 4px; border: 1px solid #ccc;">
+        <option value="5">5</option>
+        <option value="10" selected>10</option>
+        <option value="25">25</option>
+        <option value="50">50</option>
+        <option value="all">Tout afficher</option>
+      </select>
+    </div>
+
+    <!-- Flèches et indicateur de page -->
+    <div style="display: flex; align-items: center; gap: 15px;">
+      <button type="button" id="btnPrevPage2" class="btn btn-default btn-sm" onclick="navigatePage2(-1);" style="padding: 5px 10px;">
+        <span class="glyphicon glyphicon-chevron-left"></span>
+      </button>
+      <span id="pageIndicator2" style="font-weight: bold; min-width: 80px; text-align: center;">Page 1 / 1</span>
+      <button type="button" id="btnNextPage2" class="btn btn-default btn-sm" onclick="navigatePage2(1);" style="padding: 5px 10px;">
+        <span class="glyphicon glyphicon-chevron-right"></span>
+      </button>
+    </div>
+  </div>
+
+  ## --- 5. TABLEAU PRINCIPAL GLOSSAIRE MAISON WITH COLUMN FILTERS & PAGINATION ---
+  <div class="table-responsive">
+    <!-- On conserve data-csrf et data-class-path sur la table -->
+    <table class="table table-striped table-hover table-bordered hide-type-column"
+           id="secondaryGlossaryTable"
+           data-csrf="$services.csrf.getToken()"
+           data-class-path="$!classPath">
+      <thead>
+        <tr>
+          <th style="width: 15%;">Acronyme</th>
+          <th style="width: 25%;">Libellé complet</th>
+          <th style="width: 25%;">Définition</th>
+          <th style="width: 10%;">Créateur</th>
+          <th class="col-type" style="width: 10%;">Type</th>
+          <th style="width: 15%;">Actions</th>
+        </tr>
+        <tr class="filter-row">
+          <th><input type="text" id="filterAcronym2" placeholder="Filtrer..." oninput="filterSecondaryTableColumns();"></th>
+          <th><input type="text" id="filterLabel2" placeholder="Filtrer..." oninput="filterSecondaryTableColumns();"></th>
+          <th><input type="text" id="filterDefinition2" placeholder="Filtrer..." oninput="filterSecondaryTableColumns();"></th>
+          <th><input type="text" id="filterProprietaire2" placeholder="Filtrer..." oninput="filterSecondaryTableColumns();"></th>
+          <th class="col-type" style="background-color: #f9f9f9;"></th>
+          <th style="background-color: #f9f9f9;"></th>
+        </tr>
+      </thead>
+      <tbody>
+        #set ($userObj = $null)
+        #set ($firstName = $null)
+        #set ($lastName = $null)
+        #set ($displayProprietaire = $null)
+        #set ($proprietaireValue = $null)
+
+        #foreach ($fullRef in $documentRefs)
+          ## On charge la page
+          #set ($targetDoc = $xwiki.getDocument($fullRef))
+          #set ($docName = $targetDoc.getName())
+          ## On récupère l'objet lié à cette page
+          #set ($targetObject = $targetDoc.getObject($classPath))
+          #if ($targetObject)
+            #set ($acronymeValue = $targetObject.getValue('nom_lien'))
+            #set ($libelleValue = $targetObject.getValue('lien'))
+            #set ($definitionValue = $targetObject.getValue('definition'))
+            #set ($typeValue = $targetObject.getValue('type'))
+            #set ($proprietaireValue = $targetObject.getValue('proprietaire'))
+
+            ## 2. Récupération du document sur le wiki central
+            #set ($userPageRef = "xwiki:XWiki.${proprietaireValue}")
+            #set ($userDoc = $xwiki.getDocument($userPageRef))
+            #set ($userObj = $userDoc.getObject('XWiki.XWikiUsers'))
+            #if($userObj)
+              #set ($firstName = $userObj.getValue('first_name'))
+              #set ($lastName = $userObj.getValue('last_name'))
+              #set($displayProprietaire = "${firstName} ${lastName}")
+            #else
+              #set($displayProprietaire = $proprietaireValue)
+            #end
+
+            #if ($typeValue == "commun")
+            ##if ($definitionValue == "personnel" && $proprietaireValue == "DOE")
+              <tr class="secondary-term-row" data-acronym="$!acronymeValue.toUpperCase()" data-doc-name="$!docName" data-full-ref="$!fullRef">
+                <td class="secondary-acronym">
+                  <span class="view-mode"><strong>$!acronymeValue</strong></span>
+                  <input type="text" class="form-control edit-mode edit-acronym" value="$!acronymeValue" style="display:none; width:100%;">
+                </td>
+                <td class="secondary-label">
+                  <span class="view-mode">$escapetool.html($!libelleValue)</span>
+                  <input type="text" class="form-control edit-mode edit-label" value="$escapetool.html($!libelleValue)" style="display:none; width:100%;">
+                </td>
+                <td class="secondary-definition">
+                  <span class="view-mode">$escapetool.html($!definitionValue)</span>
+                  <textarea class="form-control edit-mode edit-definition" style="display:none; width:100%;" rows="2">$escapetool.html($!definitionValue)</textarea>
+                </td>
+                <td class="secondary-proprietaire">
+                  <span class="view-mode">$escapetool.html($!displayProprietaire)</span>
+                  <div class="edit-mode edit-proprietaire" name="monChoix" style="display:none">
+                    <select class="xwiki-selectize secondary-proprietaire-value">
+                      <option value="$proprietaireValue">$escapetool.html($!displayProprietaire)</option>
+                      #foreach($managerRef in $managers)
+                        #set($managerDoc = $xwiki.getDocument($managerRef))
+                        #set($managerId = $managerDoc.name)
+                        #set($managerObj = $managerDoc.getObject('XWiki.XWikiUsers'))
+                        #if($managerObj && $proprietaireValue != $managerId)
+                          #set($managerFirstName = $managerObj.getValue('first_name'))
+                          #set($managerLastName = $managerObj.getValue('last_name'))
+                          #set($displayManager = "${managerFirstName} ${managerLastName}")
+                        #else
+                          #set($displayManager = $managerId)
+                        #end
+                        #if ($proprietaireValue != $managerId)
+                          <option value="$managerId">$escapetool.html($!displayManager)</option>
+                        #end
+                      #end
+                    </select>
+                  </div>
+                </td>
+
+                <td class="col-type secondary-type">
+                  <span class="view-mode">$!typeValue</span>
+                  <select id="typeVisibilite" class="form-control edit-mode edit-type-input" style="display:none;" required>
+                    <option value="$!typeValue" selected>$!typeValue</option>
+                    #if ($!typeValue == "personnel")
+                      #set($typeValue = "commun")
+                    #else
+                      #set($typeValue = "personnel")
+                    #end
+
+                    #if ($currentUserIsManager)
+                      <option value="$typeValue" name="type">$typeValue</option>
+                    #else
+                      <option value="$typeValue" name="type" disabled>$typeValue (Réservé aux RIVQ)</option>
+                    #end
+                  </select>
+                </td>
+
+                <td>
+                  <div class="view-buttons">
+                    <button type="button" class="btn btn-xs btn-primary custom-action-btn" onclick="toggleEditMode2(this, true);">
+                      <span class="glyphicon glyphicon-pencil"></span>
+                    </button>
+                    <button type="button" class="btn btn-xs btn-danger custom-action-btn" onclick="openDeleteModal2(this);">
+                      <span class="glyphicon glyphicon-trash"></span>
+                    </button>
+                  </div>
+                  <div class="edit-buttons" style="display:none; gap: 5px;">
+                    <button type="button" class="btn btn-xs btn-success" onclick="saveRowEdition2(this);">
+                      <span class="glyphicon glyphicon-ok"></span> Sauver
+                    </button>
+                    <button type="button" class="btn btn-xs btn-default" onclick="toggleEditMode2(this, false);">
+                      <span class="glyphicon glyphicon-remove"></span>
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            #end
+          #end
+        #end
+      </tbody>
+    </table>
+  </div>
+</div>
+
+
+## --- 4. POPUP UNIQUE POUR LES ACTIONS PERSONNALISÉES (MODALE) ---
+<div id="actionFeedbackModal" class="modal fade" tabindex="-1" role="dialog" aria-hidden="true">
+  <div class="modal-dialog" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close" data-dismiss="modal" aria-label="Fermer"><span aria-hidden="true">&times;</span></button>
+        <h4 class="modal-title" id="feedbackModalTitle">Action Personnalisée</h4>
+      </div>
+      <div class="modal-body">
+        <p id="feedbackModalBodyText">Contenu par défaut...</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-default" data-dismiss="modal">Fermer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+#set($urlLiensData = $xwiki.getURL("TestPage.PAGE.Liens.DATA.WebHome", "view"))
+
+<script type="text/javascript">
+  // Variable globale accessible par votre extension JS
+  var urlLienData = "$escapetool.javascript($urlLiensData)";
+</script>
+
+
+## --- MODALE DE CONFIRMATION DE SUPPRESSION ---
+<div class="modal fade" id="deleteConfirmModal" tabindex="-1" role="dialog" aria-hidden="true">
+  <div class="modal-dialog" role="document">
+    <div class="modal-content">
+      <div class="modal-header" style="background-color: #d9534f; color: white;">
+        <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+        <h4 class="modal-title" id="deleteModalTitle">Confirmer la suppression</h4>
+      </div>
+      <div class="modal-body">
+        <p>Êtes-vous sûr de vouloir supprimer définitivement cet élément ainsi que sa page XWiki ?</p>
+        <table class="table table-bordered table-condensed" style="background: #f9f9f9;">
+          <thead>
+            <tr>
+              <th>Acronyme</th>
+              <th>Libellé complet</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td id="deleteModalAcronym" style="font-weight: bold;"></td>
+              <td id="deleteModalLabel"></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-default" data-dismiss="modal">Annuler</button>
+        <button type="button" class="btn btn-danger" id="btnConfirmDelete" onclick="executeRowDelete();">Supprimer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+## --- MODALE DE CONFIRMATION DE SUPPRESSION ---
+<div class="modal fade" id="deleteConfirmModal2" tabindex="-1" role="dialog" aria-hidden="true">
+  <div class="modal-dialog" role="document">
+    <div class="modal-content">
+      <div class="modal-header" style="background-color: #d9534f; color: white;">
+        <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+        <h4 class="modal-title" id="deleteModalTitle">Confirmer la suppression</h4>
+      </div>
+      <div class="modal-body">
+        <p>Êtes-vous sûr de vouloir supprimer définitivement cet élément ainsi que sa page XWiki ?</p>
+        <table class="table table-bordered table-condensed" style="background: #f9f9f9;">
+          <thead>
+            <tr>
+              <th>Acronyme</th>
+              <th>Libellé complet</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td id="deleteModalAcronym2" style="font-weight: bold;"></td>
+              <td id="deleteModalLabel2"></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-default" data-dismiss="modal">Annuler</button>
+        <button type="button" class="btn btn-danger" id="btnConfirmDelete" onclick="executeRowDelete2();">Supprimer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+## --- 6. BLOC MODAL DE CRÉATION (VOTRE POPUP D'ORIGINE) ---
+<div class="modal fade" id="glossaryModal" tabindex="-1" role="dialog" aria-labelledby="glossaryModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close" data-dismiss="modal" aria-label="Fermer"><span aria-hidden="true">&times;</span></button>
+        <h4 class="modal-title" id="glossaryModalLabel">Nouveau terme du Glossaire</h4>
+      </div>
+
+      <form method="post" action="">
+        <input type="hidden" name="action" value="checkAndCreate" />
+
+        <div class="modal-body">
+          <div class="row">
+            ## PARTIE GAUCHE : Formulaire de saisie
+            <div class="col-md-5 modal-left-column">
+              <h5 class="column-title">Informations du terme</h5>
+              <div class="form-group">
+                <label>Acronyme / Sigle (ex: API) :</label>
+                <input type="text" id="liensNomInputField" name="acronyme" class="form-control" autocomplete="off" required placeholder="Ex: XWiki" oninput="triggerGlobalFilter();">
+              </div>
+              <div class="form-group">
+                <label>Libellé complet :</label>
+                <input type="text" id="liensInputField" name="libelle" class="form-control" autocomplete="off" required placeholder="Ex: Wiki d'entreprise open source" oninput="triggerGlobalFilter();">
+              </div>
+              <div class="form-group">
+                <label>Libellé complet :</label>
+                <input type="text" id="definitionInputField" name="definition" class="form-control" autocomplete="off" required placeholder="Ex: Wiki d'entreprise open source">
+              </div>
+
+              <div class="form-group">
+                <label for="typeVisibilite">Type :</label>
+                <select id="typeVisibilite" name="type" class="form-control" required>
+                  <option value="personnel" selected>Personnel</option>
+                  #if ($currentUserIsManager)
+                    <option value="commun" name="type">Commun</option>
+                  #else
+                    <option value="commun" name="type" disabled>Commun (Réservé aux RIVQ)</option>
+                  #end
+                </select>
+              </div>
+            </div>
+
+            ## PARTIE DROITE : Tableau HTML natif filtré de vérification
+            <div class="col-md-7 modal-right-column">
+              <h5 class="column-title warning-title">Vérification des existants</h5>
+              <p class="text-muted help-text">Ce tableau affiche les lignes dont l'acronyme ou le libellé correspond à votre saisie.</p>
+
+              <div class="table-scroll-container">
+                <table class="table table-striped table-hover" id="popupCheckTable">
+                  <thead>
+                    <tr>
+                      <th style="width: 30%;">Acronyme</th>
+                      <th>Libellé complet</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ## 2. On cherche TOUS les documents qui possèdent cette classe spécifique
+                    #set ($statement = "select distinct doc.fullName from Document doc, doc.object($classPath) obj")
+                    #set ($query = $services.query.xwql($statement))
+                    #set ($documentNames = $query.execute())
+                    ## 3. On boucle sur chaque document trouvé
+                    #foreach ($docName in $documentNames)
+
+                      ## On charge la page
+                      #set ($targetDoc = $xwiki.getDocument($docName))
+
+                      ## On récupère l'objet lié à cette page
+                      #set ($targetObject = $targetDoc.getObject($classPath))
+
+                      #if ($targetObject)
+                        #set ($acronyme = $targetObject.getValue('nom_lien'))
+                        #set ($libelle = $targetObject.getValue('lien'))
+                        #set ($type = $targetObject.getValue('type'))
+                        <tr class="term-row" data-full-ref="$docName">
+                          <td class="term-acronym">$acronyme</td>
+                          <td class="term-label">$libelle</td>
+                        </tr>
+                      #end
+                    #end
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-default" data-dismiss="modal">Annuler</button>
+          <button type="submit" class="btn btn-primary">Valider et Vérifier l'existence</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{{/html}}
+{{/velocity}}
