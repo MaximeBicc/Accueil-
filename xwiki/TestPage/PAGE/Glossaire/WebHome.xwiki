@@ -146,6 +146,129 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
   var urlGlossaireData = "$escapetool.javascript($urlGlossaireData)";
 </script>
 
+## --- CORRECTIF DE CHARGEMENT SHEETJS POUR XWIKI / REQUIREJS ---
+<script type="text/javascript">
+  function isGlossarySheetJSLibrary(candidate) {
+    return !!candidate &&
+      typeof candidate.read === 'function' &&
+      candidate.utils &&
+      typeof candidate.utils.sheet_to_json === 'function';
+  }
+
+  function ensureSheetJSLoaded() {
+    if (isGlossarySheetJSLibrary(window.XLSX)) {
+      return Promise.resolve(window.XLSX);
+    }
+
+    return new Promise(function(resolve, reject) {
+      function resolveLoadedLibrary() {
+        if (isGlossarySheetJSLibrary(window.XLSX)) {
+          resolve(window.XLSX);
+          return;
+        }
+
+        // XWiki peut exposer RequireJS / AMD. Dans ce cas le script SheetJS
+        // s'enregistre comme module "xlsx" au lieu de remplacer window.XLSX.
+        var amdRequire = window.requirejs || window.require;
+        if (typeof amdRequire === 'function') {
+          try {
+            amdRequire(['xlsx'], function(sheetJsModule) {
+              var candidate = isGlossarySheetJSLibrary(sheetJsModule)
+                ? sheetJsModule
+                : window.XLSX;
+
+              if (isGlossarySheetJSLibrary(candidate)) {
+                window.XLSX = candidate;
+                resolve(candidate);
+              } else {
+                reject(new Error('SheetJS est chargé mais son API read est indisponible.'));
+              }
+            }, function(error) {
+              reject(error || new Error('Le module AMD SheetJS n\'a pas pu être chargé.'));
+            });
+            return;
+          } catch (error) {
+            reject(error);
+            return;
+          }
+        }
+
+        reject(new Error('SheetJS est chargé mais aucune API XLSX valide n\'a été trouvée.'));
+      }
+
+      var existingScript = document.getElementById('sheetJsGlossaryLibrary');
+      if (existingScript) {
+        // Un ancien chargement peut avoir abouti à un objet global XLSX qui
+        // n'est pas SheetJS. On repart proprement.
+        if (existingScript.parentNode) {
+          existingScript.parentNode.removeChild(existingScript);
+        }
+      }
+
+      var script = document.createElement('script');
+      script.id = 'sheetJsGlossaryLibrary';
+      script.src = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
+      script.type = 'text/javascript';
+      script.onload = resolveLoadedLibrary;
+      script.onerror = function() {
+        reject(new Error('Impossible de charger SheetJS depuis cdn.sheetjs.com.'));
+      };
+      document.head.appendChild(script);
+    });
+  }
+
+  async function readGlossaryExcelFile(file) {
+    var xlsxLibrary;
+
+    try {
+      xlsxLibrary = await ensureSheetJSLoaded();
+    } catch (error) {
+      console.error(error);
+      alert('La bibliothèque Excel n\'a pas pu être chargée correctement : ' + error.message);
+      return;
+    }
+
+    try {
+      var buffer = await file.arrayBuffer();
+      var workbook = xlsxLibrary.read(buffer, { type: 'array' });
+
+      if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+        alert('Le fichier Excel ne contient aucune feuille lisible.');
+        return;
+      }
+
+      excelImportSheetName = workbook.SheetNames[0];
+      var worksheet = workbook.Sheets[excelImportSheetName];
+      var rawRows = xlsxLibrary.utils.sheet_to_json(worksheet, {
+        header: 1,
+        raw: false,
+        defval: ''
+      });
+
+      if (!rawRows.length) {
+        alert('La première feuille du fichier est vide.');
+        return;
+      }
+
+      var headerInfo = detectExcelHeader(rawRows[0] || []);
+      excelImportHeaderDetected = headerInfo.detected;
+      excelImportColumnMap = headerInfo.map;
+      excelImportRows = analyzeExcelRows(rawRows, headerInfo);
+
+      if (!excelImportRows.length) {
+        alert('Aucune ligne de données n\'a été trouvée dans les trois colonnes attendues.');
+        return;
+      }
+
+      renderExcelImportPreview(file.name);
+      jQuery('#excelGlossaryModal').modal('show');
+    } catch (error) {
+      console.error(error);
+      alert('Impossible de lire ce fichier Excel : ' + error.message);
+    }
+  }
+</script>
+
 ## --- 5. TABLEAU PRINCIPAL GLOSSAIRE MAISON WITH COLUMN FILTERS & PAGINATION ---
 <div class="table-responsive">
   <!-- On conserve data-csrf et data-class-path sur la table -->
