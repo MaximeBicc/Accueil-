@@ -1,0 +1,87 @@
+{{velocity}}
+#set($classPath = "TestPage.PAGE.Glossaire.CODE.glossaireClass.WebHome")
+#set($dataSpace = "TestPage.PAGE.Glossaire.DATA")
+#set($action = "$!request.action")
+
+## Cette page sert d'endpoint AJAX pour le tableau du glossaire.
+## Toutes les écritures sont protégées par le token CSRF envoyé par GlossaireExtension.js.
+#if(!$services.csrf.isTokenValid($!request.form_token))
+  $response.sendError(403, "Jeton CSRF invalide ou absent")
+#elseif($action == "save")
+  #set($targetRef = "$!request.targetRef")
+  #set($targetDoc = $xwiki.getDocument($targetRef))
+
+  #if($targetDoc.isNew())
+GLOSSAIRE_ERROR|Document introuvable
+  #else
+    #set($glossaireObj = $targetDoc.getObject($classPath))
+
+    #if(!$glossaireObj)
+GLOSSAIRE_ERROR|Objet glossaire introuvable
+    #elseif(!$request.acronym || !$request.label || !$request.definition)
+GLOSSAIRE_ERROR|Données incomplètes
+    #else
+      #set($newAcronym = $request.acronym.trim())
+      #set($newLabel = $request.label.trim())
+      #set($newDefinition = $request.definition.trim())
+
+      #if($newAcronym == "")
+GLOSSAIRE_ERROR|L'acronyme ne peut pas être vide
+      #else
+        ## Mise à jour de l'objet et du titre affiché dans l'arborescence.
+        #set($discard = $glossaireObj.set("acronyme", $newAcronym))
+        #set($discard = $glossaireObj.set("libelle", $newLabel))
+        #set($discard = $glossaireObj.set("definition", $newDefinition))
+        #set($discard = $targetDoc.setTitle($newAcronym))
+        #set($discard = $targetDoc.save("Modification via interface Glossaire", true))
+
+        ## Le nom technique de la page suit lui aussi l'acronyme.
+        #set($candidateName = $xwiki.cleanName($newAcronym))
+        #set($candidateRef = "${dataSpace}.${candidateName}")
+
+        ## Si une autre page possède déjà ce nom, on reprend la même règle que lors de la création : _1, _2, etc.
+        #if($candidateRef != $targetRef)
+          #set($baseCandidateName = $candidateName)
+          #set($candidateDoc = $xwiki.getDocument($candidateRef))
+          #set($counter = 1)
+
+          #foreach($i in [1..100])
+            #if(!$candidateDoc.isNew())
+              #set($candidateName = "${baseCandidateName}_${counter}")
+              #set($candidateRef = "${dataSpace}.${candidateName}")
+              #set($candidateDoc = $xwiki.getDocument($candidateRef))
+              #set($counter = $counter + 1)
+            #else
+              #break
+            #end
+          #end
+
+          ## API XWiki de refactoring : renomme réellement la page, donc son nom change dans l'arborescence.
+          #set($sourceReference = $services.model.resolveDocument($targetRef))
+          #set($renameJob = $services.refactoring.rename($sourceReference, $candidateName))
+          #set($discard = $renameJob.join())
+        #else
+          #set($candidateName = $targetDoc.getName())
+          #set($candidateRef = $targetRef)
+        #end
+
+GLOSSAIRE_OK|$candidateRef|$candidateName
+      #end
+    #end
+  #end
+#elseif($action == "delete")
+  #set($targetRef = "$!request.targetRef")
+  #set($targetDoc = $xwiki.getDocument($targetRef))
+
+  #if($targetDoc.isNew())
+GLOSSAIRE_ERROR|Document introuvable
+  #else
+    #set($sourceReference = $services.model.resolveDocument($targetRef))
+    #set($deleteJob = $services.refactoring.delete($sourceReference))
+    #set($discard = $deleteJob.join())
+GLOSSAIRE_OK
+  #end
+#else
+GLOSSAIRE_ERROR|Action inconnue
+#end
+{{/velocity}}
