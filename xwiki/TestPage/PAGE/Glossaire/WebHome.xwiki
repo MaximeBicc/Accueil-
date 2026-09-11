@@ -146,9 +146,11 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
   var urlGlossaireData = "$escapetool.javascript($urlGlossaireData)";
 </script>
 
-## --- CORRECTIF DE CHARGEMENT SHEETJS POUR XWIKI / REQUIREJS ---
+## --- CORRECTIFS IMPORT EXCEL POUR XWIKI ---
 <script type="text/javascript">
   var glossarySheetJSLibrary = null;
+  var excelImportFileName = '';
+  var excelImportHeaderInfo = null;
 
   function isGlossarySheetJSLibrary(candidate) {
     return !!candidate &&
@@ -172,8 +174,6 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
       var previousDefine = window.define;
       var previousDefineWasAMD = !!(previousDefine && previousDefine.amd);
 
-      // Le problème venait d'un autre objet global XLSX déjà présent dans XWiki.
-      // On force le build standalone SheetJS à créer son propre vrai window.XLSX.
       try {
         if (previousDefineWasAMD) {
           window.define = undefined;
@@ -222,6 +222,276 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
     });
   }
 
+  function fixedDetectExcelHeader(firstRow) {
+    var map = {};
+    var usedIndexes = {};
+    var recognizedTypes = [];
+    var canonicalTypes = ['acronym', 'label', 'definition'];
+
+    firstRow.forEach(function(cell, index) {
+      var type = findHeaderType(cell);
+      if (type && map[type] == null) {
+        map[type] = index;
+        usedIndexes[index] = true;
+        recognizedTypes.push(type);
+      }
+    });
+
+    // Dès qu'au moins UNE cellule de la première ligne ressemble à un entête,
+    // toute la ligne est considérée comme entête.
+    if (!recognizedTypes.length) {
+      return {
+        detected: false,
+        map: { acronym: 0, label: 1, definition: 2 },
+        recognizedTypes: [],
+        inferredTypes: []
+      };
+    }
+
+    var missingTypes = canonicalTypes.filter(function(type) {
+      return map[type] == null;
+    });
+
+    // Les colonnes non reconnues sont attribuées par élimination. On privilégie
+    // les trois premières colonnes, puisque ce sont les trois données attendues.
+    var availableIndexes = [];
+    for (var i = 0; i < 3; i++) {
+      if (!usedIndexes[i]) availableIndexes.push(i);
+    }
+
+    for (var j = 3; j < firstRow.length; j++) {
+      if (!usedIndexes[j]) availableIndexes.push(j);
+    }
+
+    var nextIndex = firstRow.length;
+    while (availableIndexes.length < missingTypes.length) {
+      if (!usedIndexes[nextIndex]) availableIndexes.push(nextIndex);
+      nextIndex++;
+    }
+
+    missingTypes.forEach(function(type) {
+      map[type] = availableIndexes.shift();
+    });
+
+    return {
+      detected: true,
+      map: map,
+      recognizedTypes: recognizedTypes,
+      inferredTypes: missingTypes
+    };
+  }
+
+  function fixedRecomputeExcelDuplicateFlags(rows) {
+    var existing = getExistingGlossaryKeys();
+    var seenAcronyms = {};
+    var seenLabels = {};
+
+    rows.forEach(function(row) {
+      var acronymKey = normalizeDuplicateKey(row.acronym);
+      var labelKey = normalizeDuplicateKey(row.label);
+
+      row.invalid = !row.acronym || !row.label || !row.definition;
+      row.duplicateAcronymGlossary = !!(acronymKey && existing.acronyms[acronymKey]);
+      row.duplicateLabelGlossary = !!(labelKey && existing.labels[labelKey]);
+
+      // Un doublon interne au fichier est signalé uniquement à partir du
+      // deuxième exemplaire. Le premier reste l'exemplaire de référence.
+      row.duplicateAcronymFile = !!(acronymKey && seenAcronyms[acronymKey]);
+      row.duplicateLabelFile = !!(labelKey && seenLabels[labelKey]);
+
+      row.duplicateAcronym = row.duplicateAcronymGlossary || row.duplicateAcronymFile;
+      row.duplicateLabel = row.duplicateLabelGlossary || row.duplicateLabelFile;
+
+      if (acronymKey && !seenAcronyms[acronymKey]) seenAcronyms[acronymKey] = true;
+      if (labelKey && !seenLabels[labelKey]) seenLabels[labelKey] = true;
+    });
+
+    return rows;
+  }
+
+  function fixedAnalyzeExcelRows(rawRows, headerInfo) {
+    var startIndex = headerInfo.detected ? 1 : 0;
+    var result = [];
+
+    for (var i = startIndex; i < rawRows.length; i++) {
+      var sourceRow = rawRows[i] || [];
+      var acronym = String(sourceRow[headerInfo.map.acronym] == null ? '' : sourceRow[headerInfo.map.acronym]).trim();
+      var label = String(sourceRow[headerInfo.map.label] == null ? '' : sourceRow[headerInfo.map.label]).trim();
+      var definition = String(sourceRow[headerInfo.map.definition] == null ? '' : sourceRow[headerInfo.map.definition]).trim();
+
+      if (!acronym && !label && !definition) continue;
+
+      result.push({
+        sourceLine: i + 1,
+        acronym: acronym,
+        label: label,
+        definition: definition
+      });
+    }
+
+    return fixedRecomputeExcelDuplicateFlags(result);
+  }
+
+  function fixedPatchExcelImportPreviewHeader() {
+    var previewBody = document.getElementById('excelImportPreviewBody');
+    if (!previewBody) return;
+
+    var table = previewBody.closest('table');
+    var headerRow = table ? table.querySelector('thead tr') : null;
+    if (!headerRow) return;
+
+    headerRow.innerHTML =
+      '<th style="width:65px;">Ligne</th>' +
+      '<th style="width:17%;">Acronyme</th>' +
+      '<th style="width:28%;">Libellé</th>' +
+      '<th>Définition</th>' +
+      '<th style="width:70px; text-align:center;">Action</th>';
+  }
+
+  function fixedEditExcelImportRow(rowIndex, field, value) {
+    if (!excelImportRows[rowIndex]) return;
+    excelImportRows[rowIndex][field] = String(value == null ? '' : value).trim();
+    fixedRecomputeExcelDuplicateFlags(excelImportRows);
+    fixedRenderExcelImportPreview(excelImportFileName);
+  }
+
+  function fixedDeleteExcelImportRow(rowIndex) {
+    if (rowIndex < 0 || rowIndex >= excelImportRows.length) return;
+    excelImportRows.splice(rowIndex, 1);
+    fixedRecomputeExcelDuplicateFlags(excelImportRows);
+    fixedRenderExcelImportPreview(excelImportFileName);
+  }
+
+  function fixedRenderExcelImportPreview(fileName) {
+    excelImportFileName = fileName || excelImportFileName || '';
+    fixedRecomputeExcelDuplicateFlags(excelImportRows);
+    fixedPatchExcelImportPreviewHeader();
+
+    var previewBody = document.getElementById('excelImportPreviewBody');
+    var duplicatesBody = document.getElementById('excelImportDuplicatesBody');
+    var info = document.getElementById('excelImportInfo');
+    if (!previewBody || !duplicatesBody || !info) return;
+
+    previewBody.innerHTML = '';
+    duplicatesBody.innerHTML = '';
+
+    var headerInfo = excelImportHeaderInfo || {};
+    var columnDescription;
+    if (excelImportHeaderDetected) {
+      var inferredLabels = (headerInfo.inferredTypes || []).map(function(type) {
+        if (type === 'acronym') return 'Acronyme';
+        if (type === 'label') return 'Libellé';
+        return 'Définition';
+      });
+
+      columnDescription = 'Entête détectée dès qu’au moins un champ est reconnu.';
+      if (inferredLabels.length) {
+        columnDescription += ' Colonne(s) déduite(s) par élimination : ' + inferredLabels.join(', ') + '.';
+      }
+    } else {
+      columnDescription = 'Aucun entête reconnu : colonnes 1, 2 et 3 utilisées dans cet ordre.';
+    }
+
+    info.textContent = excelImportFileName + ' — feuille « ' + excelImportSheetName + ' » — ' + columnDescription;
+
+    var duplicateCount = 0;
+    var invalidCount = 0;
+
+    excelImportRows.forEach(function(row, rowIndex) {
+      var tr = document.createElement('tr');
+
+      var lineCell = document.createElement('td');
+      lineCell.textContent = row.sourceLine;
+      tr.appendChild(lineCell);
+
+      function addEditableCell(field, value, isDanger, isDefinition) {
+        var td = document.createElement('td');
+        if (isDanger) td.className = 'danger';
+
+        var input;
+        if (isDefinition) {
+          input = document.createElement('textarea');
+          input.rows = 2;
+        } else {
+          input = document.createElement('input');
+          input.type = 'text';
+        }
+
+        input.className = 'form-control input-sm';
+        input.value = value;
+        input.addEventListener('change', function() {
+          fixedEditExcelImportRow(rowIndex, field, this.value);
+        });
+        td.appendChild(input);
+        tr.appendChild(td);
+      }
+
+      addEditableCell('acronym', row.acronym, row.duplicateAcronym || !row.acronym, false);
+      addEditableCell('label', row.label, row.duplicateLabel || !row.label, false);
+      addEditableCell('definition', row.definition, !row.definition, true);
+
+      var actionCell = document.createElement('td');
+      actionCell.style.textAlign = 'center';
+      var deleteButton = document.createElement('button');
+      deleteButton.type = 'button';
+      deleteButton.className = 'btn btn-xs btn-danger';
+      deleteButton.title = 'Supprimer cette ligne de l’import';
+      deleteButton.innerHTML = '<span class="glyphicon glyphicon-trash"></span>';
+      deleteButton.addEventListener('click', function() {
+        fixedDeleteExcelImportRow(rowIndex);
+      });
+      actionCell.appendChild(deleteButton);
+      tr.appendChild(actionCell);
+
+      previewBody.appendChild(tr);
+
+      if (row.invalid) invalidCount++;
+
+      if (row.duplicateAcronym || row.duplicateLabel) {
+        duplicateCount++;
+        var duplicateRow = document.createElement('tr');
+        var reasons = [];
+
+        if (row.duplicateAcronymGlossary) reasons.push('Acronyme : glossaire');
+        if (row.duplicateAcronymFile) reasons.push('Acronyme : fichier Excel');
+        if (row.duplicateLabelGlossary) reasons.push('Libellé : glossaire');
+        if (row.duplicateLabelFile) reasons.push('Libellé : fichier Excel');
+
+        duplicateRow.innerHTML =
+          '<td>' + row.sourceLine + '</td>' +
+          '<td' + (row.duplicateAcronym ? ' class="danger"' : '') + '></td>' +
+          '<td' + (row.duplicateLabel ? ' class="danger"' : '') + '></td>' +
+          '<td></td>';
+        duplicateRow.children[1].textContent = row.acronym;
+        duplicateRow.children[2].textContent = row.label;
+        duplicateRow.children[3].textContent = reasons.join(' ; ');
+        duplicatesBody.appendChild(duplicateRow);
+      }
+    });
+
+    if (!duplicateCount) {
+      var emptyRow = document.createElement('tr');
+      emptyRow.innerHTML = '<td colspan="4" class="text-success">Aucun doublon détecté.</td>';
+      duplicatesBody.appendChild(emptyRow);
+    }
+
+    document.querySelectorAll('[data-excel-invalid-warning="true"]').forEach(function(element) {
+      element.remove();
+    });
+
+    if (invalidCount) {
+      var warning = document.createElement('div');
+      warning.className = 'alert alert-warning';
+      warning.style.marginTop = '10px';
+      warning.style.marginBottom = '0';
+      warning.textContent = invalidCount + ' ligne(s) incomplète(s) seront ignorées. Vous pouvez les corriger directement dans le tableau.';
+      warning.setAttribute('data-excel-invalid-warning', 'true');
+      info.parentNode.insertBefore(warning, info.nextSibling);
+    }
+
+    updateExcelImportSelectionSummary();
+  }
+
   async function fixedReadGlossaryExcelFile(file) {
     var xlsxLibrary;
 
@@ -260,17 +530,18 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
         return;
       }
 
-      var headerInfo = detectExcelHeader(rawRows[0] || []);
+      var headerInfo = fixedDetectExcelHeader(rawRows[0] || []);
+      excelImportHeaderInfo = headerInfo;
       excelImportHeaderDetected = headerInfo.detected;
       excelImportColumnMap = headerInfo.map;
-      excelImportRows = analyzeExcelRows(rawRows, headerInfo);
+      excelImportRows = fixedAnalyzeExcelRows(rawRows, headerInfo);
 
       if (!excelImportRows.length) {
         alert('Aucune ligne de données n\'a été trouvée dans les trois colonnes attendues.');
         return;
       }
 
-      renderExcelImportPreview(file.name);
+      fixedRenderExcelImportPreview(file.name);
       jQuery('#excelGlossaryModal').modal('show');
     } catch (error) {
       console.error(error);
@@ -278,12 +549,20 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
     }
   }
 
-  // GlossaireExtension est chargé en defer par XWiki. Il peut donc redéfinir
-  // readGlossaryExcelFile APRÈS ce bloc. On réapplique volontairement le
-  // correctif à DOMContentLoaded, une fois les extensions XWiki chargées.
+  // Les fonctions du JSX sont chargées en defer. On remplace donc les fonctions
+  // une fois l'extension chargée, puis on adapte le tableau créé par celle-ci.
   document.addEventListener('DOMContentLoaded', function() {
     window.ensureSheetJSLoaded = fixedEnsureSheetJSLoaded;
+    window.detectExcelHeader = fixedDetectExcelHeader;
+    window.analyzeExcelRows = fixedAnalyzeExcelRows;
+    window.renderExcelImportPreview = fixedRenderExcelImportPreview;
     window.readGlossaryExcelFile = fixedReadGlossaryExcelFile;
+    window.editExcelImportRow = fixedEditExcelImportRow;
+    window.deleteExcelImportRow = fixedDeleteExcelImportRow;
+
+    setTimeout(function() {
+      fixedPatchExcelImportPreviewHeader();
+    }, 0);
   });
 </script>
 
