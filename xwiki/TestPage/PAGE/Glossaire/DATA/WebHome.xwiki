@@ -141,13 +141,14 @@ GLOSSAIRE_OK|$finalRef|$finalDocName
     #set($createdCount = 0)
     #set($skippedCount = 0)
     #set($processedCount = 0)
+    #set($importLines = [])
 
-    ## IMPORTANT : on ne parcourt plus une plage numérique Velocity.
-    ## On parcourt directement TOUS les paramètres reçus et on traite chaque
-    ## paramètre acronym_N. Ainsi le serveur ne peut plus s'arrêter à la ligne 0.
-    #set($parameterMap = $request.getParameterMap())
+    ## XWiki utilise lui-même cette forme dans ses macros internes :
+    ## $request.parameterMap.entrySet(). Elle évite de dépendre de keySet()
+    ## appelé explicitement depuis Velocity / SecureUberspector.
+    #foreach($parameterEntry in $request.parameterMap.entrySet())
+      #set($parameterName = "$!parameterEntry.key")
 
-    #foreach($parameterName in $parameterMap.keySet())
       #if($parameterName.startsWith("acronym_"))
         #set($processedCount = $processedCount + 1)
         #set($i = $parameterName.substring(8))
@@ -164,14 +165,12 @@ GLOSSAIRE_OK|$finalRef|$finalDocName
         #set($importDefinition = "$!importDefinitionRaw")
 
         #if(!$importAcronymRaw || !$importLabelRaw || !$importDefinitionRaw || $importAcronym == "" || $importLabel == "" || $importDefinition == "")
-ROW_ERROR|$i|Données incomplètes
+          #set($discard = $importLines.add("ROW_ERROR|$i|Données incomplètes"))
           #set($skippedCount = $skippedCount + 1)
         #elseif($importAcronym.contains('$') || $importAcronym.contains('{') || $importAcronym.contains('}') || $importAcronym.contains('/'))
-ROW_ERROR|$i|Nom technique d'acronyme invalide
+          #set($discard = $importLines.add("ROW_ERROR|$i|Nom technique d'acronyme invalide"))
           #set($skippedCount = $skippedCount + 1)
         #else
-          ## Vérification des doublons contre le glossaire, y compris les lignes
-          ## déjà créées plus tôt dans ce même import.
           #set($acronymExists = false)
           #set($labelExists = false)
           #set($existingDocNames = $xwiki.getSpaceDocsName($dataSpace))
@@ -199,11 +198,11 @@ ROW_ERROR|$i|Nom technique d'acronyme invalide
 
           #if($blockedByAcronym || $blockedByLabel)
             #if($blockedByAcronym && $blockedByLabel)
-ROW_SKIP|$i|ACRONYM_AND_LABEL_DUPLICATE
+              #set($discard = $importLines.add("ROW_SKIP|$i|ACRONYM_AND_LABEL_DUPLICATE"))
             #elseif($blockedByAcronym)
-ROW_SKIP|$i|ACRONYM_DUPLICATE
+              #set($discard = $importLines.add("ROW_SKIP|$i|ACRONYM_DUPLICATE"))
             #else
-ROW_SKIP|$i|LABEL_DUPLICATE
+              #set($discard = $importLines.add("ROW_SKIP|$i|LABEL_DUPLICATE"))
             #end
             #set($skippedCount = $skippedCount + 1)
           #else
@@ -230,7 +229,7 @@ ROW_SKIP|$i|LABEL_DUPLICATE
             #end
 
             #if(!$candidateReference)
-ROW_ERROR|$i|Impossible de trouver un nom de page disponible
+              #set($discard = $importLines.add("ROW_ERROR|$i|Impossible de trouver un nom de page disponible"))
               #set($skippedCount = $skippedCount + 1)
             #else
               #set($newDoc = $xwiki.getDocument($candidateReference))
@@ -243,7 +242,7 @@ ROW_ERROR|$i|Impossible de trouver un nom de page disponible
 
               #set($finalImportRef = $newDoc.getFullName())
               #set($finalImportName = $newDoc.getName())
-ROW_OK|$i|$finalImportRef|$finalImportName
+              #set($discard = $importLines.add("ROW_OK|$i|$finalImportRef|$finalImportName"))
               #set($createdCount = $createdCount + 1)
             #end
           #end
@@ -252,10 +251,23 @@ ROW_OK|$i|$finalImportRef|$finalImportName
     #end
 
     #if($processedCount == 0)
-GLOSSAIRE_ERROR|Aucune ligne d'import reçue par le serveur
+      #set($discard = $importLines.add("GLOSSAIRE_ERROR|Aucune ligne d'import reçue par le serveur"))
     #else
-GLOSSAIRE_IMPORT_OK|$createdCount|$skippedCount|$processedCount
+      #set($discard = $importLines.add("GLOSSAIRE_IMPORT_OK|$createdCount|$skippedCount|$processedCount"))
     #end
+
+    ## IMPORTANT : xpage=plain seul ne garantit pas une réponse texte brute dans
+    ## XWiki. Le rendu wiki peut transformer plusieurs lignes en HTML et le JS ne
+    ## voit alors que le premier ROW_OK. On écrit donc directement la réponse HTTP,
+    ## conformément à la méthode recommandée par XWiki pour les endpoints AJAX.
+    #set($discard = $response.setContentType("text/plain; charset=UTF-8"))
+    #foreach($importLine in $importLines)
+      #set($discard = $response.writer.write($importLine))
+      #if($foreach.hasNext)
+        #set($discard = $response.writer.write("\n"))
+      #end
+    #end
+    $xcontext.setFinished(true)
 
   ## ========================================================================
   ## SUPPRESSION
