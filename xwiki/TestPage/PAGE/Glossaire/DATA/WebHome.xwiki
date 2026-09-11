@@ -1,6 +1,6 @@
 {{velocity}}
 #set($classPath = "TestPage.PAGE.Glossaire.CODE.glossaireClass.WebHome")
-#set($dataSpace = "TestPage.PAGE.Glossaire.DATA")
+#set($dataSpaces = ['TestPage', 'PAGE', 'Glossaire', 'DATA'])
 #set($action = "$!request.action")
 
 ## Cette page sert d'endpoint AJAX pour le tableau du glossaire.
@@ -35,63 +35,107 @@ GLOSSAIRE_ERROR|Données incomplètes
         #if($newAcronym == "")
 GLOSSAIRE_ERROR|L'acronyme ne peut pas être vide
         #else
-          ## Mise à jour des données avant le renommage.
-          #set($discard = $glossaireObj.set("acronyme", $newAcronym))
-          #set($discard = $glossaireObj.set("libelle", $newLabel))
-          #set($discard = $glossaireObj.set("definition", $newDefinition))
-          #set($discard = $targetDoc.setTitle($newAcronym))
-          #set($discard = $targetDoc.save("Modification via interface Glossaire", true))
+          ## IMPORTANT : on travaille avec de vraies DocumentReference XWiki.
+          ## Aucun chemin de renommage n'est construit avec ${...}, afin qu'une
+          ## variable Velocity ne puisse jamais devenir littéralement un dossier.
+          #set($workingDoc = $targetDoc)
+          #set($workingObj = $glossaireObj)
+          #set($renameError = "")
 
-          ## Par défaut la référence reste celle reçue du navigateur.
-          #set($finalRef = $targetRef)
-          #set($finalDocName = $targetDoc.getName())
-
-          ## On ne renomme techniquement la page que si l'acronyme a réellement changé.
           #if($newAcronym != $oldAcronym)
-            #set($candidateName = $xwiki.cleanName($newAcronym))
-            #set($baseCandidateName = $candidateName)
+            #set($baseCandidateName = $xwiki.cleanName($newAcronym))
 
-            ## Les pages renommées sont adressées explicitement en page imbriquée
-            ## (...Nom.WebHome). C'est important : après un premier renommage XWiki,
-            ## renvoyer seulement ...Nom pointe parfois vers une référence différente.
-            #set($candidateRef = "${dataSpace}.${candidateName}.WebHome")
-            #set($candidateTerminalRef = "${dataSpace}.${candidateName}")
-            #set($counter = 1)
-            #set($nameAvailable = false)
+            ## Garde-fou supplémentaire : un nom technique contenant une syntaxe
+            ## de variable est refusé avant toute opération de refactoring.
+            #if(!$baseCandidateName || $baseCandidateName == "" || $baseCandidateName.contains('$') || $baseCandidateName.contains('{') || $baseCandidateName.contains('}'))
+              #set($renameError = "Nom technique d'acronyme invalide")
+            #else
+              #set($sourceReference = $services.model.resolveDocument($targetRef))
+              #set($candidateName = $baseCandidateName)
+              #set($counter = 1)
+              #set($nameAvailable = false)
+              #set($candidateReference = false)
 
-            #foreach($i in [1..100])
-              #set($nestedCandidateDoc = $xwiki.getDocument($candidateRef))
-              #set($terminalCandidateDoc = $xwiki.getDocument($candidateTerminalRef))
-              #set($nestedOccupied = !$nestedCandidateDoc.isNew() && $candidateRef != $targetRef)
-              #set($terminalOccupied = !$terminalCandidateDoc.isNew() && $candidateTerminalRef != $targetRef)
+              #foreach($i in [1..100])
+                ## Une fiche du glossaire est une page imbriquée :
+                ## DATA / NomAcronyme / WebHome.
+                #set($candidateSpaces = ['TestPage', 'PAGE', 'Glossaire', 'DATA', $candidateName])
+                #set($nestedCandidateReference = $services.model.createDocumentReference('', $candidateSpaces, 'WebHome'))
+                #set($terminalCandidateReference = $services.model.createDocumentReference('', $dataSpaces, $candidateName))
 
-              #if(!$nestedOccupied && !$terminalOccupied)
-                #set($nameAvailable = true)
-                #break
-              #else
-                #set($candidateName = "${baseCandidateName}_${counter}")
-                #set($candidateRef = "${dataSpace}.${candidateName}.WebHome")
-                #set($candidateTerminalRef = "${dataSpace}.${candidateName}")
-                #set($counter = $counter + 1)
+                #set($nestedCandidateDoc = $xwiki.getDocument($nestedCandidateReference))
+                #set($terminalCandidateDoc = $xwiki.getDocument($terminalCandidateReference))
+
+                ## Une référence déjà occupée n'est autorisée que si c'est la
+                ## fiche que nous sommes précisément en train de renommer.
+                #set($nestedOccupied = !$nestedCandidateDoc.isNew() && !$nestedCandidateReference.equals($sourceReference))
+                #set($terminalOccupied = !$terminalCandidateDoc.isNew() && !$terminalCandidateReference.equals($sourceReference))
+
+                #if(!$nestedOccupied && !$terminalOccupied)
+                  #set($nameAvailable = true)
+                  #set($candidateReference = $nestedCandidateReference)
+                  #break
+                #else
+                  #set($suffix = "_$counter")
+                  #set($candidateName = "$baseCandidateName$suffix")
+                  #set($counter = $counter + 1)
+                #end
+              #end
+
+              #if(!$nameAvailable || !$candidateReference)
+                #set($renameError = "Impossible de trouver un nom de page disponible")
+              #elseif(!$candidateReference.equals($sourceReference))
+                ## L'API reçoit deux références typées. Aucun nom de chemin n'est
+                ## interpolé dans une chaîne lors du renommage.
+                #set($renameJob = $services.refactoring.rename($sourceReference, $candidateReference))
+
+                #if(!$renameJob)
+                  #set($renameError = "Le service XWiki de renommage n'a pas pu démarrer")
+                #else
+                  #set($discard = $renameJob.join())
+
+                  ## On recharge obligatoirement le document à sa destination réelle.
+                  ## C'est cette référence, et uniquement elle, qui sera renvoyée au JS.
+                  #set($renamedDoc = $xwiki.getDocument($candidateReference))
+                  #if($renamedDoc.isNew())
+                    #set($renameError = "Le document renommé est introuvable à sa destination")
+                  #else
+                    #set($renamedObj = $renamedDoc.getObject($classPath))
+                    #if(!$renamedObj)
+                      #set($renameError = "Objet glossaire introuvable après renommage")
+                    #else
+                      #set($workingDoc = $renamedDoc)
+                      #set($workingObj = $renamedObj)
+                    #end
+                  #end
+                #end
               #end
             #end
+          #end
 
-            #if(!$nameAvailable)
-GLOSSAIRE_ERROR|Impossible de trouver un nom de page disponible
+          #if($renameError != "")
+GLOSSAIRE_ERROR|$renameError
+          #else
+            ## On modifie les données seulement APRÈS avoir sécurisé le renommage.
+            ## Ainsi, un renommage échoué ne laisse pas l'acronyme enregistré sous
+            ## un ancien chemin technique incohérent.
+            #set($discard = $workingObj.set("acronyme", $newAcronym))
+            #set($discard = $workingObj.set("libelle", $newLabel))
+            #set($discard = $workingObj.set("definition", $newDefinition))
+            #set($discard = $workingDoc.setTitle($newAcronym))
+            #set($discard = $workingDoc.save("Modification via interface Glossaire", true))
+
+            ## getFullName() provient du document réellement chargé par XWiki :
+            ## on ne reconstitue jamais la référence côté serveur.
+            #set($finalRef = $workingDoc.getFullName())
+            #set($finalDocName = $workingDoc.getName())
+
+            ## Dernier garde-fou avant de transmettre la référence au navigateur.
+            #if(!$finalRef || $finalRef.contains('$') || $finalRef.contains('{') || $finalRef.contains('}'))
+GLOSSAIRE_ERROR|Référence XWiki finale invalide
             #else
-              ## Destination explicite, avec WebHome, afin que la référence retournée
-              ## soit exactement celle que le second clic sur Sauver devra réutiliser.
-              #set($sourceReference = $services.model.resolveDocument($targetRef))
-              #set($targetReference = $services.model.resolveDocument($candidateRef))
-              #set($renameJob = $services.refactoring.rename($sourceReference, $targetReference))
-              #set($discard = $renameJob.join())
-
-              #set($finalRef = $candidateRef)
-              #set($finalDocName = "${candidateName}.WebHome")
 GLOSSAIRE_OK|$finalRef|$finalDocName
             #end
-          #else
-GLOSSAIRE_OK|$finalRef|$finalDocName
           #end
         #end
       #end
