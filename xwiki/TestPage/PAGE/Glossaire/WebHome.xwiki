@@ -1,0 +1,325 @@
+{{velocity}}
+{{html}}
+#set($classPath = "TestPage.PAGE.Glossaire.CODE.GlossaireClass.WebHome")
+#set($dataSpace = "TestPage.PAGE.Glossaire.DATA")
+
+## Appel des extensions de peau (Skin Extensions) JavaScript et CSS
+$xwiki.jsx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
+$xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
+
+#if("$!request.action" == "checkAndCreate" && $request.acronyme && $request.libelle && $request.definition)
+  #set($acronymeInput = $request.acronyme.trim())
+  #set($libelleInput = $request.libelle.trim())
+  #set($definitionInput = $request.definition.trim())
+
+  ## 1. Génération du nom technique de base
+  #set($cleanName = $xwiki.cleanName($acronymeInput))
+  #set($newPageRef = "${dataSpace}.${cleanName}")
+  #set($newPage = $xwiki.getDocument($newPageRef))
+
+  ## 2. Détection de doublon à des fins d'information (sans bloquer)
+  #set($alreadyExists = false)
+  #if(!$newPage.isNew())
+    #set($alreadyExists = true)
+  #end
+
+  ## 3. Boucle de sécurité pour trouver un nom de page disponible (ex: API_1, API_2)
+  #set($counter = 1)
+  #set($basePageRef = $newPageRef)
+  #foreach($i in [1..100])
+    #if(!$newPage.isNew())
+      #set($newPageRef = "${basePageRef}_${counter}")
+      #set($newPage = $xwiki.getDocument($newPageRef))
+      #set($counter = $counter + 1)
+    #else
+      #break
+    #end
+  #end
+
+  ## 4. Création et population de l'objet
+  #set($newObj = $newPage.newObject($classPath))
+  #set($discard = $newObj.set("acronyme", $acronymeInput))
+  #set($discard = $newObj.set("libelle", $libelleInput))
+  #set($discard = $newObj.set("definition", $definitionInput))
+  #set($discard = $newPage.save("Ajout via interface Glossaire", true))
+
+  ## 5. Stockage du statut en session pour l'affichage après redirection
+  #if($alreadyExists)
+    $request.session.setAttribute('glossary_status', 'warning')
+  #else
+    $request.session.setAttribute('glossary_status', 'success')
+  #end
+  $request.session.setAttribute('glossary_msg', $acronymeInput)
+
+  ## Redirection et arrêt immédiat du script courant pour forcer le rafraîchissement propre
+  $response.sendRedirect($doc.getURL())
+  #stop
+#end
+
+## --- 1. AFFICHAGE DES NOTIFICATIONS (POST-REDIRECTION) ---
+#set($status = $request.session.getAttribute('glossary_status'))
+#if($status)
+  #set($msg = $request.session.getAttribute('glossary_msg'))
+
+  #if($status == 'success')
+    <div class="alert alert-success" style="margin-bottom: 20px;">
+      <strong>Succès !</strong> Le terme <strong>$msg</strong> a été ajouté à la base de données.
+    </div>
+  #elseif($status == 'warning')
+    <div class="alert alert-warning" style="margin-bottom: 20px;">
+      <strong>Information :</strong> L'acronyme <strong>$msg</strong> existait déjà. Une nouvelle fiche distincte a tout de même été créée avec succès.
+    </div>
+  #end
+
+  $request.session.removeAttribute('glossary_status')
+  $request.session.removeAttribute('glossary_msg')
+#end
+
+<script>
+  document.addEventListener("DOMContentLoaded", function() {
+    const alerts = document.querySelectorAll(".alert");
+    alerts.forEach(alert => {
+      setTimeout(() => {
+        alert.classList.add("hidden");
+      }, 7000); // 7000 milliseconds = 7 secondes
+    });
+  });
+</script>
+
+## --- 3. BOUTON D'AJOUT ---
+<div class="row" style="margin-bottom: 15px;">
+  <div class="col-md-6">
+    <button type="button" class="btn btn-success" data-toggle="modal" data-target="#glossaryModal">
+      + Ajouter un nouvel acronyme
+    </button>
+  </div>
+</div>
+
+## --- BLOC DE NAVIGATION POUR LA PAGINATION ---
+<div class="pagination-container" style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px; padding: 10px; background: #f9f9f9; border: 1px solid #ddd; border-radius: 4px;">
+  <!-- Sélecteur de taille de page -->
+  <div>
+    <label for="pageSizeSelect" style="margin-right: 5px; font-weight: normal;">Éléments par page :</label>
+    <select id="pageSizeSelect" onchange="changePageSize();" style="padding: 4px 8px; border-radius: 4px; border: 1px solid #ccc;">
+      <option value="5">5</option>
+      <option value="10" selected>10</option>
+      <option value="25">25</option>
+      <option value="50">50</option>
+      <option value="all">Tout afficher</option>
+    </select>
+  </div>
+
+  <!-- Flèches et indicateur de page -->
+  <div style="display: flex; align-items: center; gap: 15px;">
+    <button type="button" id="btnPrevPage" class="btn btn-default btn-sm" onclick="navigatePage(-1);" style="padding: 5px 10px;">
+      <span class="glyphicon glyphicon-chevron-left"></span>
+    </button>
+    <span id="pageIndicator" style="font-weight: bold; min-width: 80px; text-align: center;">Page 1 / 1</span>
+    <button type="button" id="btnNextPage" class="btn btn-default btn-sm" onclick="navigatePage(1);" style="padding: 5px 10px;">
+      <span class="glyphicon glyphicon-chevron-right"></span>
+    </button>
+  </div>
+</div>
+
+## --- 4. POPUP UNIQUE POUR LES ACTIONS PERSONNALISÉES (MODALE) ---
+<div id="actionFeedbackModal" class="modal fade" tabindex="-1" role="dialog" aria-hidden="true">
+  <div class="modal-dialog" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close" data-dismiss="modal" aria-label="Fermer"><span aria-hidden="true">&times;</span></button>
+        <h4 class="modal-title" id="feedbackModalTitle">Action Personnalisée</h4>
+      </div>
+      <div class="modal-body">
+        <p id="feedbackModalBodyText">Contenu par défaut...</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-default" data-dismiss="modal">Fermer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+#set($urlGlossaireData = $xwiki.getURL("TestPage.PAGE.Glossaire.DATA.WebHome", "view"))
+<script type="text/javascript">
+  // variable globale accessible par votre extension JS
+  var urlGlossaireData = "$escapetool.javascript($urlGlossaireData)";
+</script>
+
+## --- 5. TABLEAU PRINCIPAL GLOSSAIRE MAISON WITH COLUMN FILTERS & PAGINATION ---
+<div class="table-responsive">
+  <!-- On conserve data-csrf et data-class-path sur la table -->
+  <table class="table table-striped table-hover table-bordered"
+         id="mainGlossaryTable"
+         data-csrf="$services.csrf.getToken()"
+         data-class-path="$classPath">
+    <thead>
+      <tr>
+        <th style="width: 15%;">Acronyme</th>
+        <th style="width: 25%;">Libellé complet</th>
+        <th style="width: 45%;">Définition</th>
+        <th style="width: 15%;">Actions</th>
+      </tr>
+      <tr class="filter-row">
+        <th><input type="text" id="filterAcronym" placeholder="Filtrer..." oninput="filterMainTableColumns();"></th>
+        <th><input type="text" id="filterLabel" placeholder="Filtrer..." oninput="filterMainTableColumns();"></th>
+        <th><input type="text" id="filterDefinition" placeholder="Filtrer..." oninput="filterMainTableColumns();"></th>
+        <th style="background-color: #f9f9f9;"></th>
+      </tr>
+    </thead>
+    <tbody>
+      #set($allDocNames = $xwiki.getSpaceDocsName($dataSpace))
+      #foreach($docName in $allDocNames)
+        #set($fullRef = "${dataSpace}.${docName}")
+        #set($tDoc = $xwiki.getDocument($fullRef))
+        #set($tObj = $tDoc.getObject($classPath))
+        #if($tObj)
+          #set($acronymeValue = $!tObj.getValue('acronyme'))
+          #set($libelleValue = $!tObj.getValue('libelle'))
+          #set($definitionValue = $!tObj.getValue('definition'))
+
+          <tr class="main-term-row" data-acronym="$!acronymeValue.toUpperCase()" data-doc-name="$!docName" data-full-ref="$!fullRef">
+            <td class="main-acronym">
+              <span class="view-mode"><strong>$!acronymeValue</strong></span>
+              <input type="text" class="form-control edit-mode edit-acronym" value="$!acronymeValue" style="display:none; width:100%;">
+            </td>
+            <td class="main-label">
+              <span class="view-mode">$!libelleValue</span>
+              <input type="text" class="form-control edit-mode edit-label" value="$!libelleValue" style="display:none; width:100%;">
+            </td>
+            <td class="main-definition">
+              <span class="view-mode">$!definitionValue</span>
+              <textarea class="form-control edit-mode edit-definition" style="display:none; width:100%;" rows="2">$!definitionValue</textarea>
+            </td>
+            <td>
+              <div class="view-buttons">
+                <button type="button" class="btn btn-xs btn-primary custom-action-btn" onclick="toggleEditMode(this, true);">
+                  <span class="glyphicon glyphicon-pencil"></span>
+                </button>
+                <button type="button" class="btn btn-xs btn-danger custom-action-btn" onclick="openDeleteModal(this);">
+                  <span class="glyphicon glyphicon-trash"></span>
+                </button>
+              </div>
+              <div class="edit-buttons" style="display:none; gap: 5px;">
+                <button type="button" class="btn btn-xs btn-success" onclick="saveRowEdition(this);">
+                  <span class="glyphicon glyphicon-ok"></span> Sauver
+                </button>
+                <button type="button" class="btn btn-xs btn-default" onclick="toggleEditMode(this, false);">
+                  <span class="glyphicon glyphicon-remove"></span>
+                </button>
+              </div>
+            </td>
+          </tr>
+        #end
+      #end
+    </tbody>
+  </table>
+</div>
+
+## --- MODALE DE CONFIRMATION DE SUPPRESSION ---
+<div class="modal fade" id="deleteConfirmModal" tabindex="-1" role="dialog" aria-hidden="true">
+  <div class="modal-dialog" role="document">
+    <div class="modal-content">
+      <div class="modal-header" style="background-color: #d9534f; color: white;">
+        <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+        <h4 class="modal-title" id="deleteModalTitle">Confirmer la suppression</h4>
+      </div>
+      <div class="modal-body">
+        <p>Êtes-vous sûr de vouloir supprimer définitivement cet élément ainsi que sa page XWiki ?</p>
+        <table class="table table-bordered table-condensed" style="background: #f9f9f9;">
+          <thead>
+            <tr>
+              <th>Acronyme</th>
+              <th>Libellé complet</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td id="deleteModalAcronym" style="font-weight: bold;"></td>
+              <td id="deleteModalLabel"></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-default" data-dismiss="modal">Annuler</button>
+        <button type="button" class="btn btn-danger" id="btnConfirmDelete" onclick="executeRowDelete();">Supprimer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+## --- 6. BLOC MODAL DE CRÉATION (VOTRE POPUP D'ORIGINE) ---
+<div class="modal fade" id="glossaryModal" tabindex="-1" role="dialog" aria-labelledby="glossaryModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close" data-dismiss="modal" aria-label="Fermer"><span aria-hidden="true">&times;</span></button>
+        <h4 class="modal-title" id="glossaryModalLabel">Nouveau terme du Glossaire</h4>
+      </div>
+
+      <form method="post" action="">
+        <input type="hidden" name="action" value="checkAndCreate" />
+
+        <div class="modal-body">
+          <div class="row">
+
+            ## PARTIE GAUCHE : Formulaire de saisie
+            <div class="col-md-5 modal-left-column">
+              <h5 class="column-title">Informations du terme</h5>
+              <div class="form-group">
+                <label>Acronyme / Sigle (ex: API) :</label>
+                <input type="text" id="acronymeInputField" name="acronyme" class="form-control" autocomplete="off" required placeholder="Ex: XWIKI" oninput="triggerGlobalFilter();"/>
+              </div>
+              <div class="form-group">
+                <label>Libellé complet :</label>
+                <input type="text" id="libelleInputField" name="libelle" class="form-control" autocomplete="off" required placeholder="Ex: Wiki d'entreprise open source" oninput="triggerGlobalFilter();"/>
+              </div>
+              <div class="form-group">
+                <label>Définition :</label>
+                <textarea name="definition" class="form-control" rows="5" required placeholder="Description détaillée..."></textarea>
+              </div>
+            </div>
+
+            ## PARTIE DROITE : Tableau HTML natif filtré de vérification
+            <div class="col-md-7 modal-right-column">
+              <h5 class="column-title warning-title">Vérification des existants</h5>
+              <p class="text-muted help-text">Ce tableau affiche les lignes dont l'acronyme ou le libellé correspond à votre saisie.</p>
+
+              <div class="table-scroll-container">
+                <table class="table table-striped table-hover" id="popupCheckTable">
+                  <thead>
+                    <tr>
+                      <th style="width: 30%;">Acronyme</th>
+                      <th>Libellé complet</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    #foreach($docName in $allDocNames)
+                      #set($fullRef = "${dataSpace}.${docName}")
+                      #set($tDoc = $xwiki.getDocument($fullRef))
+                      #set($tObj = $tDoc.getObject($classPath))
+                      #if($tObj)
+                        <tr class="term-row" data-full-ref="$!fullRef">
+                          <td class="term-acronym">$!tObj.getValue('acronyme')</td>
+                          <td class="term-label">$!tObj.getValue('libelle')</td>
+                        </tr>
+                      #end
+                    #end
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-default" data-dismiss="modal">Annuler</button>
+          <button type="submit" class="btn btn-primary">Valider et Vérifier l'existence</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{{/html}}
+{{/velocity}}
