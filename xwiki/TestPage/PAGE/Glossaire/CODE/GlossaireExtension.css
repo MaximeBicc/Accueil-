@@ -1,0 +1,206 @@
+/* Styles du glossaire. Aucun style spécifique au module ne doit rester dans WebHome. */
+
+.glossary-status-alert {
+    margin-bottom: 20px;
+}
+
+.glossary-toolbar {
+    margin-bottom: 15px;
+}
+
+.glossary-toolbar-left,
+.glossary-toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.glossary-toolbar-right {
+    justify-content: flex-end;
+}
+
+.glossary-toolbar-button {
+    margin-left: 0;
+}
+
+.glossary-hidden-file-input,
+.is-hidden {
+    display: none !important;
+}
+
+.pagination-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 15px;
+    padding: 10px;
+    background: #f9f9f9;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+.glossary-page-size-label {
+    margin-right: 5px;
+    font-weight: normal;
+}
+
+#pageSizeSelect {
+    padding: 4px 8px;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+}
+
+.glossary-pagination-actions {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.glossary-pagination-button {
+    padding: 5px 10px;
+}
+
+#pageIndicator {
+    font-weight: bold;
+    min-width: 80px;
+    text-align: center;
+}
+
+#mainGlossaryTable .glossary-col-acronym {
+    width: 15%;
+}
+
+#mainGlossaryTable .glossary-col-label {
+    width: 25%;
+}
+
+#mainGlossaryTable .glossary-col-definition {
+    width: 45%;
+}
+
+#mainGlossaryTable .glossary-col-actions {
+    width: 15%;
+}
+
+.glossary-filter-layout {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.glossary-filter-input {
+    min-width: 0;
+    flex: 1;
+}
+
+.glossary-empty-filter,
+.glossary-bulk-select-filter {
+    background-color: #f9f9f9;
+}
+
+.glossary-edit-field {
+    width: 100%;
+}
+
+.edit-mode,
+.edit-buttons {
+    display: none;
+}
+
+.glossary-edit-buttons {
+    gap: 5px;
+}
+
+.glossary-delete-modal-header {
+    background-color: #d9534f;
+    color: #fff;
+}
+
+.glossary-delete-preview-table {
+    background: #f9f9f9;
+}
+
+.glossary-delete-acronym {
+    font-weight: bold;
+}
+
+.glossary-bulk-select-cell,
+.glossary-bulk-select-header,
+.glossary-bulk-select-filter {
+    width: 36px;
+    text-align: center;
+    vertical-align: middle;
+}
+
+.excel-import-dialog {
+    width: 95%;
+    max-width: 1400px;
+}
+
+.excel-import-info {
+    margin-bottom: 12px;
+}
+
+.excel-import-table-wrap {
+    overflow: auto;
+    border: 1px solid #ddd;
+}
+
+.excel-import-preview-wrap {
+    max-height: 430px;
+}
+
+.excel-import-duplicates-wrap {
+    max-height: 330px;
+}
+
+.excel-import-table {
+    margin-bottom: 0;
+}
+
+.excel-line-col {
+    width: 65px;
+}
+
+.excel-acronym-col {
+    width: 17%;
+}
+
+.excel-label-col {
+    width: 28%;
+}
+
+.excel-action-col,
+.excel-import-action-cell {
+    width: 70px;
+    text-align: center;
+}
+
+.excel-import-options {
+    margin-top: 15px;
+    padding: 12px;
+    background: #f7f7f7;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+.excel-import-options label {
+    display: block;
+}
+
+.excel-import-options label:last-child {
+    margin-bottom: 0;
+}
+
+.excel-import-summary {
+    margin-top: 10px;
+}
+
+.excel-import-warning {
+    margin-top: 10px;
+    margin-bottom: 0;
+}
+
+.excel-import-input {
+    width: 100%;
+}
