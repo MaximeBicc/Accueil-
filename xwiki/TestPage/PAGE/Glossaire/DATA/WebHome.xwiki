@@ -2,7 +2,12 @@
 #set($classPath = "TestPage.PAGE.Glossaire.CODE.glossaireClass.WebHome")
 #set($dataSpace = "TestPage.PAGE.Glossaire.DATA")
 #set($dataSpaces = ['TestPage', 'PAGE', 'Glossaire', 'DATA'])
-#set($action = "$!request.action")
+
+## IMPORTANT : ne pas utiliser $request.action ici.
+## Dans XWiki, "action" peut représenter l'action de page (view/edit) au lieu
+## du paramètre POST envoyé par fetch(). On lit donc explicitement le paramètre.
+#set($actionParam = $request.getParameter("action"))
+#set($action = "$!actionParam")
 
 ## Cette page sert d'endpoint AJAX pour le tableau du glossaire.
 #if($action != "save" && $action != "delete" && $action != "import")
@@ -14,7 +19,7 @@ GLOSSAIRE_READY
 GLOSSAIRE_ERROR|Jeton CSRF invalide ou absent
 
   #elseif($action == "save")
-    #set($targetRef = "$!request.targetRef")
+    #set($targetRef = "$!request.getParameter('targetRef')")
     #set($targetDoc = $xwiki.getDocument($targetRef))
 
     #if($targetDoc.isNew())
@@ -22,15 +27,19 @@ GLOSSAIRE_ERROR|Document introuvable
     #else
       #set($glossaireObj = $targetDoc.getObject($classPath))
 
+      #set($acronymParam = $request.getParameter("acronym"))
+      #set($labelParam = $request.getParameter("label"))
+      #set($definitionParam = $request.getParameter("definition"))
+
       #if(!$glossaireObj)
 GLOSSAIRE_ERROR|Objet glossaire introuvable
-      #elseif(!$request.acronym || !$request.label || !$request.definition)
+      #elseif(!$acronymParam || !$labelParam || !$definitionParam)
 GLOSSAIRE_ERROR|Données incomplètes
       #else
         #set($oldAcronym = "$!glossaireObj.getValue('acronyme')")
-        #set($newAcronym = $request.acronym.trim())
-        #set($newLabel = $request.label.trim())
-        #set($newDefinition = $request.definition.trim())
+        #set($newAcronym = $acronymParam.trim())
+        #set($newLabel = $labelParam.trim())
+        #set($newDefinition = $definitionParam.trim())
 
         #if($newAcronym == "")
 GLOSSAIRE_ERROR|L'acronyme ne peut pas être vide
@@ -127,14 +136,15 @@ GLOSSAIRE_OK|$finalRef|$finalDocName
     #end
 
   #elseif($action == "import")
-    #set($rowCountNumber = $numbertool.toNumber("$!request.rowCount"))
+    #set($rowCountRaw = $request.getParameter("rowCount"))
+    #set($rowCountNumber = $numbertool.toNumber("$!rowCountRaw"))
 
     #if(!$rowCountNumber)
 GLOSSAIRE_ERROR|Nombre de lignes d'import invalide
     #else
       #set($rowCount = $rowCountNumber.intValue())
-      #set($allowAcronymDuplicates = "$!request.allowAcronymDuplicates" == "true")
-      #set($allowLabelDuplicates = "$!request.allowLabelDuplicates" == "true")
+      #set($allowAcronymDuplicates = "$!request.getParameter('allowAcronymDuplicates')" == "true")
+      #set($allowLabelDuplicates = "$!request.getParameter('allowLabelDuplicates')" == "true")
       #set($createdCount = 0)
       #set($skippedCount = 0)
 
@@ -245,7 +255,7 @@ GLOSSAIRE_IMPORT_OK|$createdCount|$skippedCount
     #end
 
   #elseif($action == "delete")
-    #set($targetRef = "$!request.targetRef")
+    #set($targetRef = "$!request.getParameter('targetRef')")
     #set($targetDoc = $xwiki.getDocument($targetRef))
 
     #if($targetDoc.isNew())
