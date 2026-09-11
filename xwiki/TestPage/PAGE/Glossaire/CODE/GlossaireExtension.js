@@ -20,6 +20,42 @@ function toggleEditMode(button, isEnteringEdit) {
     }
 }
 
+// Trie le tableau principal par acronyme, sans tenir compte de la casse.
+function sortMainTableAlphabetically() {
+    var tbody = document.querySelector('#mainGlossaryTable tbody');
+    if (!tbody) return;
+
+    var rows = Array.from(tbody.querySelectorAll('.main-term-row'));
+    rows.sort(function(a, b) {
+        var acronymA = (a.getAttribute('data-acronym') || '').trim();
+        var acronymB = (b.getAttribute('data-acronym') || '').trim();
+        return acronymA.localeCompare(acronymB, 'fr', { sensitivity: 'base', numeric: true });
+    });
+
+    rows.forEach(function(row) {
+        tbody.appendChild(row);
+    });
+}
+
+// Même ordre alphabétique dans le tableau de vérification de la modale.
+function sortPopupTableAlphabetically() {
+    var tbody = document.querySelector('#popupCheckTable tbody');
+    if (!tbody) return;
+
+    var rows = Array.from(tbody.querySelectorAll('.term-row'));
+    rows.sort(function(a, b) {
+        var acronymCellA = a.querySelector('.term-acronym');
+        var acronymCellB = b.querySelector('.term-acronym');
+        var acronymA = acronymCellA ? acronymCellA.textContent.trim() : '';
+        var acronymB = acronymCellB ? acronymCellB.textContent.trim() : '';
+        return acronymA.localeCompare(acronymB, 'fr', { sensitivity: 'base', numeric: true });
+    });
+
+    rows.forEach(function(row) {
+        tbody.appendChild(row);
+    });
+}
+
 // 1. ENVOI DU POST POUR SAUVEGARDE (VIA FETCH)
 async function saveRowEdition(button) {
     var row = button.closest('.main-term-row');
@@ -29,9 +65,9 @@ async function saveRowEdition(button) {
     var className = table.getAttribute('data-class-path');
     var csrfToken = table.getAttribute('data-csrf');
 
-    var newAcronym = row.querySelector('.edit-acronym').value;
-    var newLabel = row.querySelector('.edit-label').value;
-    var newDefinition = row.querySelector('.edit-definition').value;
+    var newAcronym = row.querySelector('.edit-acronym').value.trim();
+    var newLabel = row.querySelector('.edit-label').value.trim();
+    var newDefinition = row.querySelector('.edit-definition').value.trim();
 
     const donnees = new FormData();
     donnees.append("action", "save");
@@ -53,29 +89,44 @@ async function saveRowEdition(button) {
         const resultat = await reponse.text();
 
         if (resultat.includes("GLOSSAIRE_OK")) {
+            // La page DATA renvoie : GLOSSAIRE_OK|nouvelleReference|nouveauNomDocument
+            var ligneResultat = resultat.split(/\r?\n/).find(function(line) {
+                return line.indexOf('GLOSSAIRE_OK') !== -1;
+            }) || resultat.trim();
+            var resultatParts = ligneResultat.trim().split('|');
+            var updatedFullRef = resultatParts.length > 1 && resultatParts[1] ? resultatParts[1].trim() : fullRef;
+            var updatedDocName = resultatParts.length > 2 && resultatParts[2] ? resultatParts[2].trim() : row.getAttribute('data-doc-name');
+
             // Mise à jour du tableau principal
             row.querySelector('.main-acronym .view-mode strong').textContent = newAcronym;
             row.querySelector('.main-label .view-mode').textContent = newLabel;
             row.querySelector('.main-definition .view-mode').textContent = newDefinition;
             row.setAttribute('data-acronym', newAcronym.toUpperCase());
+            row.setAttribute('data-full-ref', updatedFullRef);
+            row.setAttribute('data-doc-name', updatedDocName);
 
-            // --- AJOUT : Mise à jour du tableau de la modal ---
+            // Mise à jour du tableau de la modal et de sa référence après renommage XWiki.
             var modalRow = document.querySelector('#popupCheckTable tr[data-full-ref="' + fullRef + '"]');
             if (modalRow) {
                 var modalAcronymCell = modalRow.querySelector('.term-acronym');
                 var modalLabelCell = modalRow.querySelector('.term-label');
 
+                modalRow.setAttribute('data-full-ref', updatedFullRef);
                 if (modalAcronymCell) modalAcronymCell.textContent = newAcronym;
                 if (modalLabelCell) modalLabelCell.textContent = newLabel;
             }
+
+            // L'acronyme peut changer de position : on retrie avant de repaginer.
+            sortMainTableAlphabetically();
+            sortPopupTableAlphabetically();
 
             // Force le déclenchement du filtre global si la modal est ouverte pour recalculer la pertinence
             if (typeof triggerGlobalFilter === 'function') {
                 triggerGlobalFilter();
             }
-            // -----------------------------------------------
 
             toggleEditMode(button, false);
+            applyPagination();
         } else {
             alert("Erreur serveur : " + resultat.trim());
         }
@@ -125,12 +176,11 @@ async function executeRowDelete() {
         if (resultat.includes("GLOSSAIRE_OK")) {
             jQuery('#deleteConfirmModal').modal('hide');
 
-            // --- AJOUT : Suppression dans le tableau de la modal ---
+            // Suppression dans le tableau de la modal
             var modalRow = document.querySelector('#popupCheckTable tr[data-full-ref="' + fullRef + '"]');
             if (modalRow) {
                 modalRow.remove();
             }
-            // -------------------------------------------------------
 
             rowToDelete.remove();
             rowToDelete = null;
@@ -155,8 +205,10 @@ async function executeRowDelete() {
 var currentPage = 1;
 var pageSize = 10;
 
-// Initialisation au chargement de la page
+// Initialisation au chargement de la page : ordre alphabétique puis pagination.
 document.addEventListener("DOMContentLoaded", function() {
+    sortMainTableAlphabetically();
+    sortPopupTableAlphabetically();
     applyPagination();
 });
 
@@ -233,6 +285,7 @@ function applyPagination() {
 
     // Si "Tout afficher" est sélectionné
     if (selectValue === 'all') {
+        rows.forEach(function(row) { row.style.display = 'none'; });
         visibleRows.forEach(function(row) { row.style.display = ''; });
         // Masquer ou désactiver les contrôles devenus inutiles
         document.getElementById('pageIndicator').innerText = 'Tout affiché';
@@ -303,7 +356,10 @@ function triggerGlobalFilter() {
 
         if (acronymCell && labelCell) {
             var acronymText = (acronymCell.textContent || acronymCell.innerText).toUpperCase();
-            var labelText = (labelCell.textContent || labelCell.innerText).toUpperCase(); var matchAcronym = false; var matchLibelle = false;
+            var labelText = (labelCell.textContent || labelCell.innerText).toUpperCase();
+            var matchAcronym = false;
+            var matchLibelle = false;
+
             if (acronymValue !== '') {
                 if (acronymText.indexOf(acronymValue) > -1)
                     matchAcronym = true;
