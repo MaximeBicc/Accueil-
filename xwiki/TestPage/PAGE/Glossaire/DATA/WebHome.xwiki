@@ -35,20 +35,21 @@ GLOSSAIRE_ERROR|Données incomplètes
         #if($newAcronym == "")
 GLOSSAIRE_ERROR|L'acronyme ne peut pas être vide
         #else
-          ## IMPORTANT : on travaille avec de vraies DocumentReference XWiki.
-          ## Aucun chemin de renommage n'est construit avec une interpolation
-          ## ${...}, afin qu'une variable Velocity ne puisse jamais devenir
-          ## littéralement un nom de page ou de dossier.
+          ## On travaille avec de vraies DocumentReference XWiki.
+          ## Ne pas utiliser $xwiki.cleanName() ici : sur cette instance cet appel
+          ## peut rester sous forme d'expression Velocity non résolue et rendre tous
+          ## les acronymes invalides.
           #set($workingDoc = $targetDoc)
           #set($workingObj = $glossaireObj)
           #set($renameError = "")
 
           #if($newAcronym != $oldAcronym)
-            #set($baseCandidateName = $xwiki.cleanName($newAcronym))
+            ## Le nom technique part directement de l'acronyme saisi.
+            ## On bloque seulement les caractères capables de produire une
+            ## expression Velocity littérale ou un sous-chemin accidentel.
+            #set($baseCandidateName = $newAcronym)
 
-            ## Garde-fou supplémentaire : une syntaxe ressemblant à une variable
-            ## Velocity est refusée avant toute opération de refactoring.
-            #if(!$baseCandidateName || $baseCandidateName == "" || $baseCandidateName.contains('$') || $baseCandidateName.contains('{') || $baseCandidateName.contains('}'))
+            #if(!$baseCandidateName || $baseCandidateName == "" || $baseCandidateName.contains('$') || $baseCandidateName.contains('{') || $baseCandidateName.contains('}') || $baseCandidateName.contains('/'))
               #set($renameError = "Nom technique d'acronyme invalide")
             #else
               #set($sourceReference = $services.model.resolveDocument($targetRef))
@@ -58,10 +59,8 @@ GLOSSAIRE_ERROR|L'acronyme ne peut pas être vide
               #set($candidateReference = false)
 
               #foreach($i in [1..100])
-                ## Les fiches du glossaire sont des pages TERMINALES directement
-                ## dans DATA, comme lors de leur création. On ne les transforme
-                ## jamais en DATA/Nom/WebHome, sinon getSpaceDocsName(DATA) ne les
-                ## retrouve plus dans le tableau principal.
+                ## Les fiches du glossaire restent des pages TERMINALES directement
+                ## dans DATA, comme lors de leur création.
                 #set($terminalCandidateReference = $services.model.createDocumentReference('', $dataSpaces, $candidateName))
                 #set($nestedCandidateSpaces = ['TestPage', 'PAGE', 'Glossaire', 'DATA', $candidateName])
                 #set($nestedCandidateReference = $services.model.createDocumentReference('', $nestedCandidateSpaces, 'WebHome'))
@@ -69,8 +68,6 @@ GLOSSAIRE_ERROR|L'acronyme ne peut pas être vide
                 #set($terminalCandidateDoc = $xwiki.getDocument($terminalCandidateReference))
                 #set($nestedCandidateDoc = $xwiki.getDocument($nestedCandidateReference))
 
-                ## On bloque aussi un nom déjà utilisé sous forme imbriquée pour
-                ## éviter deux entrées concurrentes portant le même nom visuel.
                 #set($terminalOccupied = !$terminalCandidateDoc.isNew() && !$terminalCandidateReference.equals($sourceReference))
                 #set($nestedOccupied = !$nestedCandidateDoc.isNew() && !$nestedCandidateReference.equals($sourceReference))
 
@@ -88,8 +85,8 @@ GLOSSAIRE_ERROR|L'acronyme ne peut pas être vide
               #if(!$nameAvailable || !$candidateReference)
                 #set($renameError = "Impossible de trouver un nom de page disponible")
               #elseif(!$candidateReference.equals($sourceReference))
-                ## L'API reçoit deux références typées. Aucun chemin n'est
-                ## reconstitué avec candidateName dans une chaîne.
+                ## L'API reçoit uniquement des références typées : aucune chaîne du
+                ## type ${candidateName} n'est utilisée pour construire la destination.
                 #set($renameJob = $services.refactoring.rename($sourceReference, $candidateReference))
 
                 #if(!$renameJob)
@@ -97,9 +94,13 @@ GLOSSAIRE_ERROR|L'acronyme ne peut pas être vide
                 #else
                   #set($discard = $renameJob.join())
 
-                  ## On recharge obligatoirement le document à sa destination réelle.
-                  ## C'est cette référence réelle qui sera ensuite renvoyée au JS.
+                  ## On recharge le document à sa destination réelle.
                   #set($renamedDoc = $xwiki.getDocument($candidateReference))
+                  #if($renamedDoc.isNew())
+                    ## Compatibilité avec une page éventuellement convertie en page imbriquée.
+                    #set($renamedDoc = $xwiki.getDocument($nestedCandidateReference))
+                  #end
+
                   #if($renamedDoc.isNew())
                     #set($renameError = "Le document renommé est introuvable à sa destination")
                   #else
@@ -120,20 +121,16 @@ GLOSSAIRE_ERROR|L'acronyme ne peut pas être vide
 GLOSSAIRE_ERROR|$renameError
           #else
             ## On modifie les données seulement APRÈS avoir sécurisé le renommage.
-            ## Ainsi, un renommage échoué ne laisse pas l'acronyme enregistré sous
-            ## un ancien chemin technique incohérent.
             #set($discard = $workingObj.set("acronyme", $newAcronym))
             #set($discard = $workingObj.set("libelle", $newLabel))
             #set($discard = $workingObj.set("definition", $newDefinition))
             #set($discard = $workingDoc.setTitle($newAcronym))
             #set($discard = $workingDoc.save("Modification via interface Glossaire", true))
 
-            ## getFullName() provient du document réellement chargé par XWiki :
-            ## on ne reconstitue jamais la référence à transmettre au navigateur.
+            ## On renvoie toujours la référence du document réellement chargé par XWiki.
             #set($finalRef = $workingDoc.getFullName())
             #set($finalDocName = $workingDoc.getName())
 
-            ## Dernier garde-fou avant de transmettre la référence au navigateur.
             #if(!$finalRef || $finalRef.contains('$') || $finalRef.contains('{') || $finalRef.contains('}'))
 GLOSSAIRE_ERROR|Référence XWiki finale invalide
             #else
