@@ -1,0 +1,80 @@
+{{velocity}}
+#if ($request.getMethod() == "POST")
+  ## 1. Récupération des paramètres de la requête
+  #set($action = $!request.getParameter('action'))
+  #set($targetRef = $!request.getParameter('targetRef'))
+  #set($formToken = $!request.getParameter('form_token'))
+
+  ## 2. Validation de sécurité stricte (Votre modèle fonctionnel)
+  #if(!$services.csrf.isTokenValid($formToken))
+    {{html}}ERREUR_CSRF{{/html}}
+  #else
+    #set($targetDoc = $xwiki.getDocument($targetRef))
+
+    ## --- SCRIPT DE SAUVEGARDE ---
+    #if ($action == 'save')
+      #set($className = $!request.getParameter('className'))
+      #set($acronym = $!request.getParameter('acronym'))
+      #set($label = $!request.getParameter('label'))
+      #set($definition = $!request.getParameter('definition'))
+      #set($type = $!request.getParameter('type'))
+      #set($proprietaire = $!request.getParameter('proprietaire'))
+      $targetDoc
+$className
+$acronym
+$label
+$definition
+$type
+$proprietaire
+$targetRef
+$targetDoc.isNew()
+      #set($obj = $targetDoc.getObject($className, true))
+
+      #if ($obj)
+$obj
+        #if($acronym)
+          $obj.set('nom_lien', $acronym)
+          ##set($pageName = $services.model.resolveDocument($targetRef))
+          ##set($newPageName = $acronym)
+          ##set($job = $services.refactoring.rename($pageName, $newPageName))
+          ##$job.join()
+        #end
+        #if($label)
+          $obj.set('lien', $label)
+        #end
+        #if($type)
+          $obj.set('type', $type)
+        #end
+        #if($definition)
+          $obj.set('definition', $definition)
+        #end
+        #if($proprietaire)
+          $obj.set('proprietaire', $proprietaire)
+        #end
+        ## Sauvegarde et récupération du résultat (true/false)
+        #set($saveSuccess = $targetDoc.save("Mise à jour via API Glossaire", true))
+
+        #if($saveSuccess == true || $saveSuccess)
+          {{html}}GLOSSAIRE_OK{{/html}}
+        #end
+      #else
+        {{html}}ERREUR_OBJET{{/html}}
+      #end
+
+    ## --- SCRIPT DE SUPPRESSION ---
+    #elseif ($action == 'delete')
+      #set($deleteSuccess = $targetDoc.delete())
+      #if ($deleteSuccess)
+        {{html}}GLOSSAIRE_OK{{/html}}
+      #else
+        {{html}}ERREUR_DROITS{{/html}}
+      #end
+    #else
+      {{html}}ERREUR_ACTION_INCONNUE{{/html}}
+    #end
+  #end
+#else
+  {{warning}}Cette page n'accepte que les requêtes de type POST.{{/warning}}
+  ## Fin de la condition POST
+#end
+{{/velocity}}
