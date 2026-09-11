@@ -3,14 +3,17 @@
 #set($classPath = "TestPage.PAGE.Glossaire.CODE.glossaireClass.WebHome")
 #set($dataSpace = "TestPage.PAGE.Glossaire.DATA")
 
-## Appel des extensions de peau (Skin Extensions) JavaScript et CSS
+## Extensions JavaScript / CSS du module
 $xwiki.jsx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
+$xwiki.jsx.use("TestPage.PAGE.Glossaire.CODE.GlossairePageExtension")
 $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
 
-#if("$!request.action" == "checkAndCreate" && $request.acronyme && $request.libelle && $request.definition)
-  #set($acronymeInput = $request.acronyme.trim())
-  #set($libelleInput = $request.libelle.trim())
-  #set($definitionInput = $request.definition.trim())
+#set($createAction = $request.getParameter("action"))
+#if("$!createAction" == "checkAndCreate" && $request.acronyme && $request.libelle && $request.definition)
+  ## Aucun .trim() côté Velocity sur cette instance XWiki.
+  #set($acronymeInput = "$!request.acronyme")
+  #set($libelleInput = "$!request.libelle")
+  #set($definitionInput = "$!request.definition")
 
   ## 1. Génération du nom technique de base
   #set($cleanName = $xwiki.cleanName($acronymeInput))
@@ -23,7 +26,7 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
     #set($alreadyExists = true)
   #end
 
-  ## 3. Boucle de sécurité pour trouver un nom de page disponible (ex: API_1, API_2)
+  ## 3. Boucle de sécurité pour trouver un nom de page disponible
   #set($counter = 1)
   #set($basePageRef = $newPageRef)
   #foreach($i in [1..100])
@@ -44,7 +47,7 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
   #set($discard = $newPage.setTitle($acronymeInput))
   #set($discard = $newPage.save("Ajout via interface Glossaire", true))
 
-  ## 5. Stockage du statut en session pour l'affichage après redirection
+  ## 5. Notification après redirection
   #if($alreadyExists)
     $request.session.setAttribute('glossary_status', 'warning')
   #else
@@ -52,22 +55,21 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
   #end
   $request.session.setAttribute('glossary_msg', $acronymeInput)
 
-  ## Redirection et arrêt immédiat du script courant pour forcer le rafraîchissement propre
   $response.sendRedirect($doc.getURL())
   #stop
 #end
 
-## --- 1. AFFICHAGE DES NOTIFICATIONS (POST-REDIRECTION) ---
+## --- NOTIFICATIONS POST-REDIRECTION ---
 #set($status = $request.session.getAttribute('glossary_status'))
 #if($status)
   #set($msg = $request.session.getAttribute('glossary_msg'))
 
   #if($status == 'success')
-    <div class="alert alert-success" style="margin-bottom: 20px;">
+    <div class="alert alert-success glossary-status-alert">
       <strong>Succès !</strong> Le terme <strong>$msg</strong> a été ajouté à la base de données.
     </div>
   #elseif($status == 'warning')
-    <div class="alert alert-warning" style="margin-bottom: 20px;">
+    <div class="alert alert-warning glossary-status-alert">
       <strong>Information :</strong> L'acronyme <strong>$msg</strong> existait déjà. Une nouvelle fiche distincte a tout de même été créée avec succès.
     </div>
   #end
@@ -76,31 +78,21 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
   $request.session.removeAttribute('glossary_msg')
 #end
 
-<script>
-  document.addEventListener("DOMContentLoaded", function() {
-    const alerts = document.querySelectorAll(".alert");
-    alerts.forEach(alert => {
-      setTimeout(() => {
-        alert.classList.add("hidden");
-      }, 7000); // 7000 milliseconds = 7 secondes
-    });
-  });
-</script>
-
-## --- 3. BOUTON D'AJOUT ---
-<div class="row" style="margin-bottom: 15px;">
-  <div class="col-md-6">
+## --- BARRE D'ACTIONS ---
+<div class="row glossary-toolbar">
+  <div id="glossaryToolbarLeft" class="col-md-6 glossary-toolbar-left">
     <button type="button" class="btn btn-success" data-toggle="modal" data-target="#glossaryModal">
       + Ajouter un nouvel acronyme
     </button>
   </div>
+  <div id="glossaryToolbarRight" class="col-md-6 glossary-toolbar-right"></div>
 </div>
 
-## --- BLOC DE NAVIGATION POUR LA PAGINATION ---
-<div class="pagination-container" style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px; padding: 10px; background: #f9f9f9; border: 1px solid #ddd; border-radius: 4px;">
+## --- PAGINATION ---
+<div class="pagination-container">
   <div>
-    <label for="pageSizeSelect" style="margin-right: 5px; font-weight: normal;">Éléments par page :</label>
-    <select id="pageSizeSelect" onchange="changePageSize();" style="padding: 4px 8px; border-radius: 4px; border: 1px solid #ccc;">
+    <label for="pageSizeSelect" class="glossary-page-size-label">Éléments par page :</label>
+    <select id="pageSizeSelect">
       <option value="5">5</option>
       <option value="10" selected>10</option>
       <option value="25">25</option>
@@ -108,18 +100,19 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
       <option value="all">Tout afficher</option>
     </select>
   </div>
-  <div style="display: flex; align-items: center; gap: 15px;">
-    <button type="button" id="btnPrevPage" class="btn btn-default btn-sm" onclick="navigatePage(-1);" style="padding: 5px 10px;">
+
+  <div class="glossary-pagination-actions">
+    <button type="button" id="btnPrevPage" class="btn btn-default btn-sm glossary-pagination-button">
       <span class="glyphicon glyphicon-chevron-left"></span>
     </button>
-    <span id="pageIndicator" style="font-weight: bold; min-width: 80px; text-align: center;">Page 1 / 1</span>
-    <button type="button" id="btnNextPage" class="btn btn-default btn-sm" onclick="navigatePage(1);" style="padding: 5px 10px;">
+    <span id="pageIndicator">Page 1 / 1</span>
+    <button type="button" id="btnNextPage" class="btn btn-default btn-sm glossary-pagination-button">
       <span class="glyphicon glyphicon-chevron-right"></span>
     </button>
   </div>
 </div>
 
-## --- 4. POPUP UNIQUE POUR LES ACTIONS PERSONNALISÉES (MODALE) ---
+## --- POPUP D'ACTION GÉNÉRIQUE ---
 <div id="actionFeedbackModal" class="modal fade" tabindex="-1" role="dialog" aria-hidden="true">
   <div class="modal-dialog" role="document">
     <div class="modal-content">
@@ -127,591 +120,73 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
         <button type="button" class="close" data-dismiss="modal" aria-label="Fermer"><span aria-hidden="true">&times;</span></button>
         <h4 class="modal-title" id="feedbackModalTitle">Action Personnalisée</h4>
       </div>
-      <div class="modal-body"><p id="feedbackModalBodyText">Contenu par défaut...</p></div>
-      <div class="modal-footer"><button type="button" class="btn btn-default" data-dismiss="modal">Fermer</button></div>
+      <div class="modal-body">
+        <p id="feedbackModalBodyText">Contenu par défaut...</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-default" data-dismiss="modal">Fermer</button>
+      </div>
     </div>
   </div>
 </div>
 
 #set($urlGlossaireData = $xwiki.getURL("TestPage.PAGE.Glossaire.DATA.WebHome", "view"))
-<script type="text/javascript">
-  var urlGlossaireData = "$escapetool.javascript($urlGlossaireData)";
-</script>
 
-## --- CORRECTIFS IMPORT EXCEL POUR XWIKI ---
-<script type="text/javascript">
-  var glossarySheetJSLibrary = null;
-  var excelImportFileName = '';
-  var excelImportHeaderInfo = null;
-
-  function isGlossarySheetJSLibrary(candidate) {
-    return !!candidate && typeof candidate.read === 'function' && candidate.utils && typeof candidate.utils.sheet_to_json === 'function';
-  }
-
-  function fixedEnsureSheetJSLoaded() {
-    if (isGlossarySheetJSLibrary(glossarySheetJSLibrary)) return Promise.resolve(glossarySheetJSLibrary);
-    if (isGlossarySheetJSLibrary(window.XLSX)) {
-      glossarySheetJSLibrary = window.XLSX;
-      return Promise.resolve(glossarySheetJSLibrary);
-    }
-
-    return new Promise(function(resolve, reject) {
-      var previousXLSX = window.XLSX;
-      var previousDefine = window.define;
-      var previousDefineWasAMD = !!(previousDefine && previousDefine.amd);
-      try {
-        if (previousDefineWasAMD) window.define = undefined;
-        window.XLSX = undefined;
-      } catch (e) {}
-
-      var existingScript = document.getElementById('sheetJsGlossaryLibrary');
-      if (existingScript && existingScript.parentNode) existingScript.parentNode.removeChild(existingScript);
-
-      var script = document.createElement('script');
-      script.id = 'sheetJsGlossaryLibrary';
-      script.src = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
-      script.type = 'text/javascript';
-
-      function restoreRequireJS() {
-        if (previousDefineWasAMD) window.define = previousDefine;
-      }
-
-      script.onload = function() {
-        restoreRequireJS();
-        if (isGlossarySheetJSLibrary(window.XLSX)) {
-          glossarySheetJSLibrary = window.XLSX;
-          resolve(glossarySheetJSLibrary);
-          return;
-        }
-        window.XLSX = previousXLSX;
-        reject(new Error('SheetJS est chargé mais read() / utils.sheet_to_json() ne sont pas disponibles.'));
-      };
-      script.onerror = function() {
-        restoreRequireJS();
-        window.XLSX = previousXLSX;
-        reject(new Error('Impossible de charger SheetJS depuis cdn.sheetjs.com.'));
-      };
-      document.head.appendChild(script);
-    });
-  }
-
-  function fixedDetectExcelHeader(firstRow) {
-    var map = {};
-    var usedIndexes = {};
-    var recognizedTypes = [];
-    var canonicalTypes = ['acronym', 'label', 'definition'];
-
-    firstRow.forEach(function(cell, index) {
-      var type = findHeaderType(cell);
-      if (type && map[type] == null) {
-        map[type] = index;
-        usedIndexes[index] = true;
-        recognizedTypes.push(type);
-      }
-    });
-
-    if (!recognizedTypes.length) {
-      return { detected: false, map: { acronym: 0, label: 1, definition: 2 }, recognizedTypes: [], inferredTypes: [] };
-    }
-
-    var missingTypes = canonicalTypes.filter(function(type) { return map[type] == null; });
-    var availableIndexes = [];
-    for (var i = 0; i < 3; i++) if (!usedIndexes[i]) availableIndexes.push(i);
-    for (var j = 3; j < firstRow.length; j++) if (!usedIndexes[j]) availableIndexes.push(j);
-    var nextIndex = firstRow.length;
-    while (availableIndexes.length < missingTypes.length) {
-      if (!usedIndexes[nextIndex]) availableIndexes.push(nextIndex);
-      nextIndex++;
-    }
-    missingTypes.forEach(function(type) { map[type] = availableIndexes.shift(); });
-    return { detected: true, map: map, recognizedTypes: recognizedTypes, inferredTypes: missingTypes };
-  }
-
-  function fixedRecomputeExcelDuplicateFlags(rows) {
-    var existing = getExistingGlossaryKeys();
-    var seenAcronyms = {};
-    var seenLabels = {};
-    rows.forEach(function(row) {
-      var acronymKey = normalizeDuplicateKey(row.acronym);
-      var labelKey = normalizeDuplicateKey(row.label);
-      row.invalid = !row.acronym || !row.label || !row.definition;
-      row.duplicateAcronymGlossary = !!(acronymKey && existing.acronyms[acronymKey]);
-      row.duplicateLabelGlossary = !!(labelKey && existing.labels[labelKey]);
-      row.duplicateAcronymFile = !!(acronymKey && seenAcronyms[acronymKey]);
-      row.duplicateLabelFile = !!(labelKey && seenLabels[labelKey]);
-      row.duplicateAcronym = row.duplicateAcronymGlossary || row.duplicateAcronymFile;
-      row.duplicateLabel = row.duplicateLabelGlossary || row.duplicateLabelFile;
-      if (acronymKey && !seenAcronyms[acronymKey]) seenAcronyms[acronymKey] = true;
-      if (labelKey && !seenLabels[labelKey]) seenLabels[labelKey] = true;
-    });
-    return rows;
-  }
-
-  function fixedAnalyzeExcelRows(rawRows, headerInfo) {
-    var startIndex = headerInfo.detected ? 1 : 0;
-    var result = [];
-    for (var i = startIndex; i < rawRows.length; i++) {
-      var sourceRow = rawRows[i] || [];
-      var acronym = String(sourceRow[headerInfo.map.acronym] == null ? '' : sourceRow[headerInfo.map.acronym]).trim();
-      var label = String(sourceRow[headerInfo.map.label] == null ? '' : sourceRow[headerInfo.map.label]).trim();
-      var definition = String(sourceRow[headerInfo.map.definition] == null ? '' : sourceRow[headerInfo.map.definition]).trim();
-      if (!acronym && !label && !definition) continue;
-      result.push({ sourceLine: i + 1, acronym: acronym, label: label, definition: definition });
-    }
-    return fixedRecomputeExcelDuplicateFlags(result);
-  }
-
-  function fixedPatchExcelImportPreviewHeader() {
-    var previewBody = document.getElementById('excelImportPreviewBody');
-    if (!previewBody) return;
-    var table = previewBody.closest('table');
-    var headerRow = table ? table.querySelector('thead tr') : null;
-    if (!headerRow) return;
-    headerRow.innerHTML = '<th style="width:65px;">Ligne</th><th style="width:17%;">Acronyme</th><th style="width:28%;">Libellé</th><th>Définition</th><th style="width:70px; text-align:center;">Action</th>';
-  }
-
-  function fixedEditExcelImportRow(rowIndex, field, value) {
-    if (!excelImportRows[rowIndex]) return;
-    excelImportRows[rowIndex][field] = String(value == null ? '' : value).trim();
-    fixedRecomputeExcelDuplicateFlags(excelImportRows);
-    fixedRenderExcelImportPreview(excelImportFileName);
-  }
-
-  function fixedDeleteExcelImportRow(rowIndex) {
-    if (rowIndex < 0 || rowIndex >= excelImportRows.length) return;
-    excelImportRows.splice(rowIndex, 1);
-    fixedRecomputeExcelDuplicateFlags(excelImportRows);
-    fixedRenderExcelImportPreview(excelImportFileName);
-  }
-
-  function fixedRenderExcelImportPreview(fileName) {
-    excelImportFileName = fileName || excelImportFileName || '';
-    fixedRecomputeExcelDuplicateFlags(excelImportRows);
-    fixedPatchExcelImportPreviewHeader();
-    var previewBody = document.getElementById('excelImportPreviewBody');
-    var duplicatesBody = document.getElementById('excelImportDuplicatesBody');
-    var info = document.getElementById('excelImportInfo');
-    if (!previewBody || !duplicatesBody || !info) return;
-    previewBody.innerHTML = '';
-    duplicatesBody.innerHTML = '';
-
-    var headerInfo = excelImportHeaderInfo || {};
-    var columnDescription;
-    if (excelImportHeaderDetected) {
-      var inferredLabels = (headerInfo.inferredTypes || []).map(function(type) {
-        if (type === 'acronym') return 'Acronyme';
-        if (type === 'label') return 'Libellé';
-        return 'Définition';
-      });
-      columnDescription = 'Entête détectée dès qu’au moins un champ est reconnu.';
-      if (inferredLabels.length) columnDescription += ' Colonne(s) déduite(s) par élimination : ' + inferredLabels.join(', ') + '.';
-    } else {
-      columnDescription = 'Aucun entête reconnu : colonnes 1, 2 et 3 utilisées dans cet ordre.';
-    }
-    info.textContent = excelImportFileName + ' — feuille « ' + excelImportSheetName + ' » — ' + columnDescription;
-
-    var duplicateCount = 0;
-    var invalidCount = 0;
-    excelImportRows.forEach(function(row, rowIndex) {
-      var tr = document.createElement('tr');
-      var lineCell = document.createElement('td');
-      lineCell.textContent = row.sourceLine;
-      tr.appendChild(lineCell);
-
-      function addEditableCell(field, value, isDanger, isDefinition) {
-        var td = document.createElement('td');
-        if (isDanger) td.className = 'danger';
-        var input;
-        if (isDefinition) {
-          input = document.createElement('textarea');
-          input.rows = 2;
-        } else {
-          input = document.createElement('input');
-          input.type = 'text';
-        }
-        input.className = 'form-control input-sm';
-        input.value = value;
-        input.addEventListener('change', function() { fixedEditExcelImportRow(rowIndex, field, this.value); });
-        td.appendChild(input);
-        tr.appendChild(td);
-      }
-
-      addEditableCell('acronym', row.acronym, row.duplicateAcronym || !row.acronym, false);
-      addEditableCell('label', row.label, row.duplicateLabel || !row.label, false);
-      addEditableCell('definition', row.definition, !row.definition, true);
-
-      var actionCell = document.createElement('td');
-      actionCell.style.textAlign = 'center';
-      var deleteButton = document.createElement('button');
-      deleteButton.type = 'button';
-      deleteButton.className = 'btn btn-xs btn-danger';
-      deleteButton.title = 'Supprimer cette ligne de l’import';
-      deleteButton.innerHTML = '<span class="glyphicon glyphicon-trash"></span>';
-      deleteButton.addEventListener('click', function() { fixedDeleteExcelImportRow(rowIndex); });
-      actionCell.appendChild(deleteButton);
-      tr.appendChild(actionCell);
-      previewBody.appendChild(tr);
-
-      if (row.invalid) invalidCount++;
-      if (row.duplicateAcronym || row.duplicateLabel) {
-        duplicateCount++;
-        var duplicateRow = document.createElement('tr');
-        var reasons = [];
-        if (row.duplicateAcronymGlossary) reasons.push('Acronyme : glossaire');
-        if (row.duplicateAcronymFile) reasons.push('Acronyme : fichier Excel');
-        if (row.duplicateLabelGlossary) reasons.push('Libellé : glossaire');
-        if (row.duplicateLabelFile) reasons.push('Libellé : fichier Excel');
-        duplicateRow.innerHTML = '<td>' + row.sourceLine + '</td><td' + (row.duplicateAcronym ? ' class="danger"' : '') + '></td><td' + (row.duplicateLabel ? ' class="danger"' : '') + '></td><td></td>';
-        duplicateRow.children[1].textContent = row.acronym;
-        duplicateRow.children[2].textContent = row.label;
-        duplicateRow.children[3].textContent = reasons.join(' ; ');
-        duplicatesBody.appendChild(duplicateRow);
-      }
-    });
-
-    if (!duplicateCount) {
-      var emptyRow = document.createElement('tr');
-      emptyRow.innerHTML = '<td colspan="4" class="text-success">Aucun doublon détecté.</td>';
-      duplicatesBody.appendChild(emptyRow);
-    }
-
-    document.querySelectorAll('[data-excel-invalid-warning="true"]').forEach(function(element) { element.remove(); });
-    if (invalidCount) {
-      var warning = document.createElement('div');
-      warning.className = 'alert alert-warning';
-      warning.style.marginTop = '10px';
-      warning.style.marginBottom = '0';
-      warning.textContent = invalidCount + ' ligne(s) incomplète(s) seront ignorées. Vous pouvez les corriger directement dans le tableau.';
-      warning.setAttribute('data-excel-invalid-warning', 'true');
-      info.parentNode.insertBefore(warning, info.nextSibling);
-    }
-    updateExcelImportSelectionSummary();
-  }
-
-  async function fixedReadGlossaryExcelFile(file) {
-    var xlsxLibrary;
-    try {
-      xlsxLibrary = await fixedEnsureSheetJSLoaded();
-    } catch (error) {
-      console.error(error);
-      alert('La bibliothèque Excel n\'a pas pu être chargée correctement : ' + error.message);
-      return;
-    }
-    try {
-      var buffer = await file.arrayBuffer();
-      if (!isGlossarySheetJSLibrary(xlsxLibrary)) throw new Error('La bibliothèque SheetJS chargée ne possède pas read()');
-      var workbook = xlsxLibrary.read(buffer, { type: 'array' });
-      if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
-        alert('Le fichier Excel ne contient aucune feuille lisible.');
-        return;
-      }
-      excelImportSheetName = workbook.SheetNames[0];
-      var worksheet = workbook.Sheets[excelImportSheetName];
-      var rawRows = xlsxLibrary.utils.sheet_to_json(worksheet, { header: 1, raw: false, defval: '' });
-      if (!rawRows.length) {
-        alert('La première feuille du fichier est vide.');
-        return;
-      }
-      var headerInfo = fixedDetectExcelHeader(rawRows[0] || []);
-      excelImportHeaderInfo = headerInfo;
-      excelImportHeaderDetected = headerInfo.detected;
-      excelImportColumnMap = headerInfo.map;
-      excelImportRows = fixedAnalyzeExcelRows(rawRows, headerInfo);
-      if (!excelImportRows.length) {
-        alert('Aucune ligne de données n\'a été trouvée dans les trois colonnes attendues.');
-        return;
-      }
-      fixedRenderExcelImportPreview(file.name);
-      jQuery('#excelGlossaryModal').modal('show');
-    } catch (error) {
-      console.error(error);
-      alert('Impossible de lire ce fichier Excel : ' + error.message);
-    }
-  }
-
-  document.addEventListener('DOMContentLoaded', function() {
-    window.ensureSheetJSLoaded = fixedEnsureSheetJSLoaded;
-    window.detectExcelHeader = fixedDetectExcelHeader;
-    window.analyzeExcelRows = fixedAnalyzeExcelRows;
-    window.renderExcelImportPreview = fixedRenderExcelImportPreview;
-    window.readGlossaryExcelFile = fixedReadGlossaryExcelFile;
-    window.editExcelImportRow = fixedEditExcelImportRow;
-    window.deleteExcelImportRow = fixedDeleteExcelImportRow;
-    setTimeout(function() { fixedPatchExcelImportPreviewHeader(); }, 0);
-  });
-</script>
-
-## --- SUPPRESSION MULTIPLE DU GLOSSAIRE ---
-<script type="text/javascript">
-  var glossaryBulkDeleteMode = false;
-
-  function ensureGlossaryBulkSelectCell(row) {
-    if (!row || row.querySelector('.glossary-row-select')) return;
-    var cell = document.createElement('td');
-    cell.className = 'glossary-bulk-select-cell';
-    cell.style.width = '36px';
-    cell.style.textAlign = 'center';
-    cell.style.verticalAlign = 'middle';
-    cell.style.display = glossaryBulkDeleteMode ? '' : 'none';
-
-    var checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.className = 'glossary-row-select';
-    checkbox.setAttribute('aria-label', 'Sélectionner cette ligne');
-    checkbox.addEventListener('change', updateGlossaryBulkDeleteState);
-    cell.appendChild(checkbox);
-    row.insertBefore(cell, row.firstChild);
-  }
-
-  function getSelectedGlossaryRows() {
-    return Array.from(document.querySelectorAll('#mainGlossaryTable tbody .main-term-row')).filter(function(row) {
-      var checkbox = row.querySelector('.glossary-row-select');
-      return !!checkbox && checkbox.checked;
-    });
-  }
-
-  function getVisibleGlossaryRows() {
-    return Array.from(document.querySelectorAll('#mainGlossaryTable tbody .main-term-row')).filter(function(row) {
-      return row.style.display !== 'none';
-    });
-  }
-
-  function updateGlossaryBulkDeleteState() {
-    var selectedRows = getSelectedGlossaryRows();
-    var button = document.getElementById('btnBulkDeleteGlossary');
-    var selectAll = document.getElementById('glossarySelectAllVisible');
-    if (button) {
-      button.disabled = selectedRows.length === 0;
-      button.innerHTML = '<span class="glyphicon glyphicon-trash"></span> Supprimer la sélection (' + selectedRows.length + ')';
-    }
-    if (selectAll) {
-      var visibleRows = getVisibleGlossaryRows();
-      var visibleSelected = visibleRows.filter(function(row) {
-        var checkbox = row.querySelector('.glossary-row-select');
-        return checkbox && checkbox.checked;
-      }).length;
-      selectAll.checked = visibleRows.length > 0 && visibleSelected === visibleRows.length;
-      selectAll.indeterminate = visibleSelected > 0 && visibleSelected < visibleRows.length;
-    }
-  }
-
-  function toggleSelectVisibleGlossaryRows(masterCheckbox) {
-    getVisibleGlossaryRows().forEach(function(row) {
-      var checkbox = row.querySelector('.glossary-row-select');
-      if (checkbox) checkbox.checked = masterCheckbox.checked;
-    });
-    updateGlossaryBulkDeleteState();
-  }
-
-  function setGlossaryBulkDeleteMode(enabled) {
-    glossaryBulkDeleteMode = !!enabled;
-    var table = document.getElementById('mainGlossaryTable');
-    var modeButton = document.getElementById('btnBulkDeleteModeGlossary');
-    var deleteButton = document.getElementById('btnBulkDeleteGlossary');
-
-    if (!table) return;
-
-    var selectionCells = table.querySelectorAll('.glossary-bulk-select-cell, .glossary-bulk-select-header, .glossary-bulk-select-filter');
-    selectionCells.forEach(function(cell) {
-      cell.style.display = glossaryBulkDeleteMode ? '' : 'none';
-    });
-
-    if (!glossaryBulkDeleteMode) {
-      table.querySelectorAll('.glossary-row-select').forEach(function(checkbox) { checkbox.checked = false; });
-      var master = document.getElementById('glossarySelectAllVisible');
-      if (master) {
-        master.checked = false;
-        master.indeterminate = false;
-      }
-    }
-
-    if (modeButton) {
-      if (glossaryBulkDeleteMode) {
-        modeButton.className = 'btn btn-default';
-        modeButton.innerHTML = '<span class="glyphicon glyphicon-remove"></span> Annuler la suppression multiple';
-      } else {
-        modeButton.className = 'btn btn-default';
-        modeButton.innerHTML = '<span class="glyphicon glyphicon-check"></span> Suppression multiple';
-      }
-    }
-
-    if (deleteButton) {
-      deleteButton.style.display = glossaryBulkDeleteMode ? 'inline-block' : 'none';
-    }
-
-    updateGlossaryBulkDeleteState();
-  }
-
-  function toggleGlossaryBulkDeleteMode() {
-    setGlossaryBulkDeleteMode(!glossaryBulkDeleteMode);
-  }
-
-  function removeGlossaryPopupRowByReference(fullRef) {
-    var rows = document.querySelectorAll('#popupCheckTable tbody .term-row');
-    Array.from(rows).forEach(function(row) {
-      if (row.getAttribute('data-full-ref') === fullRef) row.remove();
-    });
-  }
-
-  async function executeBulkGlossaryDelete() {
-    var selectedRows = getSelectedGlossaryRows();
-    if (!selectedRows.length) return;
-    var acronyms = selectedRows.map(function(row) {
-      var cell = row.querySelector('.main-acronym .view-mode');
-      return cell ? cell.textContent.trim() : '';
-    }).filter(Boolean);
-    var preview = acronyms.slice(0, 8).join(', ');
-    if (acronyms.length > 8) preview += ', …';
-    var message = 'Supprimer définitivement ' + selectedRows.length + ' ligne(s) sélectionnée(s) ainsi que leurs pages XWiki ?';
-    if (preview) message += '\n\n' + preview;
-    if (!window.confirm(message)) return;
-
-    var table = document.getElementById('mainGlossaryTable');
-    var csrfToken = table.getAttribute('data-csrf');
-    var button = document.getElementById('btnBulkDeleteGlossary');
-    var deletedCount = 0;
-    var failed = [];
-    if (button) {
-      button.disabled = true;
-      button.innerHTML = '<span class="glyphicon glyphicon-refresh"></span> Suppression...';
-    }
-
-    for (var i = 0; i < selectedRows.length; i++) {
-      var row = selectedRows[i];
-      var fullRef = row.getAttribute('data-full-ref');
-      var acronymCell = row.querySelector('.main-acronym .view-mode');
-      var acronym = acronymCell ? acronymCell.textContent.trim() : fullRef;
-      var donnees = new FormData();
-      donnees.append('action', 'delete');
-      donnees.append('targetRef', fullRef);
-      donnees.append('form_token', csrfToken);
-      try {
-        var response = await fetch(urlGlossaireData + '?xpage=plain', {
-          method: 'POST', body: donnees, credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' }
-        });
-        var result = await response.text();
-        if (result.indexOf('GLOSSAIRE_OK') !== -1) {
-          removeGlossaryPopupRowByReference(fullRef);
-          row.remove();
-          deletedCount++;
-        } else {
-          failed.push(acronym);
-        }
-      } catch (error) {
-        console.error(error);
-        failed.push(acronym);
-      }
-    }
-
-    if (typeof applyCurrentSort === 'function') applyCurrentSort();
-    if (typeof sortPopupTableAlphabetically === 'function') sortPopupTableAlphabetically();
-    if (typeof applyPagination === 'function') applyPagination();
-
-    if (!failed.length) {
-      setGlossaryBulkDeleteMode(false);
-    } else {
-      updateGlossaryBulkDeleteState();
-    }
-
-    var resultMessage = deletedCount + ' ligne(s) supprimée(s).';
-    if (failed.length) resultMessage += '\n' + failed.length + ' suppression(s) ont échoué : ' + failed.join(', ');
-    alert(resultMessage);
-  }
-
-  function setupGlossaryBulkDeleteUi() {
-    var table = document.getElementById('mainGlossaryTable');
-    if (!table || document.getElementById('btnBulkDeleteModeGlossary')) return;
-
-    var headerRows = table.querySelectorAll('thead tr');
-    if (headerRows.length > 0) {
-      var selectHeader = document.createElement('th');
-      selectHeader.className = 'glossary-bulk-select-header';
-      selectHeader.style.width = '36px';
-      selectHeader.style.textAlign = 'center';
-      selectHeader.style.display = 'none';
-      selectHeader.title = 'Sélectionner les lignes visibles';
-      selectHeader.innerHTML = '<input type="checkbox" id="glossarySelectAllVisible" aria-label="Sélectionner les lignes visibles">';
-      headerRows[0].insertBefore(selectHeader, headerRows[0].firstChild);
-      document.getElementById('glossarySelectAllVisible').addEventListener('change', function() { toggleSelectVisibleGlossaryRows(this); });
-    }
-
-    if (headerRows.length > 1) {
-      var emptyFilterHeader = document.createElement('th');
-      emptyFilterHeader.className = 'glossary-bulk-select-filter';
-      emptyFilterHeader.style.backgroundColor = '#f9f9f9';
-      emptyFilterHeader.style.display = 'none';
-      headerRows[1].insertBefore(emptyFilterHeader, headerRows[1].firstChild);
-    }
-
-    table.querySelectorAll('tbody .main-term-row').forEach(ensureGlossaryBulkSelectCell);
-
-    var addButton = document.querySelector('button[data-target="#glossaryModal"]');
-    if (addButton && addButton.parentNode) {
-      var modeButton = document.createElement('button');
-      modeButton.type = 'button';
-      modeButton.id = 'btnBulkDeleteModeGlossary';
-      modeButton.className = 'btn btn-default';
-      modeButton.style.marginLeft = '8px';
-      modeButton.innerHTML = '<span class="glyphicon glyphicon-check"></span> Suppression multiple';
-      modeButton.addEventListener('click', toggleGlossaryBulkDeleteMode);
-      addButton.parentNode.appendChild(modeButton);
-
-      var bulkButton = document.createElement('button');
-      bulkButton.type = 'button';
-      bulkButton.id = 'btnBulkDeleteGlossary';
-      bulkButton.className = 'btn btn-danger';
-      bulkButton.style.marginLeft = '8px';
-      bulkButton.style.display = 'none';
-      bulkButton.disabled = true;
-      bulkButton.innerHTML = '<span class="glyphicon glyphicon-trash"></span> Supprimer la sélection (0)';
-      bulkButton.addEventListener('click', executeBulkGlossaryDelete);
-      addButton.parentNode.appendChild(bulkButton);
-    }
-
-    var tbody = table.querySelector('tbody');
-    if (tbody && window.MutationObserver) {
-      var observer = new MutationObserver(function(mutations) {
-        mutations.forEach(function(mutation) {
-          Array.from(mutation.addedNodes || []).forEach(function(node) {
-            if (node.nodeType === 1 && node.classList.contains('main-term-row')) ensureGlossaryBulkSelectCell(node);
-          });
-        });
-        setGlossaryBulkDeleteMode(glossaryBulkDeleteMode);
-      });
-      observer.observe(tbody, { childList: true });
-    }
-
-    if (!window.glossaryBulkPaginationWrapped && typeof window.applyPagination === 'function') {
-      var originalApplyPagination = window.applyPagination;
-      window.applyPagination = function() {
-        var result = originalApplyPagination.apply(this, arguments);
-        updateGlossaryBulkDeleteState();
-        return result;
-      };
-      window.glossaryBulkPaginationWrapped = true;
-    }
-
-    setGlossaryBulkDeleteMode(false);
-  }
-
-  document.addEventListener('DOMContentLoaded', function() { setTimeout(setupGlossaryBulkDeleteUi, 0); });
-</script>
-
-## --- 5. TABLEAU PRINCIPAL GLOSSAIRE MAISON WITH COLUMN FILTERS & PAGINATION ---
+## --- TABLEAU PRINCIPAL ---
 <div class="table-responsive">
-  <table class="table table-striped table-hover table-bordered" id="mainGlossaryTable" data-csrf="$services.csrf.getToken()" data-class-path="$classPath">
+  <table class="table table-striped table-hover table-bordered"
+         id="mainGlossaryTable"
+         data-csrf="$services.csrf.getToken()"
+         data-class-path="$classPath"
+         data-endpoint-url="$!urlGlossaireData">
     <thead>
       <tr>
-        <th style="width: 15%;">Acronyme</th>
-        <th style="width: 25%;">Libellé complet</th>
-        <th style="width: 45%;">Définition</th>
-        <th style="width: 15%;">Actions</th>
+        <th class="glossary-col-acronym">Acronyme</th>
+        <th class="glossary-col-label">Libellé complet</th>
+        <th class="glossary-col-definition">Définition</th>
+        <th class="glossary-col-actions">Actions</th>
       </tr>
       <tr class="filter-row">
-        <th><div style="display:flex; align-items:center; gap:4px;"><input type="text" id="filterAcronym" placeholder="Filtrer..." oninput="filterMainTableColumns();" style="min-width:0; flex:1;"><button type="button" class="btn btn-default btn-xs sort-column-btn active" data-column="acronym" data-sort-active="true" data-sort-direction="asc" onclick="toggleColumnSort('acronym', this);" title="Trier par acronyme"><span class="sort-label">A→Z</span></button></div></th>
-        <th><div style="display:flex; align-items:center; gap:4px;"><input type="text" id="filterLabel" placeholder="Filtrer..." oninput="filterMainTableColumns();" style="min-width:0; flex:1;"><button type="button" class="btn btn-default btn-xs sort-column-btn" data-column="label" data-sort-active="false" data-sort-direction="asc" onclick="toggleColumnSort('label', this);" title="Trier par libellé"><span class="sort-label">A→Z</span></button></div></th>
-        <th><div style="display:flex; align-items:center; gap:4px;"><input type="text" id="filterDefinition" placeholder="Filtrer..." oninput="filterMainTableColumns();" style="min-width:0; flex:1;"><button type="button" class="btn btn-default btn-xs sort-column-btn" data-column="definition" data-sort-active="false" data-sort-direction="asc" onclick="toggleColumnSort('definition', this);" title="Trier par définition"><span class="sort-label">A→Z</span></button></div></th>
-        <th style="background-color: #f9f9f9;"></th>
+        <th>
+          <div class="glossary-filter-layout">
+            <input type="text" id="filterAcronym" class="glossary-filter-input" placeholder="Filtrer...">
+            <button type="button"
+                    class="btn btn-default btn-xs sort-column-btn active"
+                    data-column="acronym"
+                    data-sort-active="true"
+                    data-sort-direction="asc"
+                    title="Trier par acronyme">
+              <span class="sort-label">A→Z</span>
+            </button>
+          </div>
+        </th>
+        <th>
+          <div class="glossary-filter-layout">
+            <input type="text" id="filterLabel" class="glossary-filter-input" placeholder="Filtrer...">
+            <button type="button"
+                    class="btn btn-default btn-xs sort-column-btn"
+                    data-column="label"
+                    data-sort-active="false"
+                    data-sort-direction="asc"
+                    title="Trier par libellé">
+              <span class="sort-label">A→Z</span>
+            </button>
+          </div>
+        </th>
+        <th>
+          <div class="glossary-filter-layout">
+            <input type="text" id="filterDefinition" class="glossary-filter-input" placeholder="Filtrer...">
+            <button type="button"
+                    class="btn btn-default btn-xs sort-column-btn"
+                    data-column="definition"
+                    data-sort-active="false"
+                    data-sort-direction="asc"
+                    title="Trier par définition">
+              <span class="sort-label">A→Z</span>
+            </button>
+          </div>
+        </th>
+        <th class="glossary-empty-filter"></th>
       </tr>
     </thead>
     <tbody>
@@ -724,13 +199,40 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
           #set($acronymeValue = $!tObj.getValue('acronyme'))
           #set($libelleValue = $!tObj.getValue('libelle'))
           #set($definitionValue = $!tObj.getValue('definition'))
-          <tr class="main-term-row" data-acronym="$!acronymeValue.toUpperCase()" data-doc-name="$!docName" data-full-ref="$!fullRef">
-            <td class="main-acronym"><span class="view-mode"><strong>$!acronymeValue</strong></span><input type="text" class="form-control edit-mode edit-acronym" value="$!acronymeValue" style="display:none; width:100%;"></td>
-            <td class="main-label"><span class="view-mode">$!libelleValue</span><input type="text" class="form-control edit-mode edit-label" value="$!libelleValue" style="display:none; width:100%;"></td>
-            <td class="main-definition"><span class="view-mode">$!definitionValue</span><textarea class="form-control edit-mode edit-definition" style="display:none; width:100%;" rows="2">$!definitionValue</textarea></td>
+
+          <tr class="main-term-row"
+              data-acronym="$!acronymeValue.toUpperCase()"
+              data-doc-name="$!docName"
+              data-full-ref="$!fullRef">
+            <td class="main-acronym">
+              <span class="view-mode"><strong>$!acronymeValue</strong></span>
+              <input type="text" class="form-control edit-mode edit-acronym glossary-edit-field" value="$!acronymeValue">
+            </td>
+            <td class="main-label">
+              <span class="view-mode">$!libelleValue</span>
+              <input type="text" class="form-control edit-mode edit-label glossary-edit-field" value="$!libelleValue">
+            </td>
+            <td class="main-definition">
+              <span class="view-mode">$!definitionValue</span>
+              <textarea class="form-control edit-mode edit-definition glossary-edit-field" rows="2">$!definitionValue</textarea>
+            </td>
             <td>
-              <div class="view-buttons"><button type="button" class="btn btn-xs btn-primary custom-action-btn" onclick="toggleEditMode(this, true);"><span class="glyphicon glyphicon-pencil"></span></button> <button type="button" class="btn btn-xs btn-danger custom-action-btn" onclick="openDeleteModal(this);"><span class="glyphicon glyphicon-trash"></span></button></div>
-              <div class="edit-buttons" style="display:none; gap: 5px;"><button type="button" class="btn btn-xs btn-success" onclick="saveRowEdition(this);"><span class="glyphicon glyphicon-ok"></span> Sauver</button> <button type="button" class="btn btn-xs btn-default" onclick="toggleEditMode(this, false);"><span class="glyphicon glyphicon-remove"></span></button></div>
+              <div class="view-buttons">
+                <button type="button" class="btn btn-xs btn-primary custom-action-btn js-edit-row">
+                  <span class="glyphicon glyphicon-pencil"></span>
+                </button>
+                <button type="button" class="btn btn-xs btn-danger custom-action-btn js-delete-row">
+                  <span class="glyphicon glyphicon-trash"></span>
+                </button>
+              </div>
+              <div class="edit-buttons glossary-edit-buttons">
+                <button type="button" class="btn btn-xs btn-success js-save-row">
+                  <span class="glyphicon glyphicon-ok"></span> Sauver
+                </button>
+                <button type="button" class="btn btn-xs btn-default js-cancel-row">
+                  <span class="glyphicon glyphicon-remove"></span>
+                </button>
+              </div>
             </td>
           </tr>
         #end
@@ -739,34 +241,126 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
   </table>
 </div>
 
-## --- MODALE DE CONFIRMATION DE SUPPRESSION ---
+## --- CONFIRMATION DE SUPPRESSION SIMPLE ---
 <div class="modal fade" id="deleteConfirmModal" tabindex="-1" role="dialog" aria-hidden="true">
-  <div class="modal-dialog" role="document"><div class="modal-content">
-    <div class="modal-header" style="background-color: #d9534f; color: white;"><button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button><h4 class="modal-title" id="deleteModalTitle">Confirmer la suppression</h4></div>
-    <div class="modal-body"><p>Êtes-vous sûr de vouloir supprimer définitivement cet élément ainsi que sa page XWiki ?</p><table class="table table-bordered table-condensed" style="background: #f9f9f9;"><thead><tr><th>Acronyme</th><th>Libellé complet</th></tr></thead><tbody><tr><td id="deleteModalAcronym" style="font-weight: bold;"></td><td id="deleteModalLabel"></td></tr></tbody></table></div>
-    <div class="modal-footer"><button type="button" class="btn btn-default" data-dismiss="modal">Annuler</button><button type="button" class="btn btn-danger" id="btnConfirmDelete" onclick="executeRowDelete();">Supprimer</button></div>
-  </div></div>
+  <div class="modal-dialog" role="document">
+    <div class="modal-content">
+      <div class="modal-header glossary-delete-modal-header">
+        <button type="button" class="close" data-dismiss="modal" aria-label="Fermer"><span aria-hidden="true">&times;</span></button>
+        <h4 class="modal-title" id="deleteModalTitle">Confirmer la suppression</h4>
+      </div>
+      <div class="modal-body">
+        <p>Êtes-vous sûr de vouloir supprimer définitivement cet élément ainsi que sa page XWiki ?</p>
+        <table class="table table-bordered table-condensed glossary-delete-preview-table">
+          <thead>
+            <tr>
+              <th>Acronyme</th>
+              <th>Libellé complet</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td id="deleteModalAcronym" class="glossary-delete-acronym"></td>
+              <td id="deleteModalLabel"></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-default" data-dismiss="modal">Annuler</button>
+        <button type="button" class="btn btn-danger" id="btnConfirmDelete">Supprimer</button>
+      </div>
+    </div>
+  </div>
 </div>
 
-## --- 6. BLOC MODAL DE CRÉATION ---
+## --- MODALE DE CRÉATION ---
 <div class="modal fade" id="glossaryModal" tabindex="-1" role="dialog" aria-labelledby="glossaryModalLabel" aria-hidden="true">
-  <div class="modal-dialog modal-lg" role="document"><div class="modal-content">
-    <div class="modal-header"><button type="button" class="close" data-dismiss="modal" aria-label="Fermer"><span aria-hidden="true">&times;</span></button><h4 class="modal-title" id="glossaryModalLabel">Nouveau terme du Glossaire</h4></div>
-    <form method="post" action=""><input type="hidden" name="action" value="checkAndCreate" />
-      <div class="modal-body"><div class="row">
-        <div class="col-md-5 modal-left-column"><h5 class="column-title">Informations du terme</h5><div class="form-group"><label>Acronyme / Sigle (ex: API) :</label><input type="text" id="acronymeInputField" name="acronyme" class="form-control" autocomplete="off" required placeholder="Ex: XWIKI" oninput="triggerGlobalFilter();"/></div><div class="form-group"><label>Libellé complet :</label><input type="text" id="libelleInputField" name="libelle" class="form-control" autocomplete="off" required placeholder="Ex: Wiki d'entreprise open source" oninput="triggerGlobalFilter();"/></div><div class="form-group"><label>Définition :</label><textarea name="definition" class="form-control" rows="5" required placeholder="Description détaillée..."></textarea></div></div>
-        <div class="col-md-7 modal-right-column"><h5 class="column-title warning-title">Vérification des existants</h5><p class="text-muted help-text">Ce tableau affiche les lignes dont l'acronyme ou le libellé correspond à votre saisie.</p><div class="table-scroll-container"><table class="table table-striped table-hover" id="popupCheckTable"><thead><tr><th style="width: 30%;">Acronyme</th><th>Libellé complet</th></tr></thead><tbody>
-          #foreach($docName in $allDocNames)
-            #set($fullRef = "${dataSpace}.${docName}")
-            #set($tDoc = $xwiki.getDocument($fullRef))
-            #set($tObj = $tDoc.getObject($classPath))
-            #if($tObj)<tr class="term-row" data-full-ref="$!fullRef"><td class="term-acronym">$!tObj.getValue('acronyme')</td><td class="term-label">$!tObj.getValue('libelle')</td></tr>#end
-          #end
-        </tbody></table></div></div>
-      </div></div>
-      <div class="modal-footer"><button type="button" class="btn btn-default" data-dismiss="modal">Annuler</button><button type="submit" class="btn btn-primary">Valider et Vérifier l'existence</button></div>
-    </form>
-  </div></div>
+  <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close" data-dismiss="modal" aria-label="Fermer"><span aria-hidden="true">&times;</span></button>
+        <h4 class="modal-title" id="glossaryModalLabel">Nouveau terme du Glossaire</h4>
+      </div>
+
+      <form method="post" action="">
+        <input type="hidden" name="action" value="checkAndCreate">
+
+        <div class="modal-body">
+          <div class="row">
+            <div class="col-md-5 modal-left-column">
+              <h5 class="column-title">Informations du terme</h5>
+
+              <div class="form-group">
+                <label>Acronyme / Sigle (ex: API) :</label>
+                <input type="text"
+                       id="acronymeInputField"
+                       name="acronyme"
+                       class="form-control"
+                       autocomplete="off"
+                       required
+                       placeholder="Ex: XWIKI">
+              </div>
+
+              <div class="form-group">
+                <label>Libellé complet :</label>
+                <input type="text"
+                       id="libelleInputField"
+                       name="libelle"
+                       class="form-control"
+                       autocomplete="off"
+                       required
+                       placeholder="Ex: Wiki d'entreprise open source">
+              </div>
+
+              <div class="form-group">
+                <label>Définition :</label>
+                <textarea name="definition"
+                          class="form-control"
+                          rows="5"
+                          required
+                          placeholder="Description détaillée..."></textarea>
+              </div>
+            </div>
+
+            <div class="col-md-7 modal-right-column">
+              <h5 class="column-title warning-title">Vérification des existants</h5>
+              <p class="text-muted help-text">Ce tableau affiche les lignes dont l'acronyme ou le libellé correspond à votre saisie.</p>
+
+              <div class="table-scroll-container">
+                <table class="table table-striped table-hover" id="popupCheckTable">
+                  <thead>
+                    <tr>
+                      <th class="glossary-popup-acronym-col">Acronyme</th>
+                      <th>Libellé complet</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    #foreach($docName in $allDocNames)
+                      #set($fullRef = "${dataSpace}.${docName}")
+                      #set($tDoc = $xwiki.getDocument($fullRef))
+                      #set($tObj = $tDoc.getObject($classPath))
+                      #if($tObj)
+                        <tr class="term-row" data-full-ref="$!fullRef">
+                          <td class="term-acronym">$!tObj.getValue('acronyme')</td>
+                          <td class="term-label">$!tObj.getValue('libelle')</td>
+                        </tr>
+                      #end
+                    #end
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-default" data-dismiss="modal">Annuler</button>
+          <button type="submit" class="btn btn-primary">Valider et Vérifier l'existence</button>
+        </div>
+      </form>
+    </div>
+  </div>
 </div>
 {{/html}}
 {{/velocity}}
