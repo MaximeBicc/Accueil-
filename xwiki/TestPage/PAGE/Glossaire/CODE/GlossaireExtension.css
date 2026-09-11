@@ -124,6 +124,10 @@
     font-weight: bold;
 }
 
+.glossary-popup-acronym-col {
+    width: 30%;
+}
+
 .glossary-bulk-select-cell,
 .glossary-bulk-select-header,
 .glossary-bulk-select-filter {
