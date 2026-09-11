@@ -11,8 +11,6 @@ GLOSSAIRE_READY
 #else
   #set($csrfToken = $request.getParameter("form_token"))
 
-  ## On bloque l'écriture si le jeton est absent ou invalide, sans transformer
-  ## l'ouverture normale de cette page en erreur HTTP 403.
   #if(!$csrfToken || !$services.csrf.isTokenValid($csrfToken))
 GLOSSAIRE_ERROR|Jeton CSRF invalide ou absent
   #elseif($action == "save")
@@ -29,6 +27,7 @@ GLOSSAIRE_ERROR|Objet glossaire introuvable
       #elseif(!$request.acronym || !$request.label || !$request.definition)
 GLOSSAIRE_ERROR|Données incomplètes
       #else
+        #set($oldAcronym = "$!glossaireObj.getValue('acronyme')")
         #set($newAcronym = $request.acronym.trim())
         #set($newLabel = $request.label.trim())
         #set($newDefinition = $request.definition.trim())
@@ -36,44 +35,64 @@ GLOSSAIRE_ERROR|Données incomplètes
         #if($newAcronym == "")
 GLOSSAIRE_ERROR|L'acronyme ne peut pas être vide
         #else
-          ## Mise à jour de l'objet et du titre affiché dans l'arborescence.
+          ## Mise à jour des données avant le renommage.
           #set($discard = $glossaireObj.set("acronyme", $newAcronym))
           #set($discard = $glossaireObj.set("libelle", $newLabel))
           #set($discard = $glossaireObj.set("definition", $newDefinition))
           #set($discard = $targetDoc.setTitle($newAcronym))
           #set($discard = $targetDoc.save("Modification via interface Glossaire", true))
 
-          ## Le nom technique de la page suit lui aussi l'acronyme.
-          #set($candidateName = $xwiki.cleanName($newAcronym))
-          #set($candidateRef = "${dataSpace}.${candidateName}")
+          ## Par défaut la référence reste celle reçue du navigateur.
+          #set($finalRef = $targetRef)
+          #set($finalDocName = $targetDoc.getName())
 
-          ## Si une autre page possède déjà ce nom, on reprend la même règle que lors de la création : _1, _2, etc.
-          #if($candidateRef != $targetRef)
+          ## On ne renomme techniquement la page que si l'acronyme a réellement changé.
+          #if($newAcronym != $oldAcronym)
+            #set($candidateName = $xwiki.cleanName($newAcronym))
             #set($baseCandidateName = $candidateName)
-            #set($candidateDoc = $xwiki.getDocument($candidateRef))
+
+            ## Les pages renommées sont adressées explicitement en page imbriquée
+            ## (...Nom.WebHome). C'est important : après un premier renommage XWiki,
+            ## renvoyer seulement ...Nom pointe parfois vers une référence différente.
+            #set($candidateRef = "${dataSpace}.${candidateName}.WebHome")
+            #set($candidateTerminalRef = "${dataSpace}.${candidateName}")
             #set($counter = 1)
+            #set($nameAvailable = false)
 
             #foreach($i in [1..100])
-              #if(!$candidateDoc.isNew())
-                #set($candidateName = "${baseCandidateName}_${counter}")
-                #set($candidateRef = "${dataSpace}.${candidateName}")
-                #set($candidateDoc = $xwiki.getDocument($candidateRef))
-                #set($counter = $counter + 1)
-              #else
+              #set($nestedCandidateDoc = $xwiki.getDocument($candidateRef))
+              #set($terminalCandidateDoc = $xwiki.getDocument($candidateTerminalRef))
+              #set($nestedOccupied = !$nestedCandidateDoc.isNew() && $candidateRef != $targetRef)
+              #set($terminalOccupied = !$terminalCandidateDoc.isNew() && $candidateTerminalRef != $targetRef)
+
+              #if(!$nestedOccupied && !$terminalOccupied)
+                #set($nameAvailable = true)
                 #break
+              #else
+                #set($candidateName = "${baseCandidateName}_${counter}")
+                #set($candidateRef = "${dataSpace}.${candidateName}.WebHome")
+                #set($candidateTerminalRef = "${dataSpace}.${candidateName}")
+                #set($counter = $counter + 1)
               #end
             #end
 
-            ## API XWiki de refactoring : renomme réellement la page.
-            #set($sourceReference = $services.model.resolveDocument($targetRef))
-            #set($renameJob = $services.refactoring.rename($sourceReference, $candidateName))
-            #set($discard = $renameJob.join())
-          #else
-            #set($candidateName = $targetDoc.getName())
-            #set($candidateRef = $targetRef)
-          #end
+            #if(!$nameAvailable)
+GLOSSAIRE_ERROR|Impossible de trouver un nom de page disponible
+            #else
+              ## Destination explicite, avec WebHome, afin que la référence retournée
+              ## soit exactement celle que le second clic sur Sauver devra réutiliser.
+              #set($sourceReference = $services.model.resolveDocument($targetRef))
+              #set($targetReference = $services.model.resolveDocument($candidateRef))
+              #set($renameJob = $services.refactoring.rename($sourceReference, $targetReference))
+              #set($discard = $renameJob.join())
 
-GLOSSAIRE_OK|$candidateRef|$candidateName
+              #set($finalRef = $candidateRef)
+              #set($finalDocName = "${candidateName}.WebHome")
+GLOSSAIRE_OK|$finalRef|$finalDocName
+            #end
+          #else
+GLOSSAIRE_OK|$finalRef|$finalDocName
+          #end
         #end
       #end
     #end
