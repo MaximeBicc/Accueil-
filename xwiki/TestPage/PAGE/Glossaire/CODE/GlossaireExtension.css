@@ -102,8 +102,14 @@
     width: 100%;
 }
 
-.edit-mode,
-.edit-buttons {
+/*
+ * Le CSS XWiki / Bootstrap applique display:block aux .form-control.
+ * On augmente volontairement la spécificité ici afin que les champs
+ * d'édition restent masqués au chargement, tout en laissant le JavaScript
+ * les afficher via un style inline quand l'utilisateur clique sur Modifier.
+ */
+#mainGlossaryTable .edit-mode,
+#mainGlossaryTable .edit-buttons {
     display: none;
 }
 
