@@ -148,6 +148,8 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
 
 ## --- CORRECTIF DE CHARGEMENT SHEETJS POUR XWIKI / REQUIREJS ---
 <script type="text/javascript">
+  var glossarySheetJSLibrary = null;
+
   function isGlossarySheetJSLibrary(candidate) {
     return !!candidate &&
       typeof candidate.read === 'function' &&
@@ -155,73 +157,76 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
       typeof candidate.utils.sheet_to_json === 'function';
   }
 
-  function ensureSheetJSLoaded() {
+  function fixedEnsureSheetJSLoaded() {
+    if (isGlossarySheetJSLibrary(glossarySheetJSLibrary)) {
+      return Promise.resolve(glossarySheetJSLibrary);
+    }
+
     if (isGlossarySheetJSLibrary(window.XLSX)) {
-      return Promise.resolve(window.XLSX);
+      glossarySheetJSLibrary = window.XLSX;
+      return Promise.resolve(glossarySheetJSLibrary);
     }
 
     return new Promise(function(resolve, reject) {
-      function resolveLoadedLibrary() {
-        if (isGlossarySheetJSLibrary(window.XLSX)) {
-          resolve(window.XLSX);
-          return;
+      var previousXLSX = window.XLSX;
+      var previousDefine = window.define;
+      var previousDefineWasAMD = !!(previousDefine && previousDefine.amd);
+
+      // Le problème venait d'un autre objet global XLSX déjà présent dans XWiki.
+      // On force le build standalone SheetJS à créer son propre vrai window.XLSX.
+      try {
+        if (previousDefineWasAMD) {
+          window.define = undefined;
         }
-
-        // XWiki peut exposer RequireJS / AMD. Dans ce cas le script SheetJS
-        // s'enregistre comme module "xlsx" au lieu de remplacer window.XLSX.
-        var amdRequire = window.requirejs || window.require;
-        if (typeof amdRequire === 'function') {
-          try {
-            amdRequire(['xlsx'], function(sheetJsModule) {
-              var candidate = isGlossarySheetJSLibrary(sheetJsModule)
-                ? sheetJsModule
-                : window.XLSX;
-
-              if (isGlossarySheetJSLibrary(candidate)) {
-                window.XLSX = candidate;
-                resolve(candidate);
-              } else {
-                reject(new Error('SheetJS est chargé mais son API read est indisponible.'));
-              }
-            }, function(error) {
-              reject(error || new Error('Le module AMD SheetJS n\'a pas pu être chargé.'));
-            });
-            return;
-          } catch (error) {
-            reject(error);
-            return;
-          }
-        }
-
-        reject(new Error('SheetJS est chargé mais aucune API XLSX valide n\'a été trouvée.'));
+        window.XLSX = undefined;
+      } catch (e) {
+        // La validation réelle de l'API est faite après chargement.
       }
 
       var existingScript = document.getElementById('sheetJsGlossaryLibrary');
-      if (existingScript) {
-        // Un ancien chargement peut avoir abouti à un objet global XLSX qui
-        // n'est pas SheetJS. On repart proprement.
-        if (existingScript.parentNode) {
-          existingScript.parentNode.removeChild(existingScript);
-        }
+      if (existingScript && existingScript.parentNode) {
+        existingScript.parentNode.removeChild(existingScript);
       }
 
       var script = document.createElement('script');
       script.id = 'sheetJsGlossaryLibrary';
       script.src = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
       script.type = 'text/javascript';
-      script.onload = resolveLoadedLibrary;
+
+      function restoreRequireJS() {
+        if (previousDefineWasAMD) {
+          window.define = previousDefine;
+        }
+      }
+
+      script.onload = function() {
+        restoreRequireJS();
+
+        if (isGlossarySheetJSLibrary(window.XLSX)) {
+          glossarySheetJSLibrary = window.XLSX;
+          resolve(glossarySheetJSLibrary);
+          return;
+        }
+
+        window.XLSX = previousXLSX;
+        reject(new Error('SheetJS est chargé mais read() / utils.sheet_to_json() ne sont pas disponibles.'));
+      };
+
       script.onerror = function() {
+        restoreRequireJS();
+        window.XLSX = previousXLSX;
         reject(new Error('Impossible de charger SheetJS depuis cdn.sheetjs.com.'));
       };
+
       document.head.appendChild(script);
     });
   }
 
-  async function readGlossaryExcelFile(file) {
+  async function fixedReadGlossaryExcelFile(file) {
     var xlsxLibrary;
 
     try {
-      xlsxLibrary = await ensureSheetJSLoaded();
+      xlsxLibrary = await fixedEnsureSheetJSLoaded();
     } catch (error) {
       console.error(error);
       alert('La bibliothèque Excel n\'a pas pu être chargée correctement : ' + error.message);
@@ -230,6 +235,11 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
 
     try {
       var buffer = await file.arrayBuffer();
+
+      if (!isGlossarySheetJSLibrary(xlsxLibrary)) {
+        throw new Error('La bibliothèque SheetJS chargée ne possède pas read()');
+      }
+
       var workbook = xlsxLibrary.read(buffer, { type: 'array' });
 
       if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
@@ -267,6 +277,14 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
       alert('Impossible de lire ce fichier Excel : ' + error.message);
     }
   }
+
+  // GlossaireExtension est chargé en defer par XWiki. Il peut donc redéfinir
+  // readGlossaryExcelFile APRÈS ce bloc. On réapplique volontairement le
+  // correctif à DOMContentLoaded, une fois les extensions XWiki chargées.
+  document.addEventListener('DOMContentLoaded', function() {
+    window.ensureSheetJSLoaded = fixedEnsureSheetJSLoaded;
+    window.readGlossaryExcelFile = fixedReadGlossaryExcelFile;
+  });
 </script>
 
 ## --- 5. TABLEAU PRINCIPAL GLOSSAIRE MAISON WITH COLUMN FILTERS & PAGINATION ---
