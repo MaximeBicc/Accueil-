@@ -161,9 +161,30 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
         <th style="width: 15%;">Actions</th>
       </tr>
       <tr class="filter-row">
-        <th><input type="text" id="filterAcronym" placeholder="Filtrer..." oninput="filterMainTableColumns();"></th>
-        <th><input type="text" id="filterLabel" placeholder="Filtrer..." oninput="filterMainTableColumns();"></th>
-        <th><input type="text" id="filterDefinition" placeholder="Filtrer..." oninput="filterMainTableColumns();"></th>
+        <th>
+          <div style="display:flex; align-items:center; gap:4px;">
+            <input type="text" id="filterAcronym" placeholder="Filtrer..." oninput="filterMainTableColumns();" style="min-width:0; flex:1;">
+            <button type="button" class="btn btn-default btn-xs sort-column-btn active" data-column="acronym" data-sort-active="true" data-sort-direction="asc" onclick="toggleColumnSort('acronym', this);" title="Trier par acronyme">
+              <span class="sort-label">A→Z</span>
+            </button>
+          </div>
+        </th>
+        <th>
+          <div style="display:flex; align-items:center; gap:4px;">
+            <input type="text" id="filterLabel" placeholder="Filtrer..." oninput="filterMainTableColumns();" style="min-width:0; flex:1;">
+            <button type="button" class="btn btn-default btn-xs sort-column-btn" data-column="label" data-sort-active="false" data-sort-direction="asc" onclick="toggleColumnSort('label', this);" title="Trier par libellé">
+              <span class="sort-label">A→Z</span>
+            </button>
+          </div>
+        </th>
+        <th>
+          <div style="display:flex; align-items:center; gap:4px;">
+            <input type="text" id="filterDefinition" placeholder="Filtrer..." oninput="filterMainTableColumns();" style="min-width:0; flex:1;">
+            <button type="button" class="btn btn-default btn-xs sort-column-btn" data-column="definition" data-sort-active="false" data-sort-direction="asc" onclick="toggleColumnSort('definition', this);" title="Trier par définition">
+              <span class="sort-label">A→Z</span>
+            </button>
+          </div>
+        </th>
         <th style="background-color: #f9f9f9;"></th>
       </tr>
     </thead>
