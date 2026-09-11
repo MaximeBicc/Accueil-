@@ -256,17 +256,15 @@ GLOSSAIRE_OK|$finalRef|$finalDocName
       #set($discard = $importLines.add("GLOSSAIRE_IMPORT_OK|$createdCount|$skippedCount|$processedCount"))
     #end
 
-    ## IMPORTANT : xpage=plain seul ne garantit pas une réponse texte brute dans
-    ## XWiki. Le rendu wiki peut transformer plusieurs lignes en HTML et le JS ne
-    ## voit alors que le premier ROW_OK. On écrit donc directement la réponse HTTP,
-    ## conformément à la méthode recommandée par XWiki pour les endpoints AJAX.
+    ## Réponse AJAX brute : println() écrit un VRAI saut de ligne HTTP entre
+    ## chaque résultat. L'ancienne écriture de "\n" produisait un séparateur
+    ## littéral dans cette instance, donc le JavaScript ne voyait qu'un ROW_OK.
     #set($discard = $response.setContentType("text/plain; charset=UTF-8"))
+    #set($writer = $response.writer)
     #foreach($importLine in $importLines)
-      #set($discard = $response.writer.write($importLine))
-      #if($foreach.hasNext)
-        #set($discard = $response.writer.write("\n"))
-      #end
+      $writer.println($importLine)
     #end
+    $writer.flush()
     $xcontext.setFinished(true)
 
   ## ========================================================================
