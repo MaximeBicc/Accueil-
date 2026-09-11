@@ -566,6 +566,220 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
   });
 </script>
 
+## --- SUPPRESSION MULTIPLE DU GLOSSAIRE ---
+<script type="text/javascript">
+  function ensureGlossaryBulkSelectCell(row) {
+    if (!row || row.querySelector('.glossary-row-select')) return;
+
+    var cell = document.createElement('td');
+    cell.className = 'glossary-bulk-select-cell';
+    cell.style.width = '36px';
+    cell.style.textAlign = 'center';
+    cell.style.verticalAlign = 'middle';
+
+    var checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.className = 'glossary-row-select';
+    checkbox.setAttribute('aria-label', 'Sélectionner cette ligne');
+    checkbox.addEventListener('change', updateGlossaryBulkDeleteState);
+
+    cell.appendChild(checkbox);
+    row.insertBefore(cell, row.firstChild);
+  }
+
+  function getSelectedGlossaryRows() {
+    return Array.from(document.querySelectorAll('#mainGlossaryTable tbody .main-term-row')).filter(function(row) {
+      var checkbox = row.querySelector('.glossary-row-select');
+      return !!checkbox && checkbox.checked;
+    });
+  }
+
+  function getVisibleGlossaryRows() {
+    return Array.from(document.querySelectorAll('#mainGlossaryTable tbody .main-term-row')).filter(function(row) {
+      return row.style.display !== 'none';
+    });
+  }
+
+  function updateGlossaryBulkDeleteState() {
+    var selectedRows = getSelectedGlossaryRows();
+    var button = document.getElementById('btnBulkDeleteGlossary');
+    var selectAll = document.getElementById('glossarySelectAllVisible');
+
+    if (button) {
+      button.disabled = selectedRows.length === 0;
+      button.innerHTML = '<span class="glyphicon glyphicon-trash"></span> Supprimer la sélection (' + selectedRows.length + ')';
+    }
+
+    if (selectAll) {
+      var visibleRows = getVisibleGlossaryRows();
+      var visibleSelected = visibleRows.filter(function(row) {
+        var checkbox = row.querySelector('.glossary-row-select');
+        return checkbox && checkbox.checked;
+      }).length;
+
+      selectAll.checked = visibleRows.length > 0 && visibleSelected === visibleRows.length;
+      selectAll.indeterminate = visibleSelected > 0 && visibleSelected < visibleRows.length;
+    }
+  }
+
+  function toggleSelectVisibleGlossaryRows(masterCheckbox) {
+    getVisibleGlossaryRows().forEach(function(row) {
+      var checkbox = row.querySelector('.glossary-row-select');
+      if (checkbox) checkbox.checked = masterCheckbox.checked;
+    });
+    updateGlossaryBulkDeleteState();
+  }
+
+  function removeGlossaryPopupRowByReference(fullRef) {
+    var rows = document.querySelectorAll('#popupCheckTable tbody .term-row');
+    Array.from(rows).forEach(function(row) {
+      if (row.getAttribute('data-full-ref') === fullRef) row.remove();
+    });
+  }
+
+  async function executeBulkGlossaryDelete() {
+    var selectedRows = getSelectedGlossaryRows();
+    if (!selectedRows.length) return;
+
+    var acronyms = selectedRows.map(function(row) {
+      var cell = row.querySelector('.main-acronym .view-mode');
+      return cell ? cell.textContent.trim() : '';
+    }).filter(Boolean);
+
+    var preview = acronyms.slice(0, 8).join(', ');
+    if (acronyms.length > 8) preview += ', …';
+
+    var message = 'Supprimer définitivement ' + selectedRows.length + ' ligne(s) sélectionnée(s) ainsi que leurs pages XWiki ?';
+    if (preview) message += '\n\n' + preview;
+    if (!window.confirm(message)) return;
+
+    var table = document.getElementById('mainGlossaryTable');
+    var csrfToken = table.getAttribute('data-csrf');
+    var button = document.getElementById('btnBulkDeleteGlossary');
+    var deletedCount = 0;
+    var failed = [];
+
+    if (button) {
+      button.disabled = true;
+      button.innerHTML = '<span class="glyphicon glyphicon-refresh"></span> Suppression...';
+    }
+
+    for (var i = 0; i < selectedRows.length; i++) {
+      var row = selectedRows[i];
+      var fullRef = row.getAttribute('data-full-ref');
+      var acronymCell = row.querySelector('.main-acronym .view-mode');
+      var acronym = acronymCell ? acronymCell.textContent.trim() : fullRef;
+
+      var donnees = new FormData();
+      donnees.append('action', 'delete');
+      donnees.append('targetRef', fullRef);
+      donnees.append('form_token', csrfToken);
+
+      try {
+        var response = await fetch(urlGlossaireData + '?xpage=plain', {
+          method: 'POST',
+          body: donnees,
+          credentials: 'same-origin',
+          headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        });
+        var result = await response.text();
+
+        if (result.indexOf('GLOSSAIRE_OK') !== -1) {
+          removeGlossaryPopupRowByReference(fullRef);
+          row.remove();
+          deletedCount++;
+        } else {
+          failed.push(acronym);
+        }
+      } catch (error) {
+        console.error(error);
+        failed.push(acronym);
+      }
+    }
+
+    if (typeof applyCurrentSort === 'function') applyCurrentSort();
+    if (typeof sortPopupTableAlphabetically === 'function') sortPopupTableAlphabetically();
+    if (typeof applyPagination === 'function') applyPagination();
+    updateGlossaryBulkDeleteState();
+
+    var resultMessage = deletedCount + ' ligne(s) supprimée(s).';
+    if (failed.length) {
+      resultMessage += '\n' + failed.length + ' suppression(s) ont échoué : ' + failed.join(', ');
+    }
+    alert(resultMessage);
+  }
+
+  function setupGlossaryBulkDeleteUi() {
+    var table = document.getElementById('mainGlossaryTable');
+    if (!table || document.getElementById('btnBulkDeleteGlossary')) return;
+
+    var headerRows = table.querySelectorAll('thead tr');
+    if (headerRows.length > 0) {
+      var selectHeader = document.createElement('th');
+      selectHeader.style.width = '36px';
+      selectHeader.style.textAlign = 'center';
+      selectHeader.title = 'Sélectionner les lignes visibles';
+      selectHeader.innerHTML = '<input type="checkbox" id="glossarySelectAllVisible" aria-label="Sélectionner les lignes visibles">';
+      headerRows[0].insertBefore(selectHeader, headerRows[0].firstChild);
+      document.getElementById('glossarySelectAllVisible').addEventListener('change', function() {
+        toggleSelectVisibleGlossaryRows(this);
+      });
+    }
+
+    if (headerRows.length > 1) {
+      var emptyFilterHeader = document.createElement('th');
+      emptyFilterHeader.style.backgroundColor = '#f9f9f9';
+      headerRows[1].insertBefore(emptyFilterHeader, headerRows[1].firstChild);
+    }
+
+    table.querySelectorAll('tbody .main-term-row').forEach(ensureGlossaryBulkSelectCell);
+
+    var addButton = document.querySelector('button[data-target="#glossaryModal"]');
+    if (addButton && addButton.parentNode) {
+      var bulkButton = document.createElement('button');
+      bulkButton.type = 'button';
+      bulkButton.id = 'btnBulkDeleteGlossary';
+      bulkButton.className = 'btn btn-danger';
+      bulkButton.style.marginLeft = '8px';
+      bulkButton.disabled = true;
+      bulkButton.innerHTML = '<span class="glyphicon glyphicon-trash"></span> Supprimer la sélection (0)';
+      bulkButton.addEventListener('click', executeBulkGlossaryDelete);
+      addButton.parentNode.appendChild(bulkButton);
+    }
+
+    var tbody = table.querySelector('tbody');
+    if (tbody && window.MutationObserver) {
+      var observer = new MutationObserver(function(mutations) {
+        mutations.forEach(function(mutation) {
+          Array.from(mutation.addedNodes || []).forEach(function(node) {
+            if (node.nodeType === 1 && node.classList.contains('main-term-row')) {
+              ensureGlossaryBulkSelectCell(node);
+            }
+          });
+        });
+        updateGlossaryBulkDeleteState();
+      });
+      observer.observe(tbody, { childList: true });
+    }
+
+    if (!window.glossaryBulkPaginationWrapped && typeof window.applyPagination === 'function') {
+      var originalApplyPagination = window.applyPagination;
+      window.applyPagination = function() {
+        var result = originalApplyPagination.apply(this, arguments);
+        updateGlossaryBulkDeleteState();
+        return result;
+      };
+      window.glossaryBulkPaginationWrapped = true;
+    }
+
+    updateGlossaryBulkDeleteState();
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    setTimeout(setupGlossaryBulkDeleteUi, 0);
+  });
+</script>
+
 ## --- 5. TABLEAU PRINCIPAL GLOSSAIRE MAISON WITH COLUMN FILTERS & PAGINATION ---
 <div class="table-responsive">
   <!-- On conserve data-csrf et data-class-path sur la table -->
