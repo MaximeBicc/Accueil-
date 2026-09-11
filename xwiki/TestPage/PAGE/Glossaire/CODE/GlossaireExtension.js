@@ -1,4 +1,6 @@
 var rowToDelete = null;
+var currentSortColumn = 'acronym';
+var currentSortDirection = 'asc';
 
 function toggleEditMode(button, isEnteringEdit) {
     var row = button.closest('.main-term-row');
@@ -20,21 +22,97 @@ function toggleEditMode(button, isEnteringEdit) {
     }
 }
 
-// Trie le tableau principal par acronyme, sans tenir compte de la casse.
-function sortMainTableAlphabetically() {
+function getSortValue(row, column) {
+    if (column === 'acronym') {
+        return (row.getAttribute('data-acronym') || '').trim();
+    }
+
+    if (column === 'label') {
+        var label = row.querySelector('.main-label .view-mode');
+        return label ? label.textContent.trim() : '';
+    }
+
+    if (column === 'definition') {
+        var definition = row.querySelector('.main-definition .view-mode');
+        return definition ? definition.textContent.trim() : '';
+    }
+
+    return '';
+}
+
+// Trie le tableau principal sur la colonne demandée en A→Z ou Z→A.
+function sortMainTableByColumn(column, direction) {
     var tbody = document.querySelector('#mainGlossaryTable tbody');
     if (!tbody) return;
 
     var rows = Array.from(tbody.querySelectorAll('.main-term-row'));
+    var multiplier = direction === 'desc' ? -1 : 1;
+
     rows.sort(function(a, b) {
-        var acronymA = (a.getAttribute('data-acronym') || '').trim();
-        var acronymB = (b.getAttribute('data-acronym') || '').trim();
-        return acronymA.localeCompare(acronymB, 'fr', { sensitivity: 'base', numeric: true });
+        var valueA = getSortValue(a, column);
+        var valueB = getSortValue(b, column);
+        return valueA.localeCompare(valueB, 'fr', {
+            sensitivity: 'base',
+            numeric: true
+        }) * multiplier;
     });
 
     rows.forEach(function(row) {
         tbody.appendChild(row);
     });
+}
+
+function updateSortButtons() {
+    var buttons = document.querySelectorAll('.sort-column-btn');
+
+    buttons.forEach(function(button) {
+        var column = button.getAttribute('data-column');
+        var label = button.querySelector('.sort-label');
+        var isActive = column === currentSortColumn;
+
+        button.setAttribute('data-sort-active', isActive ? 'true' : 'false');
+        button.setAttribute('data-sort-direction', isActive ? currentSortDirection : 'asc');
+
+        if (isActive) {
+            button.classList.add('active');
+            if (label) {
+                label.textContent = currentSortDirection === 'asc' ? 'A→Z' : 'Z→A';
+            }
+        } else {
+            button.classList.remove('active');
+            if (label) {
+                label.textContent = 'A→Z';
+            }
+        }
+    });
+}
+
+function applyCurrentSort() {
+    sortMainTableByColumn(currentSortColumn, currentSortDirection);
+    updateSortButtons();
+}
+
+// Un clic sur le bouton d'une colonne trie A→Z. Un second clic inverse en Z→A.
+function toggleColumnSort(column, button) {
+    var isSameColumn = currentSortColumn === column;
+
+    if (isSameColumn) {
+        currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
+    } else {
+        currentSortColumn = column;
+        currentSortDirection = 'asc';
+    }
+
+    applyCurrentSort();
+    currentPage = 1;
+    applyPagination();
+}
+
+// Compatibilité avec le tri alphabétique initial historique.
+function sortMainTableAlphabetically() {
+    currentSortColumn = 'acronym';
+    currentSortDirection = 'asc';
+    applyCurrentSort();
 }
 
 // Même ordre alphabétique dans le tableau de vérification de la modale.
@@ -116,8 +194,8 @@ async function saveRowEdition(button) {
                 if (modalLabelCell) modalLabelCell.textContent = newLabel;
             }
 
-            // L'acronyme peut changer de position : on retrie avant de repaginer.
-            sortMainTableAlphabetically();
+            // On conserve le tri actuellement choisi, même après modification.
+            applyCurrentSort();
             sortPopupTableAlphabetically();
 
             // Force le déclenchement du filtre global si la modal est ouverte pour recalculer la pertinence
@@ -205,9 +283,9 @@ async function executeRowDelete() {
 var currentPage = 1;
 var pageSize = 10;
 
-// Initialisation au chargement de la page : ordre alphabétique puis pagination.
+// Initialisation au chargement de la page : Acronyme A→Z puis pagination.
 document.addEventListener("DOMContentLoaded", function() {
-    sortMainTableAlphabetically();
+    applyCurrentSort();
     sortPopupTableAlphabetically();
     applyPagination();
 });
