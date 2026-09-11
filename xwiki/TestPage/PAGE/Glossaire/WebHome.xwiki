@@ -1,6 +1,6 @@
 {{velocity}}
 {{html}}
-#set($classPath = "TestPage.PAGE.Glossaire.CODE.GlossaireClass.WebHome")
+#set($classPath = "TestPage.PAGE.Glossaire.CODE.glossaireClass.WebHome")
 #set($dataSpace = "TestPage.PAGE.Glossaire.DATA")
 
 ## Appel des extensions de peau (Skin Extensions) JavaScript et CSS
@@ -41,6 +41,7 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
   #set($discard = $newObj.set("acronyme", $acronymeInput))
   #set($discard = $newObj.set("libelle", $libelleInput))
   #set($discard = $newObj.set("definition", $definitionInput))
+  #set($discard = $newPage.setTitle($acronymeInput))
   #set($discard = $newPage.save("Ajout via interface Glossaire", true))
 
   ## 5. Stockage du statut en session pour l'affichage après redirection
