@@ -1,0 +1,349 @@
+{{velocity}}
+## Configuration : seul ce groupe donne le rôle métier manager (pas le droit edit/admin).
+#set($managerGroup = 'XWiki.IVQ_Gestionnaires')
+#set($classPath = 'TestPage.PAGE.Liens.CODE.lienClass.WebHome')
+#set($rootSpaces = ['TestPage', 'PAGE', 'Liens', 'DATA', 'LIENDATA'])
+#set($wikiId = $xcontext.database)
+#set($actorRef = $services.model.resolveDocument($xcontext.user))
+#set($actorId = $actorRef.name)
+## Annuaire unique, comme dans les captures (profils xwiki:XWiki.*).
+## Pour des comptes locaux, remplacer xwiki par l'identifiant du sous-wiki.
+## Cela empêche de confondre deux homonymes local/global.
+#set($authorWiki = 'xwiki')
+#set($isManager = false)
+
+#macro(liensReply $body)
+  #set($discard = $body.put('schema', 'liens-v2'))
+  #set($discard = $response.setContentType('application/json; charset=UTF-8'))
+  #set($discard = $response.setHeader('Cache-Control', 'no-store, private'))
+  #set($discard = $response.setHeader('X-Content-Type-Options', 'nosniff'))
+  #set($discard = $response.writer.write($jsontool.serialize($body)))
+  #set($discard = $response.writer.flush())
+  #set($discard = $xcontext.setFinished(true))
+  #stop
+#end
+#macro(liensError $code $message)
+  #liensReply({'ok': false, 'code': $code, 'message': $message})
+#end
+## Ne jamais autoriser une référence fournie par le navigateur sur son seul préfixe textuel.
+#macro(liensScope $ref)
+  #set($inScope = false)
+  #set($spaces = $ref.getSpaceReferences())
+  #if($ref.wikiReference.name == $wikiId && ($spaces.size() == 6 || ($spaces.size() == 7 && $ref.name == 'WebHome')))
+    #set($inScope = true)
+    #foreach($n in [0..4])
+      #if($spaces.get($n).name != $rootSpaces.get($n)) #set($inScope = false) #end
+    #end
+    #if($spaces.size() == 6 && ($ref.name == 'WebHome' || $ref.name == 'WebPreferences'))
+      #set($inScope = false)
+    #end
+  #end
+#end
+#macro(liensRecord $recordDoc)
+  #set($recordObj = $recordDoc.getObject($classPath))
+  #set($record = {'ref': $recordDoc.getFullName(), 'version': $recordDoc.getVersion(), 'acronym': "$!recordObj.getValue('nom_lien')", 'label': "$!recordObj.getValue('lien')", 'definition': "$!recordObj.getValue('definition')", 'type': "$!recordObj.getValue('type')", 'author': "$!recordObj.getValue('proprietaire')"})
+#end
+#macro(liensVisible $item)
+  #set($visible = $item.type == 'commun' || ($item.type == 'personnel' && $item.author == $actorId))
+#end
+#macro(liensEditable $item)
+  #set($editable = ($item.type == 'commun' && $isManager) || ($item.type == 'personnel' && $item.author == $actorId))
+#end
+#macro(liensLoadVisible)
+  #set($visibleRecords = [])
+  #set($query = $services.query.xwql("select distinct doc.fullName from Document doc, doc.object($classPath) obj where obj.type = :common or (obj.type = :personal and obj.proprietaire = :owner)"))
+  #set($refs = $query.bindValue('common', 'commun').bindValue('personal', 'personnel').bindValue('owner', $actorId).execute())
+  #foreach($fullRef in $refs)
+    #set($entryRef = $services.model.resolveDocument($fullRef))
+    #liensScope($entryRef)
+    #if($inScope && $xwiki.hasAccessLevel('view', $xcontext.user, $fullRef))
+      #set($entryDoc = $xwiki.getDocument($entryRef))
+      #if(!$entryDoc.isNew() && $entryDoc.getObject($classPath))
+        #liensRecord($entryDoc)
+        #liensVisible($record)
+        #if($visible) #set($discard = $visibleRecords.add($record)) #end
+      #end
+    #end
+  #end
+#end
+#macro(liensWriteFields $toDoc $fields)
+  #set($toObj = $toDoc.getObject($classPath))
+  #set($discard = $toObj.set('nom_lien', $fields.acronym))
+  #set($discard = $toObj.set('lien', $fields.label))
+  #set($discard = $toObj.set('definition', $fields.definition))
+  #set($discard = $toObj.set('type', $fields.type))
+  #set($discard = $toObj.set('proprietaire', $fields.author))
+  #set($discard = $toDoc.setTitle($fields.acronym))
+  #set($discard = $toDoc.save('Modification via interface Liens', true))
+#end
+#macro(liensSuccess $savedDoc)
+  #liensRecord($savedDoc)
+  #liensVisible($record)
+  #set($answer = {'ok': true, 'code': 'SAVED', 'ref': $savedDoc.getFullName(), 'visible': $visible})
+  #if($visible) #set($discard = $answer.put('record', $record)) #end
+#end
+#macro(liensStartMove $fromRef $toRef)
+  #set($moveRequest = $services.refactoring.requestFactory.createRenameRequest($fromRef, $toRef))
+  #set($discard = $moveRequest.setDeep(false))
+  #set($discard = $moveRequest.setAutoRedirect(false))
+  #set($discard = $moveRequest.setCheckRights(true))
+  ## IMPORTANT : non interactif peut ECRASER une destination créée concurremment.
+  ## L'API finish refuse les questions d'écrasement. Jamais de join() bloquant.
+  #set($discard = $moveRequest.setInteractive(true))
+  #set($discard = $operation.put('jobId', $moveRequest.id))
+  #set($discard = $operations.put($operationId, $operation))
+  #set($moveJob = $services.refactoring.rename($moveRequest))
+  #if(!$moveJob)
+    #set($answer = {'ok': false, 'code': 'MOVE_START', 'message': 'Le déplacement XWiki ne peut pas démarrer.'})
+    #set($discard = $operation.put('answer', $answer))
+    #liensReply($answer)
+  #end
+#end
+
+#try('liensFailure')
+  #if($actorId == 'XWikiGuest' || !$xcontext.user) #liensError('LOGIN', 'Connexion requise.') #end
+  #if($actorRef.wikiReference.name != $authorWiki) #liensError('AUTHOR_DIRECTORY', 'Ce module utilise un autre annuaire. Vérifiez authorWiki dans la page DATA.') #end
+  #if($request.getMethod() != 'POST') #liensError('METHOD', 'Requête POST requise.') #end
+  #set($csrf = $request.getParameter('form_token'))
+  #if(!$csrf || !$services.csrf.isTokenValid($csrf)) #liensError('CSRF', 'Jeton CSRF invalide. Actualisez la page.') #end
+  #foreach($member in $services.user.group.getMembers($managerGroup, true))
+    #if($services.model.resolveDocument("$member").equals($actorRef)) #set($isManager = true) #end
+  #end
+  #set($action = "$!request.getParameter('action')")
+  #if($action == 'list')
+    #liensLoadVisible()
+    #liensReply({'ok': true, 'user': $actorId, 'isManager': $isManager, 'managerGroup': $managerGroup, 'records': $visibleRecords})
+  #end
+  #if($action != 'create' && $action != 'import' && $action != 'save' && $action != 'delete' && $action != 'finish')
+    #liensError('ACTION', 'Action inconnue.')
+  #end
+
+  ## Reprise réseau : même identifiant + mêmes données = même opération, jamais un réimport implicite.
+  #set($operationId = "$!request.getParameter('operationId')")
+  #if(!$operationId.matches('[a-zA-Z0-9-]{20,100}')) #liensError('OPERATION', 'Identifiant opération invalide.') #end
+  #set($sessionKey = "liens-v2-$wikiId-$actorRef")
+  #set($operations = $request.session.getAttribute($sessionKey))
+  #if(!$operations)
+    #set($operations = {})
+    #set($discard = $request.session.setAttribute($sessionKey, $operations))
+  #end
+  #set($operation = false)
+  #set($operation = $operations.get($operationId))
+  #if($action != 'finish')
+    #set($payload = {})
+    #foreach($key in ['action','targetRef','version','acronym','label','definition','type','author','allowAcronymDuplicates','allowLabelDuplicates'])
+      #set($discard = $payload.put($key, "$!request.getParameter($key)"))
+    #end
+    #set($fingerprint = $jsontool.serialize($payload))
+    #if($operation && $operation.fingerprint != $fingerprint)
+      #liensError('OPERATION_REUSED', 'Cette opération existe avec un autre contenu. Actualisez avant de réessayer.')
+    #end
+  #end
+  #if($operation && $operation.answer) #liensReply($operation.answer) #end
+
+  #if($action == 'finish' || $operation)
+    #if(!$operation) #liensError('OPERATION_MISSING', 'Opération non retrouvée. Actualisez pour vérifier son résultat.') #end
+    #if($operation.phase == 'write')
+      ## Une réponse HTTP perdue ne doit pas provoquer une seconde écriture.
+      #set($checkDoc = $xwiki.getDocument($operation.target))
+      #if($operation.action == 'delete' && $checkDoc.isNew())
+        #set($answer = {'ok': true, 'code': 'DELETED', 'ref': $operation.fullRef})
+      #elseif($operation.action != 'delete' && !$checkDoc.isNew() && $checkDoc.getObject($classPath))
+        #liensRecord($checkDoc)
+        #set($matches = true)
+        #foreach($key in ['acronym','label','definition','type','author'])
+          #if($record.get($key) != $operation.fields.get($key)) #set($matches = false) #end
+        #end
+        #if(!$matches) #liensError('UNCERTAIN', 'Résultat non confirmé. Actualisez et vérifiez la fiche ; aucune écriture relancée.') #end
+        #liensSuccess($checkDoc)
+      #else
+        #liensError('UNCERTAIN', 'Résultat non confirmé. Actualisez et vérifiez la fiche ; aucune écriture relancée.')
+      #end
+      #set($discard = $operation.put('answer', $answer))
+      #liensReply($answer)
+    #end
+    #if(!$operation.jobId) #liensError('OPERATION_MISSING', 'Opération sans tâche. Actualisez pour vérifier son résultat.') #end
+    #set($status = $services.job.getJobStatus($operation.jobId))
+    #if(!$status) #liensReply({'ok': true, 'pending': true}) #end
+    #if("$status.state" == 'WAITING')
+      #set($question = $status.question)
+      #if("$!question.overwrite" == 'true' || "$!question.overwrite" == 'false')
+        #set($discard = $question.setOverwrite(false))
+        #set($discard = $question.setAskAgain(false))
+        #set($discard = $status.answered())
+      #else
+        ## Ne pas approuver à l'aveugle une question apportée par une autre extension.
+        #set($discard = $status.cancel())
+        #set($discard = $status.answered())
+      #end
+    #end
+    #if("$status.state" != 'FINISHED') #liensReply({'ok': true, 'pending': true}) #end
+    #set($sourceDoc = $xwiki.getDocument($operation.source))
+    #set($destinationDoc = $xwiki.getDocument($operation.destination))
+    #if($operation.phase == 'rollback')
+      #if(!$sourceDoc.isNew() && $destinationDoc.isNew())
+        #set($answer = {'ok': false, 'code': 'SAVE_ROLLED_BACK', 'message': 'Sauvegarde refusée. Le déplacement a été annulé : la fiche reste à son emplacement initial.'})
+      #else
+        #set($answer = {'ok': false, 'code': 'RECOVERY_REQUIRED', 'message': 'Opération partielle : actualisez et faites vérifier les deux emplacements avant toute nouvelle modification.'})
+      #end
+    #elseif(!$sourceDoc.isNew() || $destinationDoc.isNew() || !$destinationDoc.getObject($classPath))
+      #set($answer = {'ok': false, 'code': 'MOVE_FAILED', 'message': 'Déplacement refusé ou destination occupée. Aucune nouvelle valeur enregistrée. Actualisez la liste.'})
+    #else
+      ## Relire la destination après la fin du job, pas le document source mis en cache.
+      #liensRecord($destinationDoc)
+      #set($unchanged = true)
+      #foreach($key in ['acronym','label','definition','type','author'])
+        #if($record.get($key) != $operation.before.get($key)) #set($unchanged = false) #end
+      #end
+      #liensEditable($operation.before)
+      #if(!$editable || (!$isManager && ($operation.fields.type != 'personnel' || $operation.fields.author != $actorId)))
+        #set($unchanged = false)
+      #end
+      #set($saveFailed = '')
+      #if($unchanged)
+        #try('saveFailed')
+          #liensWriteFields($destinationDoc, $operation.fields)
+          #liensSuccess($destinationDoc)
+        #end
+      #end
+      #if(!$unchanged || "$!saveFailed" != '')
+        ## Retour arrière de localisation, sans écraser un document réapparu à la source.
+        #set($discard = $operation.put('phase', 'rollback'))
+        #liensStartMove($operation.destination, $operation.source)
+        #liensReply({'ok': true, 'pending': true})
+      #end
+    #end
+    #set($discard = $operation.put('answer', $answer))
+    #liensReply($answer)
+  #end
+
+  ## Borne de session : aucune éviction d'une opération en cours ou au résultat incertain.
+  #if($operations.size() >= 2500) #liensError('SESSION_LIMIT', 'Limite de cette session atteinte. Terminez les opérations en cours puis reconnectez-vous.') #end
+  #set($operation = {'fingerprint': $fingerprint})
+  #set($sourceRef = false)
+  #set($sourceDoc = false)
+  #if($action == 'save' || $action == 'delete')
+    #set($sourceRef = $services.model.resolveDocument($payload.targetRef))
+    #liensScope($sourceRef)
+    #if(!$inScope) #liensError('SCOPE', 'Cette référence ne désigne pas une fiche LIENDATA autorisée.') #end
+    #set($sourceDoc = $xwiki.getDocument($sourceRef))
+    #if($sourceDoc.isNew() || !$sourceDoc.getObject($classPath)) #liensError('NOT_FOUND', 'Fiche introuvable.') #end
+    #liensRecord($sourceDoc)
+    #set($before = $record)
+    #liensEditable($before)
+    #if(!$editable) #liensError('ROLE', 'Action interdite pour ce lien et votre rôle.') #end
+    #if(!$xwiki.hasAccessLevel('view', $xcontext.user, $sourceRef.toString()) || !$xwiki.hasAccessLevel('edit', $xcontext.user, $sourceRef.toString()))
+      #liensError('ACCESS', 'Les droits XWiki sur cette fiche sont insuffisants.')
+    #end
+    #if(!$payload.version || $payload.version != $sourceDoc.getVersion()) #liensError('CONFLICT', 'La fiche a changé. Actualisez avant de modifier ou supprimer.') #end
+    #if($action == 'delete')
+      #if(!$xwiki.hasAccessLevel('delete', $xcontext.user, $sourceRef.toString())) #liensError('ACCESS', 'Droit de suppression XWiki absent.') #end
+      ## Supprime la fiche seulement, jamais l'espace auteur ni ses autres fiches.
+      #set($discard = $operation.put('phase', 'write'))
+      #set($discard = $operation.put('action', 'delete'))
+      #set($discard = $operation.put('target', $sourceRef))
+      #set($discard = $operation.put('fullRef', $payload.targetRef))
+      #set($discard = $operations.put($operationId, $operation))
+      #set($discard = $sourceDoc.delete())
+      #if($xwiki.exists($sourceRef.toString())) #liensError('DELETE_FAILED', 'La suppression a été refusée par XWiki.') #end
+      #set($answer = {'ok': true, 'code': 'DELETED', 'ref': $payload.targetRef})
+      #set($discard = $operation.put('answer', $answer))
+      #set($discard = $operations.put($operationId, $operation))
+      #liensReply($answer)
+    #end
+  #end
+
+  ## Compatibilité : ni String.trim(), ni lower-case, ni interpolation de référence ${...}.
+  #set($fields = {})
+  #foreach($key in ['acronym','label','definition','type','author'])
+    #set($value = $stringtool.strip($payload.get($key)))
+    #set($discard = $fields.put($key, "$!value"))
+  #end
+  #if($fields.type == '') #set($discard = $fields.put('type', 'personnel')) #end
+  #if($fields.author == '') #set($discard = $fields.put('author', $actorId)) #end
+  #if($fields.acronym == '' || $fields.label == '' || $fields.definition == '') #liensError('VALIDATION', 'Acronyme, libellé et définition sont obligatoires.') #end
+  #if($fields.acronym.length() > 150 || $fields.label.length() > 2000 || $fields.definition.length() > 20000)
+    #liensError('VALIDATION', 'Une valeur dépasse la taille autorisée (150 / 2000 / 20000 caractères).')
+  #end
+  #if($fields.acronym.matches('(?s).*[\x00-\x1F\x7F/\\${}:|].*') || $fields.acronym == '.' || $fields.acronym == '..' || $fields.acronym == 'WebHome' || $fields.acronym == 'WebPreferences')
+    #liensError('NAME', 'Nom de fiche invalide : retirez les caractères de chemin ou de substitution.')
+  #end
+  #if($fields.type != 'commun' && $fields.type != 'personnel') #liensError('TYPE', 'Type attendu : personnel ou commun.') #end
+  #if(!$isManager && ($fields.type != 'personnel' || $fields.author != $actorId))
+    #liensError('ROLE', 'Un non-manager peut uniquement créer ou modifier ses propres liens personnels.')
+  #end
+  #if(!$fields.author.matches('[\p{L}\p{N}_@.-]{1,100}') || $fields.author == '.' || $fields.author == '..' || $fields.author == 'XWikiGuest')
+    #liensError('AUTHOR', 'Auteur invalide. Utilisez son identifiant XWiki, pas son nom complet.')
+  #end
+  #set($authorRef = $services.model.createDocumentReference($authorWiki, ['XWiki'], $fields.author))
+  #set($authorDoc = $xwiki.getDocument($authorRef))
+  #if($authorDoc.isNew() || !$authorDoc.getObject('XWiki.XWikiUsers')) #liensError('AUTHOR', 'Cet auteur ne correspond pas à un utilisateur XWiki existant.') #end
+
+  #if($action == 'import')
+    ## Doublons dans le même périmètre : commun, ou personnel d'un même auteur.
+    ## Aucun résultat personnel d'un tiers n'est utilisé comme oracle de doublon.
+    #liensLoadVisible()
+    #set($duplicateAcronym = false)
+    #set($duplicateLabel = false)
+    #foreach($existing in $visibleRecords)
+      #if($existing.type == $fields.type && ($fields.type == 'commun' || $existing.author == $fields.author))
+        #if($existing.acronym.equalsIgnoreCase($fields.acronym)) #set($duplicateAcronym = true) #end
+        #if($existing.label.equalsIgnoreCase($fields.label)) #set($duplicateLabel = true) #end
+      #end
+    #end
+    #if(($duplicateAcronym && $payload.allowAcronymDuplicates != 'true') || ($duplicateLabel && $payload.allowLabelDuplicates != 'true'))
+      #liensReply({'ok': true, 'skipped': true, 'code': 'DUPLICATE', 'duplicateAcronym': $duplicateAcronym, 'duplicateLabel': $duplicateLabel})
+    #end
+  #end
+
+  #set($authorSpaces = ['TestPage', 'PAGE', 'Liens', 'DATA', 'LIENDATA', $fields.author])
+  #set($candidateName = $fields.acronym)
+  #set($destination = false)
+  #foreach($n in [0..100])
+    #if($n > 0) #set($suffix = "_$n") #set($candidateName = "$fields.acronym$suffix") #end
+    #set($terminalRef = $services.model.createDocumentReference($wikiId, $authorSpaces, $candidateName))
+    #set($nestedSpaces = ['TestPage', 'PAGE', 'Liens', 'DATA', 'LIENDATA', $fields.author, $candidateName])
+    #set($nestedRef = $services.model.createDocumentReference($wikiId, $nestedSpaces, 'WebHome'))
+    #set($terminalFree = !$xwiki.exists($terminalRef.toString()) || ($sourceRef && $sourceRef.equals($terminalRef)))
+    #set($nestedFree = !$xwiki.exists($nestedRef.toString()) || ($sourceRef && $sourceRef.equals($nestedRef)))
+    #if($terminalFree && $nestedFree)
+      #set($destination = $terminalRef)
+      #if($sourceRef && $sourceRef.name == 'WebHome') #set($destination = $nestedRef) #end
+      #break
+    #end
+  #end
+  #if(!$destination) #liensError('COLLISION', 'Impossible de trouver un nom libre. Aucune fiche écrasée.') #end
+  #if(!$xwiki.hasAccessLevel('edit', $xcontext.user, $destination.toString())) #liensError('ACCESS', 'Droit XWiki insuffisant dans le dossier du nouvel auteur.') #end
+
+  #if($sourceRef && !$sourceRef.equals($destination))
+    #if(!$xwiki.hasAccessLevel('delete', $xcontext.user, $sourceRef.toString())) #liensError('ACCESS', 'Le déplacement nécessite le droit XWiki de suppression sur la source.') #end
+    #set($discard = $operation.put('source', $sourceRef))
+    #set($discard = $operation.put('destination', $destination))
+    #set($discard = $operation.put('before', $before))
+    #set($discard = $operation.put('fields', $fields))
+    #set($discard = $operation.put('phase', 'move'))
+    #liensStartMove($sourceRef, $destination)
+    #set($discard = $operations.put($operationId, $operation))
+    #liensReply({'ok': true, 'pending': true})
+  #end
+
+  #set($workingDoc = $sourceDoc)
+  #if(!$sourceRef)
+    #set($workingDoc = $xwiki.getDocument($destination))
+    #if(!$workingDoc.isNew()) #liensError('COLLISION', 'Une fiche vient de prendre ce nom. Actualisez puis réessayez.') #end
+    #set($discard = $workingDoc.newObject($classPath))
+  #end
+  #set($discard = $operation.put('phase', 'write'))
+  #set($discard = $operation.put('action', $action))
+  #set($discard = $operation.put('target', $destination))
+  #set($discard = $operation.put('fields', $fields))
+  #set($discard = $operations.put($operationId, $operation))
+  #liensWriteFields($workingDoc, $fields)
+  #liensSuccess($workingDoc)
+  #set($discard = $operation.put('answer', $answer))
+  #set($discard = $operations.put($operationId, $operation))
+  #liensReply($answer)
+#end
+## Ne jamais exposer les détails des exceptions ou une pile HTML dans la réponse.
+#liensError('SERVER', 'Opération interrompue par XWiki. Actualisez pour vérifier son résultat avant de réessayer.')
+{{/velocity}}
