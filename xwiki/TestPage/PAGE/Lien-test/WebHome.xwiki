@@ -1,0 +1,22 @@
+{{velocity}}
+## Liens v2 : cette page remplace l'ancienne interface et ses extensions locales.
+## Les données sont filtrées côté DATA AVANT d'être envoyées au navigateur.
+#set($extensionRef = 'TestPage.PAGE.Liens.CODE.LiensExtension')
+#set($discard = $xwiki.jsx.use($extensionRef))
+#set($discard = $xwiki.ssx.use($extensionRef))
+#set($endpoint = $xwiki.getURL('TestPage.PAGE.Liens.DATA.WebHome', 'view', 'xpage=plain'))
+#set($excelURL = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js')
+#set($extensionDoc = $xwiki.getDocument($extensionRef))
+#if($extensionDoc.getAttachment('xlsx.full.min.js'))
+  #set($excelURL = $extensionDoc.getAttachmentURL('xlsx.full.min.js'))
+#end
+{{html}}
+<div id="liens-app"
+     data-endpoint="$escapetool.xml($endpoint)"
+     data-csrf="$escapetool.xml($services.csrf.getToken())"
+     data-xlsx-url="$escapetool.xml($excelURL)">
+  <p>Chargement des liens…</p>
+  <noscript>JavaScript doit être activé pour utiliser la gestion des liens.</noscript>
+</div>
+{{/html}}
+{{/velocity}}
