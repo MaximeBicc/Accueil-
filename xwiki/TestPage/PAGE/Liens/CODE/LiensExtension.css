@@ -1,0 +1,38 @@
+/* XWiki.StyleSheetExtension : parser le contenu = NON. */
+#liens-app [hidden] { display: none !important; }
+#liens-app .liens-toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 12px 0; }
+#liens-app .liens-toolbar label { display: flex; gap: 6px; align-items: center; font-weight: normal; margin: 0; }
+#liens-app .liens-toolbar select, #liens-app .liens-toolbar input:not([type=checkbox]) { max-width: 260px; padding: 5px; }
+#liens-app [data-notice], #liens-app [data-editor-error] { white-space: pre-wrap; overflow-wrap: anywhere; }
+#liens-app .liens-drop { border: 2px dashed #a9b5c3; padding: 18px; background: #f6f8fa; border-radius: 5px; }
+#liens-app .liens-dragover { border-color: #235785; background: #e8f0f8; }
+#liens-app .liens-table-wrap { overflow: auto; max-height: 58vh; margin: 10px 0; }
+#liens-app .liens-table { min-width: 800px; }
+#liens-app table { margin-bottom: 0; }
+#liens-app th { vertical-align: middle; }
+#liens-app td { vertical-align: top; white-space: pre-wrap; overflow-wrap: anywhere; }
+#liens-app th input[type=search] { width: 100%; min-width: 100px; padding: 5px; font-weight: normal; }
+#liens-app .liens-sort { border: 0; background: transparent; text-align: left; padding: 0; color: inherit; font-weight: bold; cursor: pointer; }
+#liens-app .liens-sort:focus-visible { outline: 2px solid #235785; outline-offset: 4px; }
+#liens-app .liens-definition { min-width: 230px; }
+#liens-app td .btn { margin: 0 5px 5px 0; }
+#liens-app dialog:not([open]) { display: none !important; }
+#liens-app .liens-dialog { width: min(1000px, 94vw); max-width: 94vw; max-height: 90vh; overflow: auto; border: 1px solid #9aa8b7; border-radius: 8px; padding: 22px; box-shadow: 0 10px 35px #0004; }
+#liens-app .liens-wide { width: min(1450px, 96vw); max-width: 96vw; }
+#liens-app .liens-dialog::backdrop { background: #0007; }
+#liens-app .liens-dialog h3 { margin-top: 0; }
+#liens-app .liens-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+#liens-app .liens-form-grid label { display: flex; flex-direction: column; gap: 5px; }
+#liens-app .liens-form-grid label:nth-child(3) { grid-column: 1 / -1; }
+#liens-app textarea { min-height: 70px; resize: vertical; }
+#liens-app [data-preview] input, #liens-app [data-preview] textarea { min-width: 150px; }
+#liens-app [data-preview] select { min-width: 150px; }
+#liens-app [data-preview] td:nth-child(4) textarea { min-width: 230px; }
+#liens-app [data-preview] td:nth-child(7) { min-width: 230px; }
+#liens-app [data-editor-error] { color: #a51d2d; }
+#liens-app [aria-busy=true] { cursor: progress; }
+@media (max-width: 700px) {
+  #liens-app .liens-form-grid { grid-template-columns: 1fr; }
+  #liens-app .liens-form-grid label:nth-child(3) { grid-column: auto; }
+  #liens-app .liens-dialog { padding: 14px; }
+}
