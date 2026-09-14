@@ -371,11 +371,49 @@ function createExcelImportUi() {
     var toolbarRight = document.getElementById('glossaryToolbarRight');
     if (toolbarRight) {
         toolbarRight.innerHTML =
+            '<button type="button" id="btnExcelExampleGlossary" class="btn btn-default">' +
+                '<span class="glyphicon glyphicon-eye-open"></span> Voir un exemple Excel' +
+            '</button>' +
             '<input type="file" id="excelGlossaryFileInput" accept=".xlsx,.xls,.xlsm,.xlsb" class="glossary-hidden-file-input">' +
             '<button type="button" id="btnImportExcelGlossary" class="btn btn-default">' +
                 '<span class="glyphicon glyphicon-import"></span> Importer un Excel' +
             '</button>';
     }
+
+    var exampleModal = document.createElement('div');
+    exampleModal.innerHTML =
+        '<div class="modal fade" id="excelExampleGlossaryModal" tabindex="-1" role="dialog" aria-hidden="true">' +
+          '<div class="modal-dialog modal-lg" role="document">' +
+            '<div class="modal-content">' +
+              '<div class="modal-header">' +
+                '<button type="button" class="close" data-dismiss="modal" aria-label="Fermer"><span aria-hidden="true">&times;</span></button>' +
+                '<h4 class="modal-title">Exemple de fichier Excel</h4>' +
+              '</div>' +
+              '<div class="modal-body">' +
+                '<p>Format conseillé : une première ligne d’entête, puis une ligne par terme du glossaire.</p>' +
+                '<div class="table-responsive">' +
+                  '<table class="table table-striped table-bordered">' +
+                    '<thead><tr><th>Acronyme</th><th>Libellé</th><th>Définition</th></tr></thead>' +
+                    '<tbody>' +
+                      '<tr><td>API</td><td>Application Programming Interface</td><td>Interface permettant à plusieurs logiciels de communiquer entre eux.</td></tr>' +
+                      '<tr><td>HTTP</td><td>HyperText Transfer Protocol</td><td>Protocole utilisé pour les échanges de données sur le Web.</td></tr>' +
+                      '<tr><td>UX</td><td>User Experience</td><td>Ensemble des éléments qui composent l’expérience d’un utilisateur.</td></tr>' +
+                    '</tbody>' +
+                  '</table>' +
+                '</div>' +
+                '<div class="alert alert-info">' +
+                  '<strong>À savoir :</strong> l’ordre des colonnes peut changer si leurs entêtes sont reconnues. ' +
+                  'Si une seule entête est reconnue, la ligne est considérée comme une ligne d’entête et les colonnes restantes sont déduites par élimination. ' +
+                  'Sans entête reconnue, les trois premières colonnes sont utilisées dans l’ordre Acronyme, Libellé, Définition.' +
+                '</div>' +
+              '</div>' +
+              '<div class="modal-footer">' +
+                '<button type="button" class="btn btn-default" data-dismiss="modal">Fermer</button>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+    document.body.appendChild(exampleModal.firstChild);
 
     var modal = document.createElement('div');
     modal.innerHTML =
@@ -425,6 +463,13 @@ function createExcelImportUi() {
         '</div>';
 
     document.body.appendChild(modal.firstChild);
+
+    var exampleButton = document.getElementById('btnExcelExampleGlossary');
+    if (exampleButton) {
+        exampleButton.addEventListener('click', function() {
+            jQuery('#excelExampleGlossaryModal').modal('show');
+        });
+    }
 
     var importButton = document.getElementById('btnImportExcelGlossary');
     var fileInput = document.getElementById('excelGlossaryFileInput');
