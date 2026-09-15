@@ -138,7 +138,15 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
          id="mainGlossaryTable"
          data-csrf="$services.csrf.getToken()"
          data-class-path="$classPath"
-         data-endpoint-url="$!urlGlossaireData">
+         data-endpoint-url="$!urlGlossaireData"
+         data-icon-right="$escapetool.xml($services.icon.renderHTML('right'))"
+         data-icon-pencil="$escapetool.xml($services.icon.renderHTML('pencil'))"
+         data-icon-trash="$escapetool.xml($services.icon.renderHTML('trash'))"
+         data-icon-check="$escapetool.xml($services.icon.renderHTML('check'))"
+         data-icon-cross="$escapetool.xml($services.icon.renderHTML('cross'))"
+         data-icon-eye="$escapetool.xml($services.icon.renderHTML('eye'))"
+         data-icon-download="$escapetool.xml($services.icon.renderHTML('download'))"
+         data-icon-refresh="$escapetool.xml($services.icon.renderHTML('refresh'))">
     <thead>
       <tr>
         <th class="glossary-col-acronym">Acronyme</th>
@@ -156,7 +164,7 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
                     data-sort-active="true"
                     data-sort-direction="asc"
                     title="Trier par acronyme">
-              <span class="sort-label">A à Z</span>
+              <span class="sort-label">A $services.icon.renderHTML('right') Z</span>
             </button>
           </div>
         </th>
@@ -169,7 +177,7 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
                     data-sort-active="false"
                     data-sort-direction="asc"
                     title="Trier par libellé">
-              <span class="sort-label">A à Z</span>
+              <span class="sort-label">A $services.icon.renderHTML('right') Z</span>
             </button>
           </div>
         </th>
@@ -182,7 +190,7 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
                     data-sort-active="false"
                     data-sort-direction="asc"
                     title="Trier par définition">
-              <span class="sort-label">A à Z</span>
+              <span class="sort-label">A $services.icon.renderHTML('right') Z</span>
             </button>
           </div>
         </th>
