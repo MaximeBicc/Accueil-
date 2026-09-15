@@ -274,6 +274,7 @@
       <div class="ct-toolbar">
         <div class="ct-contact-filters">
           <label class="ct-search">
+            <span class="ct-search-icon" aria-hidden="true">$services.icon.renderHTML('search')</span>
             <span class="sr-only">Rechercher un contact</span>
             <input type="search" placeholder="Rechercher un contact" autocomplete="off" data-contact-search />
           </label>
@@ -287,8 +288,8 @@
         </div>
 
         <div class="ct-layout-switch" aria-label="Disposition des contacts">
-          <button type="button" class="ct-layout-button is-active" data-contact-layout="horizontal" aria-pressed="true" title="Vue en liste"><span>Liste</span></button>
-          <button type="button" class="ct-layout-button" data-contact-layout="vertical" aria-pressed="false" title="Vue en cartes"><span>Cartes</span></button>
+          <button type="button" class="ct-layout-button is-active" data-contact-layout="horizontal" aria-pressed="true" title="Vue en liste">$services.icon.renderHTML('list')<span>Liste</span></button>
+          <button type="button" class="ct-layout-button" data-contact-layout="vertical" aria-pressed="false" title="Vue en grille">$services.icon.renderHTML('th')<span>Grille</span></button>
         </div>
       </div>
 
@@ -297,7 +298,7 @@
           <div class="ct-empty-contact-state" data-contact-empty>
             <h2>Aucun contact</h2>
             <p>Vous n'avez encore ajouté aucun contact.</p>
-            <button type="button" class="ct-primary-button" data-open-manager>Ajouter des contacts</button>
+            <button type="button" class="ct-primary-button" data-open-manager>$services.icon.renderHTML('add') <span>Ajouter des contacts</span></button>
           </div>
         #else
           #foreach ($contactRef in $savedContacts)
@@ -314,10 +315,10 @@
                 <div class="ct-groups">#ctGroupChips($contactRef)</div>
               </div>
               <div class="ct-contact-actions">
-                <a class="ct-action-button" href="$escapetool.xml($profileUrl)">Informations</a>
-                <a class="ct-action-button" href="$escapetool.xml($formationUrl)">Formation</a>
-                <a class="ct-action-button" href="$escapetool.xml($roleUrl)">Rôle</a>
-                <a class="ct-action-button" href="$escapetool.xml($followupUrl)">Suivis</a>
+                <a class="ct-action-button" href="$escapetool.xml($profileUrl)">$services.icon.renderHTML('info') Informations</a>
+                <a class="ct-action-button" href="$escapetool.xml($formationUrl)">$services.icon.renderHTML('book') Formation</a>
+                <a class="ct-action-button" href="$escapetool.xml($roleUrl)">$services.icon.renderHTML('user') Rôle</a>
+                <a class="ct-action-button" href="$escapetool.xml($followupUrl)">$services.icon.renderHTML('check') Suivis</a>
               </div>
             </article>
           #end
@@ -340,6 +341,7 @@
             <p>Ajoutez ou retirez des contacts, puis validez les modifications.</p>
           </div>
           <label class="ct-search ct-search--manager">
+            <span class="ct-search-icon" aria-hidden="true">$services.icon.renderHTML('search')</span>
             <span class="sr-only">Rechercher un membre</span>
             <input type="search" placeholder="Rechercher un membre" autocomplete="off" data-manager-search />
           </label>
