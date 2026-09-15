@@ -1,7 +1,111 @@
-#mainGlossaryTable.hide-type-column .col-type {
+#mainGlossaryTable.hide-type-column .col-type,
+#secondaryGlossaryTable.hide-type-column .col-type {
   display: none !important;
 }
 
-#secondaryGlossaryTable.hide-type-column .col-type {
+.glossary-toolbar {
+  margin-bottom: 15px;
+}
+
+.glossary-toolbar-left,
+.glossary-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.glossary-toolbar-right {
+  justify-content: flex-end;
+}
+
+.glossary-toolbar-button {
+  margin-left: 0;
+}
+
+.glossary-hidden-file-input,
+.is-hidden {
   display: none !important;
+}
+
+.glossary-bulk-select-cell,
+.glossary-bulk-select-header,
+.glossary-bulk-select-filter {
+  width: 36px;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.glossary-bulk-select-filter {
+  background-color: #f9f9f9;
+}
+
+.liens-filter-layout {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.liens-filter-layout input {
+  min-width: 0;
+  flex: 1;
+}
+
+.excel-import-dialog {
+  width: 95%;
+  max-width: 1500px;
+}
+
+.excel-import-info {
+  margin-bottom: 12px;
+}
+
+.excel-import-table-wrap {
+  overflow: auto;
+  border: 1px solid #ddd;
+}
+
+.excel-import-preview-wrap {
+  max-height: 430px;
+}
+
+.excel-import-duplicates-wrap {
+  max-height: 330px;
+}
+
+.excel-import-table {
+  margin-bottom: 0;
+}
+
+.excel-line-col {
+  width: 65px;
+}
+
+.excel-action-col,
+.excel-import-action-cell {
+  width: 70px;
+  text-align: center;
+}
+
+.excel-import-options {
+  margin-top: 15px;
+  padding: 12px;
+  background: #f7f7f7;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+.excel-import-options label {
+  display: block;
+}
+
+.excel-import-options label:last-child {
+  margin-bottom: 0;
+}
+
+.excel-import-summary {
+  margin-top: 10px;
+}
+
+.excel-import-input {
+  width: 100%;
 }
