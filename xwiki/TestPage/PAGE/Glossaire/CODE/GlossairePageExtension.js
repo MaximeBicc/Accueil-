@@ -6,6 +6,34 @@ var excelImportFileName = '';
 var excelImportHeaderInfo = null;
 var glossaryBulkDeleteMode = false;
 
+function getGlossaryXWikiIcon(name) {
+    var table = document.getElementById('mainGlossaryTable');
+    if (!table) return '';
+    return table.getAttribute('data-icon-' + name) || '';
+}
+
+function updateGlossarySortButtons() {
+    var buttons = document.querySelectorAll('.sort-column-btn');
+    var arrow = getGlossaryXWikiIcon('right');
+
+    buttons.forEach(function(button) {
+        var column = button.getAttribute('data-column');
+        var label = button.querySelector('.sort-label');
+        var isActive = column === currentSortColumn;
+        var direction = isActive ? currentSortDirection : 'asc';
+
+        button.setAttribute('data-sort-active', isActive ? 'true' : 'false');
+        button.setAttribute('data-sort-direction', direction);
+        button.classList.toggle('active', isActive);
+
+        if (label) {
+            label.innerHTML = direction === 'desc'
+                ? 'Z ' + arrow + ' A'
+                : 'A ' + arrow + ' Z';
+        }
+    });
+}
+
 function isGlossarySheetJSLibrary(candidate) {
     return !!candidate &&
         typeof candidate.read === 'function' &&
@@ -214,7 +242,7 @@ function fixedRenderExcelImportPreview(fileName) {
         columnDescription = 'Aucun entête reconnu : colonnes 1, 2 et 3 utilisées dans cet ordre.';
     }
 
-    info.textContent = excelImportFileName + ' — feuille « ' + excelImportSheetName + ' » — ' + columnDescription;
+    info.textContent = excelImportFileName + '. Feuille : ' + excelImportSheetName + '. ' + columnDescription;
 
     var duplicateCount = 0;
     var invalidCount = 0;
@@ -254,7 +282,7 @@ function fixedRenderExcelImportPreview(fileName) {
         deleteButton.type = 'button';
         deleteButton.className = 'btn btn-xs btn-danger';
         deleteButton.title = 'Supprimer cette ligne de l’import';
-        deleteButton.innerHTML = '<span class="glyphicon glyphicon-trash"></span>';
+        deleteButton.innerHTML = getGlossaryXWikiIcon('trash');
         deleteButton.addEventListener('click', function() {
             fixedDeleteExcelImportRow(rowIndex);
         });
@@ -368,15 +396,19 @@ async function fixedReadGlossaryExcelFile(file) {
 function createExcelImportUi() {
     if (document.getElementById('excelGlossaryModal')) return;
 
+    var eyeIcon = getGlossaryXWikiIcon('eye');
+    var downloadIcon = getGlossaryXWikiIcon('download');
+    var crossIcon = getGlossaryXWikiIcon('cross');
+
     var toolbarRight = document.getElementById('glossaryToolbarRight');
     if (toolbarRight) {
         toolbarRight.innerHTML =
             '<button type="button" id="btnExcelExampleGlossary" class="btn btn-default">' +
-                '<span class="glyphicon glyphicon-eye-open"></span> Voir un exemple Excel' +
+                eyeIcon + ' Voir un exemple Excel' +
             '</button>' +
             '<input type="file" id="excelGlossaryFileInput" accept=".xlsx,.xls,.xlsm,.xlsb" class="glossary-hidden-file-input">' +
             '<button type="button" id="btnImportExcelGlossary" class="btn btn-default">' +
-                '<span class="glyphicon glyphicon-import"></span> Importer un Excel' +
+                downloadIcon + ' Importer un Excel' +
             '</button>';
     }
 
@@ -386,7 +418,7 @@ function createExcelImportUi() {
           '<div class="modal-dialog modal-lg" role="document">' +
             '<div class="modal-content">' +
               '<div class="modal-header">' +
-                '<button type="button" class="close" data-dismiss="modal" aria-label="Fermer"><span aria-hidden="true">&times;</span></button>' +
+                '<button type="button" class="close" data-dismiss="modal" aria-label="Fermer">' + crossIcon + '</button>' +
                 '<h4 class="modal-title">Exemple de fichier Excel</h4>' +
               '</div>' +
               '<div class="modal-body">' +
@@ -402,7 +434,7 @@ function createExcelImportUi() {
                   '</table>' +
                 '</div>' +
                 '<div class="alert alert-info">' +
-                  '<strong>À savoir :</strong> l’ordre des colonnes peut changer si leurs entêtes sont reconnues. ' +
+                  '<strong>A savoir :</strong> l’ordre des colonnes peut changer si leurs entêtes sont reconnues. ' +
                   'Si une seule entête est reconnue, la ligne est considérée comme une ligne d’entête et les colonnes restantes sont déduites par élimination. ' +
                   'Sans entête reconnue, les trois premières colonnes sont utilisées dans l’ordre Acronyme, Libellé, Définition.' +
                 '</div>' +
@@ -421,7 +453,7 @@ function createExcelImportUi() {
           '<div class="modal-dialog modal-lg excel-import-dialog" role="document">' +
             '<div class="modal-content">' +
               '<div class="modal-header">' +
-                '<button type="button" class="close" data-dismiss="modal" aria-label="Fermer"><span aria-hidden="true">&times;</span></button>' +
+                '<button type="button" class="close" data-dismiss="modal" aria-label="Fermer">' + crossIcon + '</button>' +
                 '<h4 class="modal-title">Import Excel du glossaire</h4>' +
               '</div>' +
               '<div class="modal-body">' +
@@ -520,12 +552,12 @@ function appendImportedGlossaryRow(data, fullRef, docName) {
         '</td>' +
         '<td>' +
           '<div class="view-buttons">' +
-            '<button type="button" class="btn btn-xs btn-primary custom-action-btn js-edit-row"><span class="glyphicon glyphicon-pencil"></span></button> ' +
-            '<button type="button" class="btn btn-xs btn-danger custom-action-btn js-delete-row"><span class="glyphicon glyphicon-trash"></span></button>' +
+            '<button type="button" class="btn btn-xs btn-primary custom-action-btn js-edit-row" aria-label="Modifier" title="Modifier">' + getGlossaryXWikiIcon('pencil') + '</button> ' +
+            '<button type="button" class="btn btn-xs btn-danger custom-action-btn js-delete-row" aria-label="Supprimer" title="Supprimer">' + getGlossaryXWikiIcon('trash') + '</button>' +
           '</div>' +
           '<div class="edit-buttons glossary-edit-buttons">' +
-            '<button type="button" class="btn btn-xs btn-success js-save-row"><span class="glyphicon glyphicon-ok"></span> Sauver</button> ' +
-            '<button type="button" class="btn btn-xs btn-default js-cancel-row"><span class="glyphicon glyphicon-remove"></span></button>' +
+            '<button type="button" class="btn btn-xs btn-success js-save-row">' + getGlossaryXWikiIcon('check') + ' Enregistrer</button> ' +
+            '<button type="button" class="btn btn-xs btn-default js-cancel-row" aria-label="Annuler" title="Annuler">' + getGlossaryXWikiIcon('cross') + '</button>' +
           '</div>' +
         '</td>';
 
@@ -581,7 +613,7 @@ function updateGlossaryBulkDeleteState() {
 
     if (button) {
         button.disabled = selectedRows.length === 0;
-        button.innerHTML = '<span class="glyphicon glyphicon-trash"></span> Supprimer la sélection (' + selectedRows.length + ')';
+        button.innerHTML = getGlossaryXWikiIcon('trash') + ' Supprimer la sélection (' + selectedRows.length + ')';
     }
 
     if (selectAll) {
@@ -628,8 +660,8 @@ function setGlossaryBulkDeleteMode(enabled) {
 
     if (modeButton) {
         modeButton.innerHTML = glossaryBulkDeleteMode
-            ? '<span class="glyphicon glyphicon-remove"></span> Annuler la suppression multiple'
-            : '<span class="glyphicon glyphicon-check"></span> Suppression multiple';
+            ? getGlossaryXWikiIcon('cross') + ' Annuler la suppression multiple'
+            : getGlossaryXWikiIcon('check') + ' Suppression multiple';
     }
 
     if (deleteButton) {
@@ -659,7 +691,7 @@ async function executeBulkGlossaryDelete() {
     }).filter(Boolean);
 
     var preview = acronyms.slice(0, 8).join(', ');
-    if (acronyms.length > 8) preview += ', …';
+    if (acronyms.length > 8) preview += ', etc.';
 
     var message = 'Supprimer définitivement ' + selectedRows.length + ' ligne(s) sélectionnée(s) ainsi que leurs pages XWiki ?';
     if (preview) message += '\n\n' + preview;
@@ -673,7 +705,7 @@ async function executeBulkGlossaryDelete() {
 
     if (button) {
         button.disabled = true;
-        button.innerHTML = '<span class="glyphicon glyphicon-refresh"></span> Suppression...';
+        button.innerHTML = getGlossaryXWikiIcon('refresh') + ' Suppression...';
     }
 
     for (var i = 0; i < selectedRows.length; i++) {
@@ -753,7 +785,7 @@ function setupGlossaryBulkDeleteUi() {
         modeButton.type = 'button';
         modeButton.id = 'btnBulkDeleteModeGlossary';
         modeButton.className = 'btn btn-default glossary-toolbar-button';
-        modeButton.innerHTML = '<span class="glyphicon glyphicon-check"></span> Suppression multiple';
+        modeButton.innerHTML = getGlossaryXWikiIcon('check') + ' Suppression multiple';
         modeButton.addEventListener('click', toggleGlossaryBulkDeleteMode);
         toolbarLeft.appendChild(modeButton);
 
@@ -762,7 +794,7 @@ function setupGlossaryBulkDeleteUi() {
         bulkButton.id = 'btnBulkDeleteGlossary';
         bulkButton.className = 'btn btn-danger glossary-toolbar-button is-hidden';
         bulkButton.disabled = true;
-        bulkButton.innerHTML = '<span class="glyphicon glyphicon-trash"></span> Supprimer la sélection (0)';
+        bulkButton.innerHTML = getGlossaryXWikiIcon('trash') + ' Supprimer la sélection (0)';
         bulkButton.addEventListener('click', executeBulkGlossaryDelete);
         toolbarLeft.appendChild(bulkButton);
     }
@@ -858,9 +890,11 @@ window.editExcelImportRow = fixedEditExcelImportRow;
 window.deleteExcelImportRow = fixedDeleteExcelImportRow;
 window.createExcelImportUi = createExcelImportUi;
 window.appendImportedGlossaryRow = appendImportedGlossaryRow;
+window.updateSortButtons = updateGlossarySortButtons;
 
 document.addEventListener('DOMContentLoaded', function() {
     bindGlossaryPageEvents();
     createExcelImportUi();
     setupGlossaryBulkDeleteUi();
+    updateGlossarySortButtons();
 });
