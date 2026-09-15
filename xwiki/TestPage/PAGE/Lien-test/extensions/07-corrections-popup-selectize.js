@@ -2,7 +2,7 @@
 // 1) conserve TOUS les marqueurs LIEN_ROW même si XWiki les concatène sur une seule ligne ;
 // 2) recharge la liste de vérification avec communs + personnels du user courant ;
 // 3) réactive le sélecteur XWiki/Selectize du créateur dans l'onglet commun ;
-// 4) reconnecte le filtre Acronyme / Libellé sans modifier le contenu de la liste.
+// 4) identifie explicitement la colonne de sélection de Mes Liens pour que le CSS la cible précisément.
 (function () {
   'use strict';
 
@@ -85,25 +85,6 @@
     return { state: state, rows: rows };
   }
 
-  function runExistingPopupFilter() {
-    if (typeof window.triggerGlobalFilter === 'function') {
-      window.triggerGlobalFilter();
-    }
-  }
-
-  function installPopupFilterListeners() {
-    var acronymField = document.getElementById('liensNomInputField');
-    var labelField = document.getElementById('liensInputField');
-
-    [acronymField, labelField].forEach(function (field) {
-      if (!field || field.getAttribute('data-liens-filter-bound') === 'true') return;
-      field.setAttribute('data-liens-filter-bound', 'true');
-      field.addEventListener('input', runExistingPopupFilter);
-      field.addEventListener('keyup', runExistingPopupFilter);
-      field.addEventListener('change', runExistingPopupFilter);
-    });
-  }
-
   async function refreshPopupWithAllVisibleLinks() {
     var tbody = document.querySelector('#popupCheckTable tbody');
     if (!tbody || typeof urlLienData === 'undefined') return;
@@ -144,9 +125,11 @@
         tbody.appendChild(tr);
       });
 
-      // On ne touche pas à la liste : on réapplique simplement le filtre courant.
-      installPopupFilterListeners();
-      runExistingPopupFilter();
+      // Le filtre reste celui du script historique 04-popup-filtre.js.
+      // On le réapplique simplement après avoir reconstruit les lignes.
+      if (typeof window.triggerGlobalFilter === 'function') {
+        window.triggerGlobalFilter();
+      }
     } catch (error) {
       console.error('Impossible de recharger tous les liens visibles dans la modale', error);
     }
@@ -224,17 +207,41 @@
     };
   }
 
+  function tagPersonalBulkSelectionColumn() {
+    var table = document.getElementById('mainGlossaryTable');
+    if (!table) return;
+
+    table.querySelectorAll(
+      '.glossary-bulk-select-header, .glossary-bulk-select-filter, .glossary-bulk-select-cell'
+    ).forEach(function (cell) {
+      cell.classList.add('liens-personal-bulk-select-column');
+    });
+  }
+
+  function watchPersonalBulkSelectionColumn() {
+    var table = document.getElementById('mainGlossaryTable');
+    if (!table) return;
+
+    tagPersonalBulkSelectionColumn();
+
+    if (window.MutationObserver) {
+      var observer = new MutationObserver(function () {
+        tagPersonalBulkSelectionColumn();
+      });
+      observer.observe(table, { childList: true, subtree: true });
+    }
+  }
+
   function installModalRefresh() {
     if (!window.jQuery) return;
     window.jQuery('#glossaryModal').off('shown.bs.modal.liensAllRows').on('shown.bs.modal.liensAllRows', function () {
       refreshPopupWithAllVisibleLinks();
-      installPopupFilterListeners();
     });
   }
 
   document.addEventListener('DOMContentLoaded', function () {
     installModalRefresh();
-    installPopupFilterListeners();
+    watchPersonalBulkSelectionColumn();
     // Corrige aussi le contenu initial, sans attendre la première ouverture.
     window.setTimeout(refreshPopupWithAllVisibleLinks, 0);
   });
