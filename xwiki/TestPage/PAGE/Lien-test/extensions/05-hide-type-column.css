@@ -35,6 +35,23 @@
   vertical-align: middle;
 }
 
+/* Le tableau personnel répartissait l'espace restant sur la colonne de sélection.
+ * On verrouille exactement la même largeur compacte que dans l'onglet Commun. */
+#mainGlossaryTable .glossary-bulk-select-cell,
+#mainGlossaryTable .glossary-bulk-select-header,
+#mainGlossaryTable .glossary-bulk-select-filter,
+#secondaryGlossaryTable .glossary-bulk-select-cell,
+#secondaryGlossaryTable .glossary-bulk-select-header,
+#secondaryGlossaryTable .glossary-bulk-select-filter {
+  width: 36px !important;
+  min-width: 36px !important;
+  max-width: 36px !important;
+  padding-left: 4px !important;
+  padding-right: 4px !important;
+  box-sizing: border-box;
+  white-space: nowrap;
+}
+
 .glossary-bulk-select-filter {
   background-color: #f9f9f9;
 }
@@ -48,6 +65,34 @@
 .liens-filter-layout input {
   min-width: 0;
   flex: 1;
+}
+
+/* Le picker de créateur est initialisé pendant que la zone d'édition est cachée.
+ * Ces règles empêchent le contrôle riche XWiki/Selectize de rester à largeur 0
+ * ou de passer derrière le tableau une fois l'édition ouverte. */
+#secondaryGlossaryTable .edit-proprietaire {
+  position: relative;
+  z-index: 20;
+  min-width: 180px;
+}
+
+#secondaryGlossaryTable .edit-proprietaire .selectize-control,
+#secondaryGlossaryTable .edit-proprietaire .ts-wrapper {
+  width: 100% !important;
+  min-width: 180px;
+  pointer-events: auto !important;
+}
+
+#secondaryGlossaryTable .edit-proprietaire .selectize-input,
+#secondaryGlossaryTable .edit-proprietaire .ts-control,
+#secondaryGlossaryTable .edit-proprietaire .selectize-input input,
+#secondaryGlossaryTable .edit-proprietaire .ts-control input {
+  pointer-events: auto !important;
+}
+
+#secondaryGlossaryTable .edit-proprietaire .selectize-dropdown,
+#secondaryGlossaryTable .edit-proprietaire .ts-dropdown {
+  z-index: 1080 !important;
 }
 
 .excel-import-dialog {
