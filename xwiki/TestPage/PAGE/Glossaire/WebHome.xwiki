@@ -66,11 +66,11 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
 
   #if($status == 'success')
     <div class="alert alert-success glossary-status-alert">
-      <strong>Succès !</strong> Le terme <strong>$msg</strong> a été ajouté à la base de données.
+      Le terme <strong>$msg</strong> a été ajouté au glossaire.
     </div>
   #elseif($status == 'warning')
     <div class="alert alert-warning glossary-status-alert">
-      <strong>Information :</strong> L'acronyme <strong>$msg</strong> existait déjà. Une nouvelle fiche distincte a tout de même été créée avec succès.
+      L'acronyme <strong>$msg</strong> existe déjà. Une nouvelle fiche a été créée.
     </div>
   #end
 
@@ -82,7 +82,7 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
 <div class="row glossary-toolbar">
   <div id="glossaryToolbarLeft" class="col-md-6 glossary-toolbar-left">
     <button type="button" class="btn btn-success" data-toggle="modal" data-target="#glossaryModal">
-      + Ajouter un nouvel acronyme
+      $services.icon.renderHTML('add') Ajouter un acronyme
     </button>
   </div>
   <div id="glossaryToolbarRight" class="col-md-6 glossary-toolbar-right"></div>
@@ -91,7 +91,7 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
 ## --- PAGINATION ---
 <div class="pagination-container">
   <div>
-    <label for="pageSizeSelect" class="glossary-page-size-label">Éléments par page :</label>
+    <label for="pageSizeSelect" class="glossary-page-size-label">Elements par page :</label>
     <select id="pageSizeSelect">
       <option value="5">5</option>
       <option value="10" selected>10</option>
@@ -102,12 +102,12 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
   </div>
 
   <div class="glossary-pagination-actions">
-    <button type="button" id="btnPrevPage" class="btn btn-default btn-sm glossary-pagination-button">
-      <span class="glyphicon glyphicon-chevron-left"></span>
+    <button type="button" id="btnPrevPage" class="btn btn-default btn-sm glossary-pagination-button" aria-label="Page précédente" title="Page précédente">
+      $services.icon.renderHTML('left')
     </button>
     <span id="pageIndicator">Page 1 / 1</span>
-    <button type="button" id="btnNextPage" class="btn btn-default btn-sm glossary-pagination-button">
-      <span class="glyphicon glyphicon-chevron-right"></span>
+    <button type="button" id="btnNextPage" class="btn btn-default btn-sm glossary-pagination-button" aria-label="Page suivante" title="Page suivante">
+      $services.icon.renderHTML('right')
     </button>
   </div>
 </div>
@@ -117,11 +117,11 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
   <div class="modal-dialog" role="document">
     <div class="modal-content">
       <div class="modal-header">
-        <button type="button" class="close" data-dismiss="modal" aria-label="Fermer"><span aria-hidden="true">&times;</span></button>
-        <h4 class="modal-title" id="feedbackModalTitle">Action Personnalisée</h4>
+        <button type="button" class="close" data-dismiss="modal" aria-label="Fermer" title="Fermer">$services.icon.renderHTML('cross')</button>
+        <h4 class="modal-title" id="feedbackModalTitle">Information</h4>
       </div>
       <div class="modal-body">
-        <p id="feedbackModalBodyText">Contenu par défaut...</p>
+        <p id="feedbackModalBodyText">Information</p>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-default" data-dismiss="modal">Fermer</button>
@@ -149,40 +149,40 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
       <tr class="filter-row">
         <th>
           <div class="glossary-filter-layout">
-            <input type="text" id="filterAcronym" class="glossary-filter-input" placeholder="Filtrer...">
+            <input type="text" id="filterAcronym" class="glossary-filter-input" placeholder="Filtrer">
             <button type="button"
                     class="btn btn-default btn-xs sort-column-btn active"
                     data-column="acronym"
                     data-sort-active="true"
                     data-sort-direction="asc"
                     title="Trier par acronyme">
-              <span class="sort-label">A→Z</span>
+              <span class="sort-label">A à Z</span>
             </button>
           </div>
         </th>
         <th>
           <div class="glossary-filter-layout">
-            <input type="text" id="filterLabel" class="glossary-filter-input" placeholder="Filtrer...">
+            <input type="text" id="filterLabel" class="glossary-filter-input" placeholder="Filtrer">
             <button type="button"
                     class="btn btn-default btn-xs sort-column-btn"
                     data-column="label"
                     data-sort-active="false"
                     data-sort-direction="asc"
                     title="Trier par libellé">
-              <span class="sort-label">A→Z</span>
+              <span class="sort-label">A à Z</span>
             </button>
           </div>
         </th>
         <th>
           <div class="glossary-filter-layout">
-            <input type="text" id="filterDefinition" class="glossary-filter-input" placeholder="Filtrer...">
+            <input type="text" id="filterDefinition" class="glossary-filter-input" placeholder="Filtrer">
             <button type="button"
                     class="btn btn-default btn-xs sort-column-btn"
                     data-column="definition"
                     data-sort-active="false"
                     data-sort-direction="asc"
                     title="Trier par définition">
-              <span class="sort-label">A→Z</span>
+              <span class="sort-label">A à Z</span>
             </button>
           </div>
         </th>
@@ -218,19 +218,19 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
             </td>
             <td>
               <div class="view-buttons">
-                <button type="button" class="btn btn-xs btn-primary custom-action-btn js-edit-row">
-                  <span class="glyphicon glyphicon-pencil"></span>
+                <button type="button" class="btn btn-xs btn-primary custom-action-btn js-edit-row" aria-label="Modifier" title="Modifier">
+                  $services.icon.renderHTML('pencil')
                 </button>
-                <button type="button" class="btn btn-xs btn-danger custom-action-btn js-delete-row">
-                  <span class="glyphicon glyphicon-trash"></span>
+                <button type="button" class="btn btn-xs btn-danger custom-action-btn js-delete-row" aria-label="Supprimer" title="Supprimer">
+                  $services.icon.renderHTML('trash')
                 </button>
               </div>
               <div class="edit-buttons glossary-edit-buttons">
                 <button type="button" class="btn btn-xs btn-success js-save-row">
-                  <span class="glyphicon glyphicon-ok"></span> Sauver
+                  $services.icon.renderHTML('check') Enregistrer
                 </button>
-                <button type="button" class="btn btn-xs btn-default js-cancel-row">
-                  <span class="glyphicon glyphicon-remove"></span>
+                <button type="button" class="btn btn-xs btn-default js-cancel-row" aria-label="Annuler" title="Annuler">
+                  $services.icon.renderHTML('cross')
                 </button>
               </div>
             </td>
@@ -246,11 +246,11 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
   <div class="modal-dialog" role="document">
     <div class="modal-content">
       <div class="modal-header glossary-delete-modal-header">
-        <button type="button" class="close" data-dismiss="modal" aria-label="Fermer"><span aria-hidden="true">&times;</span></button>
-        <h4 class="modal-title" id="deleteModalTitle">Confirmer la suppression</h4>
+        <button type="button" class="close" data-dismiss="modal" aria-label="Fermer" title="Fermer">$services.icon.renderHTML('cross')</button>
+        <h4 class="modal-title" id="deleteModalTitle">Supprimer un terme</h4>
       </div>
       <div class="modal-body">
-        <p>Êtes-vous sûr de vouloir supprimer définitivement cet élément ainsi que sa page XWiki ?</p>
+        <p>Supprimer définitivement ce terme et sa page XWiki ?</p>
         <table class="table table-bordered table-condensed glossary-delete-preview-table">
           <thead>
             <tr>
@@ -279,8 +279,8 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
   <div class="modal-dialog modal-lg" role="document">
     <div class="modal-content">
       <div class="modal-header">
-        <button type="button" class="close" data-dismiss="modal" aria-label="Fermer"><span aria-hidden="true">&times;</span></button>
-        <h4 class="modal-title" id="glossaryModalLabel">Nouveau terme du Glossaire</h4>
+        <button type="button" class="close" data-dismiss="modal" aria-label="Fermer" title="Fermer">$services.icon.renderHTML('cross')</button>
+        <h4 class="modal-title" id="glossaryModalLabel">Ajouter un terme</h4>
       </div>
 
       <form method="post" action="">
@@ -289,17 +289,17 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
         <div class="modal-body">
           <div class="row">
             <div class="col-md-5 modal-left-column">
-              <h5 class="column-title">Informations du terme</h5>
+              <h5 class="column-title">Nouveau terme</h5>
 
               <div class="form-group">
-                <label>Acronyme / Sigle (ex: API) :</label>
+                <label>Acronyme ou sigle :</label>
                 <input type="text"
                        id="acronymeInputField"
                        name="acronyme"
                        class="form-control"
                        autocomplete="off"
                        required
-                       placeholder="Ex: XWIKI">
+                       placeholder="Exemple : API">
               </div>
 
               <div class="form-group">
@@ -310,7 +310,7 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
                        class="form-control"
                        autocomplete="off"
                        required
-                       placeholder="Ex: Wiki d'entreprise open source">
+                       placeholder="Nom complet">
               </div>
 
               <div class="form-group">
@@ -319,13 +319,13 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
                           class="form-control"
                           rows="5"
                           required
-                          placeholder="Description détaillée..."></textarea>
+                          placeholder="Saisir une définition"></textarea>
               </div>
             </div>
 
             <div class="col-md-7 modal-right-column">
-              <h5 class="column-title warning-title">Vérification des existants</h5>
-              <p class="text-muted help-text">Ce tableau affiche les lignes dont l'acronyme ou le libellé correspond à votre saisie.</p>
+              <h5 class="column-title warning-title">Termes existants</h5>
+              <p class="text-muted help-text">Les termes qui correspondent à votre saisie apparaissent ici.</p>
 
               <div class="table-scroll-container">
                 <table class="table table-striped table-hover" id="popupCheckTable">
@@ -356,7 +356,7 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
 
         <div class="modal-footer">
           <button type="button" class="btn btn-default" data-dismiss="modal">Annuler</button>
-          <button type="submit" class="btn btn-primary">Valider et Vérifier l'existence</button>
+          <button type="submit" class="btn btn-primary">Ajouter</button>
         </div>
       </form>
     </div>
