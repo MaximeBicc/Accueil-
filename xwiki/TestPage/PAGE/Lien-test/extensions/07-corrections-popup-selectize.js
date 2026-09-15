@@ -17,9 +17,6 @@
       .replace(/LIEN_LIST_OK\|/g, '\nLIEN_LIST_OK|');
   }
 
-  // Le code de 06-glossaire-adaptation découpe la réponse par lignes.
-  // XWiki peut concaténer les sorties Velocity ; on normalise donc uniquement
-  // les réponses listVisible avant qu'elles ne soient consommées par ce code.
   if (window.fetch && !window.__liensListVisibleFetchPatched) {
     window.__liensListVisibleFetchPatched = true;
     var nativeFetch = window.fetch.bind(window);
@@ -76,7 +73,6 @@
         owner: String(fields[5] || '').replace(/[\r\n].*$/, '').replace(/^\s+|\s+$/g, '')
       };
 
-      // Défense supplémentaire côté navigateur : jamais de personnel d'un autre user.
       if (row.type === 'commun' || (row.type === 'personnel' && row.owner === state.userId)) {
         rows.push(row);
       }
@@ -125,8 +121,8 @@
         tbody.appendChild(tr);
       });
 
-      // Le filtre reste celui du script historique 04-popup-filtre.js.
-      // On le réapplique simplement après avoir reconstruit les lignes.
+      // Le filtrage lui-même reste entièrement dans 04-popup-filtre.js.
+      // Ici on ne fait que lui demander de se réappliquer après rechargement des lignes.
       if (typeof window.triggerGlobalFilter === 'function') {
         window.triggerGlobalFilter();
       }
@@ -166,9 +162,6 @@
 
     exposeControl();
 
-    // XWiki initialise automatiquement .xwiki-selectize lors d'un DOM updated.
-    // On le retrigger après avoir rendu la zone visible afin d'éviter un contrôle
-    // initialisé à largeur 0 pendant que la ligne était en mode lecture.
     if (window.jQuery) {
       try { window.jQuery(document).trigger('xwiki:dom:updated', [holder]); } catch (e) {}
 
@@ -186,14 +179,11 @@
         exposeControl();
       }, 0);
     } else {
-      // Repli : au minimum le select natif reste utilisable.
       select.style.display = 'block';
       select.style.width = '100%';
     }
   }
 
-  // On garde la fonction historique et on ajoute seulement la remise en état
-  // du picker après le passage en mode édition.
   if (typeof window.toggleEditMode2 === 'function' && !window.__liensToggleEditMode2Patched) {
     window.__liensToggleEditMode2Patched = true;
     var originalToggleEditMode2 = window.toggleEditMode2;
@@ -242,7 +232,6 @@
   document.addEventListener('DOMContentLoaded', function () {
     installModalRefresh();
     watchPersonalBulkSelectionColumn();
-    // Corrige aussi le contenu initial, sans attendre la première ouverture.
     window.setTimeout(refreshPopupWithAllVisibleLinks, 0);
   });
 })();
