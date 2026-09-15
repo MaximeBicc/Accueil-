@@ -259,14 +259,14 @@
   <div class="ct-shell">
     <header class="ct-header">
       <div>
-        <h1 class="ct-title">Mes contacts</h1>
-        <p class="ct-subtitle">Retrouvez ici les contacts que vous avez ajoutés.</p>
+        <h1 class="ct-title">Contacts</h1>
+        <p class="ct-subtitle">Consultez vos contacts ou modifiez la liste.</p>
       </div>
     </header>
 
     <div class="ct-tabs" role="tablist" aria-label="Contacts">
-      <button class="ct-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="ct-panel-contacts" data-contacts-tab="contacts">Mes contacts</button>
-      <button class="ct-tab" type="button" role="tab" aria-selected="false" aria-controls="ct-panel-manage" data-contacts-tab="manage">Gérer mes contacts</button>
+      <button class="ct-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="ct-panel-contacts" data-contacts-tab="contacts">Contacts</button>
+      <button class="ct-tab" type="button" role="tab" aria-selected="false" aria-controls="ct-panel-manage" data-contacts-tab="manage">Gérer les contacts</button>
     </div>
 
     <!-- ONGLET 1 — MES CONTACTS -->
@@ -297,8 +297,8 @@
         #if ($savedContacts.isEmpty())
           <div class="ct-empty-contact-state" data-contact-empty>
             <h2>Aucun contact</h2>
-            <p>Vous n'avez encore ajouté aucun contact.</p>
-            <button type="button" class="ct-primary-button" data-open-manager>$services.icon.renderHTML('add') <span>Ajouter des contacts</span></button>
+            <p>Aucun contact enregistré.</p>
+            <button type="button" class="ct-primary-button" data-open-manager>$services.icon.renderHTML('add') <span>Ajouter un contact</span></button>
           </div>
         #else
           #foreach ($contactRef in $savedContacts)
@@ -325,7 +325,7 @@
         #end
       </div>
 
-      <div class="ct-no-search-result" hidden data-no-contact-result>Aucun contact ne correspond à la recherche.</div>
+      <div class="ct-no-search-result" hidden data-no-contact-result>Aucun résultat.</div>
     </section>
 
     <!-- ONGLET 2 — GESTION DES CONTACTS -->
@@ -337,8 +337,8 @@
 
         <div class="ct-manager-head">
           <div>
-            <h2>Gérer mes contacts</h2>
-            <p>Ajoutez ou retirez des contacts, puis validez les modifications.</p>
+            <h2>Gérer les contacts</h2>
+            <p>Ajoutez ou retirez des contacts puis validez.</p>
           </div>
           <label class="ct-search ct-search--manager">
             <span class="ct-search-icon" aria-hidden="true">$services.icon.renderHTML('search')</span>
@@ -350,7 +350,7 @@
         <div class="ct-manager-grid">
           <section class="ct-manager-panel ct-manager-panel--members">
             <header class="ct-manager-panel-head"><h3>Membres du wiki</h3></header>
-            <p class="ct-manager-help">Membres disponibles pour être ajoutés à vos contacts.</p>
+            <p class="ct-manager-help">Membres disponibles.</p>
             <div class="ct-manager-list" data-contact-zone="available">
               #foreach ($memberRef in $visibleUserRefs)
                 #if (!$savedContacts.contains($memberRef))
@@ -367,7 +367,7 @@
 
           <section class="ct-manager-panel ct-manager-panel--current">
             <header class="ct-manager-panel-head"><h3>Mes contacts</h3></header>
-            <p class="ct-manager-help">Contacts actuellement enregistrés.</p>
+            <p class="ct-manager-help">Contacts enregistrés.</p>
             <div class="ct-manager-list" data-contact-zone="current">
               #foreach ($memberRef in $savedContacts)
                 <article class="ct-member-card" data-member-card data-contact-ref="$escapetool.xml($memberRef)" data-initial-contact="true" data-search-text="#ctUserName($memberRef) $escapetool.xml($memberRef)">
@@ -382,13 +382,13 @@
 
           <section class="ct-manager-panel ct-manager-panel--pending ct-manager-panel--add">
             <header class="ct-manager-panel-head"><h3>Contacts à ajouter</h3></header>
-            <p class="ct-manager-help">Ils seront ajoutés après validation.</p>
+            <p class="ct-manager-help">Ajoutés après validation.</p>
             <div class="ct-manager-list" data-contact-zone="pending-add"><div class="ct-zone-empty" data-zone-empty>Aucun contact à ajouter.</div></div>
           </section>
 
           <section class="ct-manager-panel ct-manager-panel--pending ct-manager-panel--remove">
             <header class="ct-manager-panel-head"><h3>Contacts à supprimer</h3></header>
-            <p class="ct-manager-help">Ils seront supprimés après validation.</p>
+            <p class="ct-manager-help">Supprimés après validation.</p>
             <div class="ct-manager-list" data-contact-zone="pending-remove"><div class="ct-zone-empty" data-zone-empty>Aucun contact à supprimer.</div></div>
           </section>
         </div>
