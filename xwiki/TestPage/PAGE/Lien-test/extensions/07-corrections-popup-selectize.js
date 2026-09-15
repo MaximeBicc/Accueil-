@@ -2,11 +2,13 @@
 // 1) conserve TOUS les marqueurs LIEN_ROW même si XWiki les concatène sur une seule ligne ;
 // 2) recharge la liste de vérification avec communs + personnels du user courant ;
 // 3) réactive le sélecteur XWiki/Selectize du créateur dans l'onglet commun ;
-// 4) ajuste en JavaScript les proportions du tableau Mes Liens quand la suppression multiple est active.
+// 4) ajuste en JavaScript les proportions du tableau Mes Liens quand la suppression multiple est active ;
+// 5) impose la même largeur de colonne de sélection dans Mes Liens et Liens Communs.
 (function () {
   'use strict';
 
   var personalBulkLayoutSnapshot = null;
+  var bulkSelectWidth = 54;
 
   function getCsrf() {
     var table = document.getElementById('mainGlossaryTable') || document.getElementById('secondaryGlossaryTable');
@@ -217,6 +219,20 @@
     });
   }
 
+  function applyCommonBulkSelectionWidth() {
+    var table = document.getElementById('secondaryGlossaryTable');
+    if (!table) return;
+
+    table.querySelectorAll('.glossary-bulk-select-header, .glossary-bulk-select-filter, .glossary-bulk-select-cell').forEach(function (cell) {
+      cell.style.setProperty('width', bulkSelectWidth + 'px', 'important');
+      cell.style.setProperty('min-width', bulkSelectWidth + 'px', 'important');
+      cell.style.setProperty('max-width', bulkSelectWidth + 'px', 'important');
+      cell.style.setProperty('padding-left', '4px', 'important');
+      cell.style.setProperty('padding-right', '4px', 'important');
+      cell.style.setProperty('text-align', 'center', 'important');
+    });
+  }
+
   function capturePersonalBulkLayout(table) {
     if (personalBulkLayoutSnapshot) return;
 
@@ -287,7 +303,7 @@
     capturePersonalBulkLayout(table);
 
     var tableWidth = table.getBoundingClientRect().width || table.clientWidth || 900;
-    var selectWidth = 36;
+    var selectWidth = bulkSelectWidth;
     var contentWidth = Math.max(tableWidth - selectWidth, 400);
 
     // Même proportion que les quatre colonnes visibles quand Type est caché :
@@ -327,6 +343,7 @@
     if (!table) return;
 
     tagPersonalBulkSelectionColumns();
+    applyCommonBulkSelectionWidth();
 
     var selectionHeader = table.querySelector('.glossary-bulk-select-header');
     if (selectionHeader && window.MutationObserver) {
@@ -346,15 +363,20 @@
     var bulkButton = document.getElementById('btnBulkDeleteModeLiens');
     if (bulkButton) {
       bulkButton.addEventListener('click', function () {
-        window.setTimeout(applyPersonalBulkLayout, 0);
+        window.setTimeout(function () {
+          applyPersonalBulkLayout();
+          applyCommonBulkSelectionWidth();
+        }, 0);
       });
     }
 
     window.addEventListener('resize', function () {
       if (personalBulkColumnIsVisible(table)) applyPersonalBulkLayout();
+      applyCommonBulkSelectionWidth();
     });
 
     applyPersonalBulkLayout();
+    applyCommonBulkSelectionWidth();
   }
 
   // Quand on entre / sort du mode édition personnel, Type change de visibilité.
