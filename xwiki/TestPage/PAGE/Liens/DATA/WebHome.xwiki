@@ -2,14 +2,25 @@
 #set($className = 'TestPage.PAGE.Liens.CODE.lienClass.WebHome')
 #set($dataSpace = 'TestPage.PAGE.Liens.DATA.LIENDATA')
 #set($managerGroup = 'XWiki.IVQ_Gestionnaires')
+#set($managerGroupAlt = 'XWiki.IVQ_Gestionnaire')
 #set($currentUser = $xcontext.user)
 #set($currentUserDoc = $xwiki.getDocument($currentUser))
 #set($currentUserId = $currentUserDoc.name)
 #set($managerRefs = $services.user.group.getMembers($managerGroup, true))
+#set($managerRefsAlt = $services.user.group.getMembers($managerGroupAlt, true))
 #set($currentUserIsManager = false)
 #foreach($managerRef in $managerRefs)
-  #if("$managerRef" == "$currentUser")
+  #set($managerDoc = $xwiki.getDocument($managerRef))
+  #if("$managerDoc.name" == "$currentUserId")
     #set($currentUserIsManager = true)
+  #end
+#end
+#if(!$currentUserIsManager)
+  #foreach($managerRef in $managerRefsAlt)
+    #set($managerDoc = $xwiki.getDocument($managerRef))
+    #if("$managerDoc.name" == "$currentUserId")
+      #set($currentUserIsManager = true)
+    #end
   #end
 #end
 
