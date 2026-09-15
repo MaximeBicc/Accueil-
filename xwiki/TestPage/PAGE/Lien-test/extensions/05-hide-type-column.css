@@ -57,19 +57,34 @@
   margin: 0;
 }
 
-/* Garde la case de sélection parfaitement centrée, même quand une ligne passe en mode Edit
- * et devient plus haute. Cela s'applique aux deux onglets. */
+/* En mode Edit une ligne devient plus haute. Le centrage vertical natif du tableau
+ * peut être perturbé par les champs d'édition ; on centre donc la checkbox du tbody
+ * par rapport à sa cellule elle-même. */
 #mainGlossaryTable .glossary-bulk-select-cell,
-#mainGlossaryTable .glossary-bulk-select-header,
-#secondaryGlossaryTable .glossary-bulk-select-cell,
-#secondaryGlossaryTable .glossary-bulk-select-header {
+#secondaryGlossaryTable .glossary-bulk-select-cell {
+  position: relative !important;
   text-align: center !important;
   vertical-align: middle !important;
 }
 
 #mainGlossaryTable .glossary-bulk-select-cell .liens-row-select,
+#secondaryGlossaryTable .glossary-bulk-select-cell .liens-row-select {
+  position: absolute !important;
+  left: 50% !important;
+  top: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  float: none !important;
+  margin: 0 !important;
+}
+
+/* La checkbox d'en-tête reste centrée normalement dans sa cellule. */
+#mainGlossaryTable .glossary-bulk-select-header,
+#secondaryGlossaryTable .glossary-bulk-select-header {
+  text-align: center !important;
+  vertical-align: middle !important;
+}
+
 #mainGlossaryTable .glossary-bulk-select-header .liens-select-all-visible,
-#secondaryGlossaryTable .glossary-bulk-select-cell .liens-row-select,
 #secondaryGlossaryTable .glossary-bulk-select-header .liens-select-all-visible {
   display: block !important;
   float: none !important;
