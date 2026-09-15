@@ -21,8 +21,30 @@
     {{html}}ERREUR_CSRF{{/html}}
   #else
 
+    ## --- LISTE SECURISEE POUR LE TABLEAU DE VERIFICATION ---
+    ## On ne renvoie jamais les liens personnels des autres utilisateurs.
+    #if ($action == 'listVisible')
+      #set($statement = "select distinct doc.fullName from Document doc, doc.object($className) obj")
+      #set($query = $services.query.xwql($statement))
+      #set($documentRefs = $query.execute())
+      #foreach($fullRef in $documentRefs)
+        #set($targetDoc = $xwiki.getDocument($fullRef))
+        #set($obj = $targetDoc.getObject($className))
+        #if($obj)
+          #set($typeValue = "$!obj.getValue('type')")
+          #set($ownerValue = "$!obj.getValue('proprietaire')")
+          #if($typeValue == 'commun' || ($typeValue == 'personnel' && $ownerValue == $currentUserId))
+            #set($a = "$!obj.getValue('nom_lien')".replace('|',' '))
+            #set($l = "$!obj.getValue('lien')".replace('|',' '))
+            #set($d = "$!obj.getValue('definition')".replace('|',' '))
+            {{html}}LIEN_ROW|$fullRef|$a|$l|$d|$typeValue|$ownerValue{{/html}}
+          #end
+        #end
+      #end
+      {{html}}LIEN_LIST_OK|$currentUserId|$currentUserIsManager{{/html}}
+
     ## --- SAUVEGARDE D'UNE LIGNE EXISTANTE ---
-    #if ($action == 'save')
+    #elseif ($action == 'save')
       #set($targetRef = $!request.getParameter('targetRef'))
       #set($acronym = "$!request.getParameter('acronym')")
       #set($label = "$!request.getParameter('label')")
@@ -44,7 +66,6 @@
         #elseif(!$currentUserIsManager && $requestedType == 'commun')
           {{html}}ERREUR_DROITS_COMMUN{{/html}}
         #else
-          ## Pour un non-manager, l'auteur reste obligatoirement lui-même.
           #if(!$currentUserIsManager)
             #set($requestedOwner = $currentUserId)
           #elseif(!$requestedOwner)
@@ -104,7 +125,7 @@
         #set($requestedOwner = $currentUserId)
       #end
 
-      ## Règle métier : seul le groupe manager peut créer du commun ou choisir un autre auteur.
+      ## Seul le nom de groupe manager compte ici, pas les permissions XWiki.
       #if(!$currentUserIsManager && $requestedType == 'commun')
         {{html}}ERREUR_DROITS_COMMUN{{/html}}
       #elseif(!$currentUserIsManager && $requestedOwner != $currentUserId)
