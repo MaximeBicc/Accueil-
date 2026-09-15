@@ -35,29 +35,25 @@
   vertical-align: middle;
 }
 
-/* Dans Mes Liens, la somme des largeurs historiques des colonnes vaut 90%.
- * Avec table-layout:auto, le navigateur donnait une grosse partie des 10% restants
- * à la nouvelle colonne de sélection. On fixe seulement ce tableau afin que la
- * colonne des cases reste réellement compacte. L'onglet Commun n'est pas touché. */
-#mainGlossaryTable {
-  table-layout: fixed;
-  width: 100%;
-}
-
-#mainGlossaryTable .glossary-bulk-select-cell,
-#mainGlossaryTable .glossary-bulk-select-header,
-#mainGlossaryTable .glossary-bulk-select-filter {
-  width: 36px !important;
-  min-width: 36px !important;
+/* Colonne de sélection ajoutée dynamiquement dans Mes Liens.
+ * Elle reçoit explicitement la classe .liens-personal-bulk-select-column
+ * dans le JavaScript qui crée/repère les cases de suppression multiple.
+ * width:1% + nowrap force la cellule à prendre uniquement la place nécessaire
+ * à la petite case, au lieu de récupérer l'espace restant du tableau. */
+#mainGlossaryTable .liens-personal-bulk-select-column {
+  width: 1% !important;
+  min-width: 28px !important;
   max-width: 36px !important;
   padding-left: 4px !important;
   padding-right: 4px !important;
-  box-sizing: border-box;
-  white-space: nowrap;
+  text-align: center !important;
+  vertical-align: middle !important;
+  white-space: nowrap !important;
+  box-sizing: border-box !important;
 }
 
-#mainGlossaryTable .liens-row-select,
-#mainGlossaryTable .liens-select-all-visible {
+#mainGlossaryTable .liens-personal-bulk-select-column .liens-row-select,
+#mainGlossaryTable .liens-personal-bulk-select-column .liens-select-all-visible {
   width: 14px;
   height: 14px;
   margin: 0;
