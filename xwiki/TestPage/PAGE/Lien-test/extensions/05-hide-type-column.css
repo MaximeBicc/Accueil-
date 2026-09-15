@@ -35,14 +35,18 @@
   vertical-align: middle;
 }
 
-/* Le tableau personnel répartissait l'espace restant sur la colonne de sélection.
- * On verrouille exactement la même largeur compacte que dans l'onglet Commun. */
+/* Dans Mes Liens, la somme des largeurs historiques des colonnes vaut 90%.
+ * Avec table-layout:auto, le navigateur donnait une grosse partie des 10% restants
+ * à la nouvelle colonne de sélection. On fixe seulement ce tableau afin que la
+ * colonne des cases reste réellement compacte. L'onglet Commun n'est pas touché. */
+#mainGlossaryTable {
+  table-layout: fixed;
+  width: 100%;
+}
+
 #mainGlossaryTable .glossary-bulk-select-cell,
 #mainGlossaryTable .glossary-bulk-select-header,
-#mainGlossaryTable .glossary-bulk-select-filter,
-#secondaryGlossaryTable .glossary-bulk-select-cell,
-#secondaryGlossaryTable .glossary-bulk-select-header,
-#secondaryGlossaryTable .glossary-bulk-select-filter {
+#mainGlossaryTable .glossary-bulk-select-filter {
   width: 36px !important;
   min-width: 36px !important;
   max-width: 36px !important;
@@ -50,6 +54,13 @@
   padding-right: 4px !important;
   box-sizing: border-box;
   white-space: nowrap;
+}
+
+#mainGlossaryTable .liens-row-select,
+#mainGlossaryTable .liens-select-all-visible {
+  width: 14px;
+  height: 14px;
+  margin: 0;
 }
 
 .glossary-bulk-select-filter {
