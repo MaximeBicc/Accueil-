@@ -37,9 +37,7 @@
 
 /* Colonne de sélection ajoutée dynamiquement dans Mes Liens.
  * Elle reçoit explicitement la classe .liens-personal-bulk-select-column
- * dans le JavaScript qui crée/repère les cases de suppression multiple.
- * width:1% + nowrap force la cellule à prendre uniquement la place nécessaire
- * à la petite case, au lieu de récupérer l'espace restant du tableau. */
+ * dans le JavaScript qui crée/repère les cases de suppression multiple. */
 #mainGlossaryTable .liens-personal-bulk-select-column {
   width: 1% !important;
   min-width: 28px !important;
@@ -57,6 +55,27 @@
   width: 14px;
   height: 14px;
   margin: 0;
+}
+
+/* Garde la case de sélection parfaitement centrée, même quand une ligne passe en mode Edit
+ * et devient plus haute. Cela s'applique aux deux onglets. */
+#mainGlossaryTable .glossary-bulk-select-cell,
+#mainGlossaryTable .glossary-bulk-select-header,
+#secondaryGlossaryTable .glossary-bulk-select-cell,
+#secondaryGlossaryTable .glossary-bulk-select-header {
+  text-align: center !important;
+  vertical-align: middle !important;
+}
+
+#mainGlossaryTable .glossary-bulk-select-cell .liens-row-select,
+#mainGlossaryTable .glossary-bulk-select-header .liens-select-all-visible,
+#secondaryGlossaryTable .glossary-bulk-select-cell .liens-row-select,
+#secondaryGlossaryTable .glossary-bulk-select-header .liens-select-all-visible {
+  display: block !important;
+  float: none !important;
+  position: static !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
 }
 
 .glossary-bulk-select-filter {
