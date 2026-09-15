@@ -252,7 +252,7 @@
           <h2 class="nh-detail-title" data-detail-title>Documentation</h2>
           <p class="nh-detail-description" data-detail-description>Consultez les procédures, guides et documents de référence du wiki.</p>
           <ul class="nh-detail-points" data-detail-points></ul>
-          <a class="nh-detail-link" data-detail-link href="#">Ouvrir le module</a>
+          <a class="nh-detail-link" data-detail-link href="#">Ouvrir le module <span class="fa fa-arrow-right" aria-hidden="true"></span></a>
         </div>
       </article>
     </section>
@@ -384,7 +384,7 @@
           <h2 id="nh-contact-title">Contacter l’administrateur</h2>
           <p>Le message sera envoyé à l’adresse administrateur configurée dans XWiki.</p>
         </div>
-        <button class="nh-modal-close" type="button" aria-label="Fermer" data-close-contact>Fermer</button>
+        <button class="nh-modal-close" type="button" aria-label="Fermer" data-close-contact><span class="fa fa-times" aria-hidden="true"></span></button>
       </div>
       <form class="nh-form" method="post" action="">
         <input type="hidden" name="homeAction" value="contact-admin" />
