@@ -1,7 +1,8 @@
 // Corrections ciblées sur l'adaptation Glossaire -> Liens.
 // 1) conserve TOUS les marqueurs LIEN_ROW même si XWiki les concatène sur une seule ligne ;
 // 2) recharge la liste de vérification avec communs + personnels du user courant ;
-// 3) réactive le sélecteur XWiki/Selectize du créateur dans l'onglet commun.
+// 3) réactive le sélecteur XWiki/Selectize du créateur dans l'onglet commun ;
+// 4) reconnecte le filtre Acronyme / Libellé sans modifier le contenu de la liste.
 (function () {
   'use strict';
 
@@ -84,6 +85,25 @@
     return { state: state, rows: rows };
   }
 
+  function runExistingPopupFilter() {
+    if (typeof window.triggerGlobalFilter === 'function') {
+      window.triggerGlobalFilter();
+    }
+  }
+
+  function installPopupFilterListeners() {
+    var acronymField = document.getElementById('liensNomInputField');
+    var labelField = document.getElementById('liensInputField');
+
+    [acronymField, labelField].forEach(function (field) {
+      if (!field || field.getAttribute('data-liens-filter-bound') === 'true') return;
+      field.setAttribute('data-liens-filter-bound', 'true');
+      field.addEventListener('input', runExistingPopupFilter);
+      field.addEventListener('keyup', runExistingPopupFilter);
+      field.addEventListener('change', runExistingPopupFilter);
+    });
+  }
+
   async function refreshPopupWithAllVisibleLinks() {
     var tbody = document.querySelector('#popupCheckTable tbody');
     if (!tbody || typeof urlLienData === 'undefined') return;
@@ -124,7 +144,9 @@
         tbody.appendChild(tr);
       });
 
-      if (typeof window.triggerGlobalFilter === 'function') window.triggerGlobalFilter();
+      // On ne touche pas à la liste : on réapplique simplement le filtre courant.
+      installPopupFilterListeners();
+      runExistingPopupFilter();
     } catch (error) {
       console.error('Impossible de recharger tous les liens visibles dans la modale', error);
     }
@@ -206,11 +228,13 @@
     if (!window.jQuery) return;
     window.jQuery('#glossaryModal').off('shown.bs.modal.liensAllRows').on('shown.bs.modal.liensAllRows', function () {
       refreshPopupWithAllVisibleLinks();
+      installPopupFilterListeners();
     });
   }
 
   document.addEventListener('DOMContentLoaded', function () {
     installModalRefresh();
+    installPopupFilterListeners();
     // Corrige aussi le contenu initial, sans attendre la première ouverture.
     window.setTimeout(refreshPopupWithAllVisibleLinks, 0);
   });
