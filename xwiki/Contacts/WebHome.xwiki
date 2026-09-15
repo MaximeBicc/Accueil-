@@ -135,7 +135,7 @@
   #if ("$!request.getMethod()" == 'POST' && "$!request.getParameter('contactsAction')" == 'save-contacts')
     #if (!$services.csrf.isTokenValid("$!request.getParameter('form_token')"))
       #set ($saveStatus = 'error')
-      #set ($saveMessage = 'Votre session a expiré. Rechargez la page puis réessayez.')
+      #set ($saveMessage = 'Session expirée. Rechargez la page.')
     #else
       #set ($finalContacts = [])
       #set ($finalContactIds = [])
@@ -187,7 +187,7 @@
       #set ($savedContacts = $finalContacts)
       #set ($storedContactIds = $finalContactIds)
       #set ($saveStatus = 'success')
-      #set ($saveMessage = 'Votre liste de contacts a été mise à jour.')
+      #set ($saveMessage = 'Contacts mis à jour.')
     #end
   #end
 #end
@@ -244,9 +244,8 @@
 <div class="contacts-page">
   <div class="ct-shell">
     <section class="ct-guest-panel">
-      <span class="ct-eyebrow">Contacts</span>
-      <h1>Connectez-vous pour accéder à vos contacts</h1>
-      <p>La liste de contacts est personnelle et nécessite un compte XWiki authentifié.</p>
+      <h1>Contacts</h1>
+      <p>Connectez-vous pour consulter vos contacts.</p>
       <a class="ct-primary-button" href="$escapetool.xml($xwiki.getURL('XWiki.XWikiLogin', 'login'))">Se connecter</a>
     </section>
   </div>
@@ -260,9 +259,8 @@
   <div class="ct-shell">
     <header class="ct-header">
       <div>
-        <span class="ct-eyebrow">Votre réseau interne</span>
         <h1 class="ct-title">Mes contacts</h1>
-        <p class="ct-subtitle">Retrouvez les personnes avec lesquelles vous travaillez et accédez rapidement à leurs informations, formations, rôles et suivis.</p>
+        <p class="ct-subtitle">Retrouvez ici les contacts que vous avez ajoutés.</p>
       </div>
     </header>
 
@@ -276,9 +274,8 @@
       <div class="ct-toolbar">
         <div class="ct-contact-filters">
           <label class="ct-search">
-            <span class="ct-search-icon" aria-hidden="true">⌕</span>
             <span class="sr-only">Rechercher un contact</span>
-            <input type="search" placeholder="Rechercher un contact…" autocomplete="off" data-contact-search />
+            <input type="search" placeholder="Rechercher un contact" autocomplete="off" data-contact-search />
           </label>
 
           <label class="ct-group-filter">
@@ -290,17 +287,16 @@
         </div>
 
         <div class="ct-layout-switch" aria-label="Disposition des contacts">
-          <button type="button" class="ct-layout-button is-active" data-contact-layout="horizontal" aria-pressed="true" title="Vue horizontale"><span aria-hidden="true">☰</span><span>Liste</span></button>
-          <button type="button" class="ct-layout-button" data-contact-layout="vertical" aria-pressed="false" title="Vue verticale"><span aria-hidden="true">▦</span><span>Cartes</span></button>
+          <button type="button" class="ct-layout-button is-active" data-contact-layout="horizontal" aria-pressed="true" title="Vue en liste"><span>Liste</span></button>
+          <button type="button" class="ct-layout-button" data-contact-layout="vertical" aria-pressed="false" title="Vue en cartes"><span>Cartes</span></button>
         </div>
       </div>
 
       <div class="ct-contact-collection is-horizontal" data-contact-collection>
         #if ($savedContacts.isEmpty())
           <div class="ct-empty-contact-state" data-contact-empty>
-            <div class="ct-empty-icon" aria-hidden="true">◎</div>
-            <h2>Votre liste est vide</h2>
-            <p>Ajoutez vos premiers contacts depuis l’onglet « Gérer mes contacts ».</p>
+            <h2>Aucun contact</h2>
+            <p>Vous n'avez encore ajouté aucun contact.</p>
             <button type="button" class="ct-primary-button" data-open-manager>Ajouter des contacts</button>
           </div>
         #else
@@ -318,17 +314,17 @@
                 <div class="ct-groups">#ctGroupChips($contactRef)</div>
               </div>
               <div class="ct-contact-actions">
-                <a class="ct-action-button" href="$escapetool.xml($profileUrl)"><span aria-hidden="true">i</span> Informations</a>
-                <a class="ct-action-button" href="$escapetool.xml($formationUrl)"><span aria-hidden="true">▤</span> Formation</a>
-                <a class="ct-action-button" href="$escapetool.xml($roleUrl)"><span aria-hidden="true">◇</span> Rôle</a>
-                <a class="ct-action-button" href="$escapetool.xml($followupUrl)"><span aria-hidden="true">✓</span> Suivis</a>
+                <a class="ct-action-button" href="$escapetool.xml($profileUrl)">Informations</a>
+                <a class="ct-action-button" href="$escapetool.xml($formationUrl)">Formation</a>
+                <a class="ct-action-button" href="$escapetool.xml($roleUrl)">Rôle</a>
+                <a class="ct-action-button" href="$escapetool.xml($followupUrl)">Suivis</a>
               </div>
             </article>
           #end
         #end
       </div>
 
-      <div class="ct-no-search-result" hidden data-no-contact-result>Aucun contact ne correspond à vos filtres.</div>
+      <div class="ct-no-search-result" hidden data-no-contact-result>Aucun contact ne correspond à la recherche.</div>
     </section>
 
     <!-- ONGLET 2 — GESTION DES CONTACTS -->
@@ -340,21 +336,19 @@
 
         <div class="ct-manager-head">
           <div>
-            <span class="ct-manager-kicker">Modification temporaire</span>
-            <h2>Organiser mes contacts</h2>
-            <p>Les changements restent locaux tant que vous n’avez pas cliqué sur « Valider ».</p>
+            <h2>Gérer mes contacts</h2>
+            <p>Ajoutez ou retirez des contacts, puis validez les modifications.</p>
           </div>
           <label class="ct-search ct-search--manager">
-            <span class="ct-search-icon" aria-hidden="true">⌕</span>
             <span class="sr-only">Rechercher un membre</span>
-            <input type="search" placeholder="Rechercher dans les listes…" autocomplete="off" data-manager-search />
+            <input type="search" placeholder="Rechercher un membre" autocomplete="off" data-manager-search />
           </label>
         </div>
 
         <div class="ct-manager-grid">
           <section class="ct-manager-panel ct-manager-panel--members">
-            <header class="ct-manager-panel-head"><h3>Liste des membres</h3></header>
-            <p class="ct-manager-help">Tous les membres des groupes de ce wiki qui ne font pas partie de vos contacts.</p>
+            <header class="ct-manager-panel-head"><h3>Membres du wiki</h3></header>
+            <p class="ct-manager-help">Membres disponibles pour être ajoutés à vos contacts.</p>
             <div class="ct-manager-list" data-contact-zone="available">
               #foreach ($memberRef in $visibleUserRefs)
                 #if (!$savedContacts.contains($memberRef))
@@ -365,13 +359,13 @@
                   </article>
                 #end
               #end
-              <div class="ct-zone-empty" data-zone-empty>Aucun membre dans cette liste.</div>
+              <div class="ct-zone-empty" data-zone-empty>Aucun membre disponible.</div>
             </div>
           </section>
 
           <section class="ct-manager-panel ct-manager-panel--current">
-            <header class="ct-manager-panel-head"><h3>Liste de vos contacts</h3></header>
-            <p class="ct-manager-help">Les contacts actuellement enregistrés dans votre compte.</p>
+            <header class="ct-manager-panel-head"><h3>Mes contacts</h3></header>
+            <p class="ct-manager-help">Contacts actuellement enregistrés.</p>
             <div class="ct-manager-list" data-contact-zone="current">
               #foreach ($memberRef in $savedContacts)
                 <article class="ct-member-card" data-member-card data-contact-ref="$escapetool.xml($memberRef)" data-initial-contact="true" data-search-text="#ctUserName($memberRef) $escapetool.xml($memberRef)">
@@ -380,20 +374,20 @@
                   <button type="button" class="ct-member-action" data-move-contact></button>
                 </article>
               #end
-              <div class="ct-zone-empty" data-zone-empty>Aucun contact enregistré.</div>
+              <div class="ct-zone-empty" data-zone-empty>Aucun contact.</div>
             </div>
           </section>
 
           <section class="ct-manager-panel ct-manager-panel--pending ct-manager-panel--add">
-            <header class="ct-manager-panel-head"><h3>Contacts que vous allez ajouter</h3></header>
-            <p class="ct-manager-help">Ces personnes seront ajoutées uniquement après validation.</p>
-            <div class="ct-manager-list" data-contact-zone="pending-add"><div class="ct-zone-empty" data-zone-empty>Aucun ajout en attente.</div></div>
+            <header class="ct-manager-panel-head"><h3>Contacts à ajouter</h3></header>
+            <p class="ct-manager-help">Ils seront ajoutés après validation.</p>
+            <div class="ct-manager-list" data-contact-zone="pending-add"><div class="ct-zone-empty" data-zone-empty>Aucun contact à ajouter.</div></div>
           </section>
 
           <section class="ct-manager-panel ct-manager-panel--pending ct-manager-panel--remove">
-            <header class="ct-manager-panel-head"><h3>Contacts que vous allez supprimer</h3></header>
-            <p class="ct-manager-help">Vous pouvez restaurer un contact avant de valider.</p>
-            <div class="ct-manager-list" data-contact-zone="pending-remove"><div class="ct-zone-empty" data-zone-empty>Aucune suppression en attente.</div></div>
+            <header class="ct-manager-panel-head"><h3>Contacts à supprimer</h3></header>
+            <p class="ct-manager-help">Ils seront supprimés après validation.</p>
+            <div class="ct-manager-list" data-contact-zone="pending-remove"><div class="ct-zone-empty" data-zone-empty>Aucun contact à supprimer.</div></div>
           </section>
         </div>
 
