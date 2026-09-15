@@ -1,5 +1,56 @@
 var rowToDelete2 = null;
 
+function refreshCommonOwnerPicker(row) {
+  if (!row) return;
+  var holder = row.querySelector('.edit-proprietaire');
+  var select = holder ? holder.querySelector('select.secondary-proprietaire-value') : null;
+  if (!holder || !select) return;
+
+  holder.style.display = 'block';
+  select.disabled = false;
+
+  function exposeControl() {
+    var control = holder.querySelector('.selectize-control, .ts-wrapper');
+    if (control) {
+      control.style.display = 'block';
+      control.style.width = '100%';
+      control.style.minWidth = '180px';
+      control.style.pointerEvents = 'auto';
+    }
+    holder.querySelectorAll('.selectize-input, .ts-control, .selectize-input input, .ts-control input').forEach(function(el) {
+      el.style.pointerEvents = 'auto';
+    });
+
+    var instance = select.tomselect || select.selectize;
+    if (instance) {
+      try { if (typeof instance.enable === 'function') instance.enable(); } catch (e) {}
+      try { if (typeof instance.refreshOptions === 'function') instance.refreshOptions(false); } catch (e) {}
+    }
+  }
+
+  exposeControl();
+
+  if (window.jQuery) {
+    try { window.jQuery(document).trigger('xwiki:dom:updated', [holder]); } catch (e) {}
+    window.setTimeout(function() {
+      try {
+        var $select = window.jQuery(select);
+        var instance = select.tomselect || select.selectize;
+        var hasControl = !!holder.querySelector('.selectize-control, .ts-wrapper');
+        if (!instance && !hasControl && typeof $select.xwikiSelectize === 'function') {
+          $select.xwikiSelectize();
+        }
+      } catch (e) {
+        console.warn('Réinitialisation du sélecteur de créateur impossible', e);
+      }
+      exposeControl();
+    }, 0);
+  } else {
+    select.style.display = 'block';
+    select.style.width = '100%';
+  }
+}
+
 function toggleEditMode2(button, isEnteringEdit) {
   var row = button.closest('.secondary-term-row');
   var table = button.closest('#secondaryGlossaryTable');
@@ -11,6 +62,7 @@ function toggleEditMode2(button, isEnteringEdit) {
     viewElements.forEach(el => el.style.display = 'none');
     row.querySelectorAll('.edit-mode').forEach(el => el.style.display = 'block');
     row.querySelector('.edit-buttons').style.display = 'flex';
+    window.setTimeout(function() { refreshCommonOwnerPicker(row); }, 0);
   } else {
     table.classList.add('hide-type-column');
     row.querySelector('.edit-acronym').value = row.querySelector('.secondary-acronym .view-mode').textContent.trim();
