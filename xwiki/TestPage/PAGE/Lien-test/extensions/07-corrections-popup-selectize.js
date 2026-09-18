@@ -231,6 +231,19 @@
       cell.style.setProperty('padding-right', '4px', 'important');
       cell.style.setProperty('text-align', 'center', 'important');
     });
+
+    // Les cases des lignes doivent avoir exactement la même taille visuelle
+    // que la case "tout sélectionner" de l'en-tête.
+    var master = table.querySelector('.glossary-bulk-select-header .liens-select-all-visible');
+    var masterRect = master ? master.getBoundingClientRect() : null;
+    var checkboxWidth = masterRect && masterRect.width ? Math.round(masterRect.width) : 14;
+    var checkboxHeight = masterRect && masterRect.height ? Math.round(masterRect.height) : 14;
+    table.querySelectorAll('tbody .liens-row-select').forEach(function (checkbox) {
+      checkbox.style.setProperty('width', checkboxWidth + 'px', 'important');
+      checkbox.style.setProperty('height', checkboxHeight + 'px', 'important');
+      checkbox.style.setProperty('min-width', checkboxWidth + 'px', 'important');
+      checkbox.style.setProperty('max-width', checkboxWidth + 'px', 'important');
+    });
   }
 
   function capturePersonalBulkLayout(table) {
@@ -239,6 +252,10 @@
     personalBulkLayoutSnapshot = {
       tableLayout: table.style.getPropertyValue('table-layout'),
       tableLayoutPriority: table.style.getPropertyPriority('table-layout'),
+      width: table.style.getPropertyValue('width'),
+      widthPriority: table.style.getPropertyPriority('width'),
+      maxWidth: table.style.getPropertyValue('max-width'),
+      maxWidthPriority: table.style.getPropertyPriority('max-width'),
       headerRows: []
     };
 
@@ -269,6 +286,8 @@
     if (!table || !personalBulkLayoutSnapshot) return;
 
     restoreStyleProperty(table, 'table-layout', personalBulkLayoutSnapshot.tableLayout, personalBulkLayoutSnapshot.tableLayoutPriority);
+    restoreStyleProperty(table, 'width', personalBulkLayoutSnapshot.width, personalBulkLayoutSnapshot.widthPriority);
+    restoreStyleProperty(table, 'max-width', personalBulkLayoutSnapshot.maxWidth, personalBulkLayoutSnapshot.maxWidthPriority);
 
     table.querySelectorAll('thead tr').forEach(function (row, rowIndex) {
       var savedRow = personalBulkLayoutSnapshot.headerRows[rowIndex] || [];
@@ -302,20 +321,30 @@
 
     capturePersonalBulkLayout(table);
 
-    var tableWidth = table.getBoundingClientRect().width || table.clientWidth || 900;
+    // On calcule sur la largeur réellement disponible dans .table-responsive,
+    // jamais sur la largeur courante du tableau. Après un passage en Edit, le tableau
+    // peut momentanément être plus large : réutiliser cette valeur créait la scrollbar.
+    var responsive = table.closest ? table.closest('.table-responsive') : table.parentNode;
+    var availableWidth = (responsive && responsive.clientWidth) || (table.parentNode && table.parentNode.clientWidth) || 900;
     var selectWidth = bulkSelectWidth;
-    var contentWidth = Math.max(tableWidth - selectWidth, 400);
+    var contentWidth = Math.max(availableWidth - selectWidth - 4, 400);
 
     // Même proportion que les quatre colonnes visibles quand Type est caché :
-    // 15 / 25 / 25 / 15, soit 18.75% / 31.25% / 31.25% / 18.75% du reste.
+    // 15 / 25 / 25 / 15. On calcule la dernière largeur par différence pour
+    // que la somme ne puisse jamais dépasser la largeur disponible.
+    var acronymWidth = Math.floor(contentWidth * 0.1875);
+    var labelWidth = Math.floor(contentWidth * 0.3125);
+    var definitionWidth = Math.floor(contentWidth * 0.3125);
     var widths = {
-      acronym: Math.round(contentWidth * 0.1875),
-      label: Math.round(contentWidth * 0.3125),
-      definition: Math.round(contentWidth * 0.3125),
-      actions: Math.round(contentWidth * 0.1875)
+      acronym: acronymWidth,
+      label: labelWidth,
+      definition: definitionWidth,
+      actions: Math.max(contentWidth - acronymWidth - labelWidth - definitionWidth, 0)
     };
 
     table.style.setProperty('table-layout', 'fixed', 'important');
+    table.style.setProperty('width', '100%', 'important');
+    table.style.setProperty('max-width', '100%', 'important');
 
     table.querySelectorAll('thead tr').forEach(function (row) {
       // Après ajout de la case : 0=Sélection, 1=Acronyme, 2=Libellé,
