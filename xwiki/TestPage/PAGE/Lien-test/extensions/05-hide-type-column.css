@@ -1,7 +1,197 @@
-#mainGlossaryTable.hide-type-column .col-type {
+#mainGlossaryTable.hide-type-column .col-type,
+#secondaryGlossaryTable.hide-type-column .col-type {
   display: none !important;
 }
 
-#secondaryGlossaryTable.hide-type-column .col-type {
+.glossary-toolbar {
+  margin-bottom: 15px;
+}
+
+.glossary-toolbar-left,
+.glossary-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.glossary-toolbar-right {
+  justify-content: flex-end;
+}
+
+.glossary-toolbar-button {
+  margin-left: 0;
+}
+
+.glossary-hidden-file-input,
+.is-hidden {
   display: none !important;
+}
+
+.glossary-bulk-select-cell,
+.glossary-bulk-select-header,
+.glossary-bulk-select-filter {
+  width: 36px;
+  text-align: center;
+  vertical-align: middle;
+}
+
+/* Colonne de sélection ajoutée dynamiquement dans Mes Liens.
+ * Elle reçoit explicitement la classe .liens-personal-bulk-select-column
+ * dans le JavaScript qui crée/repère les cases de suppression multiple. */
+#mainGlossaryTable .liens-personal-bulk-select-column {
+  width: 1% !important;
+  min-width: 28px !important;
+  max-width: 36px !important;
+  padding-left: 4px !important;
+  padding-right: 4px !important;
+  text-align: center !important;
+  vertical-align: middle !important;
+  white-space: nowrap !important;
+  box-sizing: border-box !important;
+}
+
+#mainGlossaryTable .liens-personal-bulk-select-column .liens-row-select,
+#mainGlossaryTable .liens-personal-bulk-select-column .liens-select-all-visible {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+}
+
+/* En mode Edit une ligne devient plus haute. Le centrage vertical natif du tableau
+ * peut être perturbé par les champs d'édition ; on centre donc la checkbox du tbody
+ * par rapport à sa cellule elle-même. */
+#mainGlossaryTable .glossary-bulk-select-cell,
+#secondaryGlossaryTable .glossary-bulk-select-cell {
+  position: relative !important;
+  text-align: center !important;
+  vertical-align: middle !important;
+}
+
+#mainGlossaryTable .glossary-bulk-select-cell .liens-row-select,
+#secondaryGlossaryTable .glossary-bulk-select-cell .liens-row-select {
+  position: absolute !important;
+  left: 50% !important;
+  top: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  float: none !important;
+  margin: 0 !important;
+}
+
+/* La checkbox d'en-tête reste centrée normalement dans sa cellule. */
+#mainGlossaryTable .glossary-bulk-select-header,
+#secondaryGlossaryTable .glossary-bulk-select-header {
+  text-align: center !important;
+  vertical-align: middle !important;
+}
+
+#mainGlossaryTable .glossary-bulk-select-header .liens-select-all-visible,
+#secondaryGlossaryTable .glossary-bulk-select-header .liens-select-all-visible {
+  display: block !important;
+  float: none !important;
+  position: static !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+}
+
+.glossary-bulk-select-filter {
+  background-color: #f9f9f9;
+}
+
+.liens-filter-layout {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.liens-filter-layout input {
+  min-width: 0;
+  flex: 1;
+}
+
+/* Le picker de créateur est initialisé pendant que la zone d'édition est cachée.
+ * Ces règles empêchent le contrôle riche XWiki/Selectize de rester à largeur 0
+ * ou de passer derrière le tableau une fois l'édition ouverte. */
+#secondaryGlossaryTable .edit-proprietaire {
+  position: relative;
+  z-index: 20;
+  min-width: 180px;
+}
+
+#secondaryGlossaryTable .edit-proprietaire .selectize-control,
+#secondaryGlossaryTable .edit-proprietaire .ts-wrapper {
+  width: 100% !important;
+  min-width: 180px;
+  pointer-events: auto !important;
+}
+
+#secondaryGlossaryTable .edit-proprietaire .selectize-input,
+#secondaryGlossaryTable .edit-proprietaire .ts-control,
+#secondaryGlossaryTable .edit-proprietaire .selectize-input input,
+#secondaryGlossaryTable .edit-proprietaire .ts-control input {
+  pointer-events: auto !important;
+}
+
+#secondaryGlossaryTable .edit-proprietaire .selectize-dropdown,
+#secondaryGlossaryTable .edit-proprietaire .ts-dropdown {
+  z-index: 1080 !important;
+}
+
+.excel-import-dialog {
+  width: 95%;
+  max-width: 1500px;
+}
+
+.excel-import-info {
+  margin-bottom: 12px;
+}
+
+.excel-import-table-wrap {
+  overflow: auto;
+  border: 1px solid #ddd;
+}
+
+.excel-import-preview-wrap {
+  max-height: 430px;
+}
+
+.excel-import-duplicates-wrap {
+  max-height: 330px;
+}
+
+.excel-import-table {
+  margin-bottom: 0;
+}
+
+.excel-line-col {
+  width: 65px;
+}
+
+.excel-action-col,
+.excel-import-action-cell {
+  width: 70px;
+  text-align: center;
+}
+
+.excel-import-options {
+  margin-top: 15px;
+  padding: 12px;
+  background: #f7f7f7;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+.excel-import-options label {
+  display: block;
+}
+
+.excel-import-options label:last-child {
+  margin-bottom: 0;
+}
+
+.excel-import-summary {
+  margin-top: 10px;
+}
+
+.excel-import-input {
+  width: 100%;
 }
