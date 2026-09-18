@@ -110,7 +110,7 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
 <div class="row" style="margin-bottom: 15px;">
   <div class="col-md-6">
     <button type="button" class="btn btn-success" data-toggle="modal" data-target="#glossaryModal">
-      + Ajouter un nouvel acronyme
+      $services.icon.renderHTML('add') Ajouter un acronyme
     </button>
   </div>
 </div>
@@ -137,11 +137,11 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
     <!-- Flèches et indicateur de page -->
     <div style="display: flex; align-items: center; gap: 15px;">
       <button type="button" id="btnPrevPage1" class="btn btn-default btn-sm" onclick="navigatePage(-1);" style="padding: 5px 10px;">
-        <span class="glyphicon glyphicon-chevron-left"></span>
+        $services.icon.renderHTML('left')
       </button>
       <span id="pageIndicator1" style="font-weight: bold; min-width: 80px; text-align: center;">Page 1 / 1</span>
       <button type="button" id="btnNextPage1" class="btn btn-default btn-sm" onclick="navigatePage(1);" style="padding: 5px 10px;">
-        <span class="glyphicon glyphicon-chevron-right"></span>
+        $services.icon.renderHTML('right')
       </button>
     </div>
   </div>
@@ -152,7 +152,15 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
     <table class="table table-striped table-hover table-bordered hide-type-column"
            id="mainGlossaryTable"
            data-csrf="$services.csrf.getToken()"
-           data-class-path="$!classPath">
+           data-class-path="$!classPath"
+           data-icon-right="$escapetool.xml($services.icon.renderHTML('right'))"
+           data-icon-pencil="$escapetool.xml($services.icon.renderHTML('pencil'))"
+           data-icon-trash="$escapetool.xml($services.icon.renderHTML('trash'))"
+           data-icon-check="$escapetool.xml($services.icon.renderHTML('check'))"
+           data-icon-cross="$escapetool.xml($services.icon.renderHTML('cross'))"
+           data-icon-eye="$escapetool.xml($services.icon.renderHTML('eye'))"
+           data-icon-download="$escapetool.xml($services.icon.renderHTML('download'))"
+           data-icon-refresh="$escapetool.xml($services.icon.renderHTML('refresh'))">
       <thead>
         <tr>
           <th style="width: 15%;">Acronyme</th>
@@ -221,18 +229,18 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
                 <td>
                   <div class="view-buttons">
                     <button type="button" class="btn btn-xs btn-primary custom-action-btn" onclick="toggleEditMode(this, true);">
-                      <span class="glyphicon glyphicon-pencil"></span>
+                      $services.icon.renderHTML('pencil')
                     </button>
                     <button type="button" class="btn btn-xs btn-danger custom-action-btn" onclick="openDeleteModal(this);">
-                      <span class="glyphicon glyphicon-trash"></span>
+                      $services.icon.renderHTML('trash')
                     </button>
                   </div>
                   <div class="edit-buttons" style="display:none; gap: 5px;">
                     <button type="button" class="btn btn-xs btn-success" onclick="saveRowEdition(this);">
-                      <span class="glyphicon glyphicon-ok"></span> Sauver
+                      $services.icon.renderHTML('check') Sauver
                     </button>
                     <button type="button" class="btn btn-xs btn-default" onclick="toggleEditMode(this, false);">
-                      <span class="glyphicon glyphicon-remove"></span>
+                      $services.icon.renderHTML('cross')
                     </button>
                   </div>
                 </td>
@@ -267,11 +275,11 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
     <!-- Flèches et indicateur de page -->
     <div style="display: flex; align-items: center; gap: 15px;">
       <button type="button" id="btnPrevPage2" class="btn btn-default btn-sm" onclick="navigatePage2(-1);" style="padding: 5px 10px;">
-        <span class="glyphicon glyphicon-chevron-left"></span>
+        $services.icon.renderHTML('left')
       </button>
       <span id="pageIndicator2" style="font-weight: bold; min-width: 80px; text-align: center;">Page 1 / 1</span>
       <button type="button" id="btnNextPage2" class="btn btn-default btn-sm" onclick="navigatePage2(1);" style="padding: 5px 10px;">
-        <span class="glyphicon glyphicon-chevron-right"></span>
+        $services.icon.renderHTML('right')
       </button>
     </div>
   </div>
@@ -282,7 +290,15 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
     <table class="table table-striped table-hover table-bordered hide-type-column"
            id="secondaryGlossaryTable"
            data-csrf="$services.csrf.getToken()"
-           data-class-path="$!classPath">
+           data-class-path="$!classPath"
+           data-icon-right="$escapetool.xml($services.icon.renderHTML('right'))"
+           data-icon-pencil="$escapetool.xml($services.icon.renderHTML('pencil'))"
+           data-icon-trash="$escapetool.xml($services.icon.renderHTML('trash'))"
+           data-icon-check="$escapetool.xml($services.icon.renderHTML('check'))"
+           data-icon-cross="$escapetool.xml($services.icon.renderHTML('cross'))"
+           data-icon-eye="$escapetool.xml($services.icon.renderHTML('eye'))"
+           data-icon-download="$escapetool.xml($services.icon.renderHTML('download'))"
+           data-icon-refresh="$escapetool.xml($services.icon.renderHTML('refresh'))">
       <thead>
         <tr>
           <th style="width: 15%;">Acronyme</th>
@@ -393,18 +409,18 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
                 <td>
                   <div class="view-buttons">
                     <button type="button" class="btn btn-xs btn-primary custom-action-btn" onclick="toggleEditMode2(this, true);">
-                      <span class="glyphicon glyphicon-pencil"></span>
+                      $services.icon.renderHTML('pencil')
                     </button>
                     <button type="button" class="btn btn-xs btn-danger custom-action-btn" onclick="openDeleteModal2(this);">
-                      <span class="glyphicon glyphicon-trash"></span>
+                      $services.icon.renderHTML('trash')
                     </button>
                   </div>
                   <div class="edit-buttons" style="display:none; gap: 5px;">
                     <button type="button" class="btn btn-xs btn-success" onclick="saveRowEdition2(this);">
-                      <span class="glyphicon glyphicon-ok"></span> Sauver
+                      $services.icon.renderHTML('check') Sauver
                     </button>
                     <button type="button" class="btn btn-xs btn-default" onclick="toggleEditMode2(this, false);">
-                      <span class="glyphicon glyphicon-remove"></span>
+                      $services.icon.renderHTML('cross')
                     </button>
                   </div>
                 </td>
@@ -423,7 +439,7 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
   <div class="modal-dialog" role="document">
     <div class="modal-content">
       <div class="modal-header">
-        <button type="button" class="close" data-dismiss="modal" aria-label="Fermer"><span aria-hidden="true">&times;</span></button>
+        <button type="button" class="close" data-dismiss="modal" aria-label="Fermer" title="Fermer">$services.icon.renderHTML('cross')</button>
         <h4 class="modal-title" id="feedbackModalTitle">Action Personnalisée</h4>
       </div>
       <div class="modal-body">
@@ -449,7 +465,7 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
   <div class="modal-dialog" role="document">
     <div class="modal-content">
       <div class="modal-header" style="background-color: #d9534f; color: white;">
-        <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+        <button type="button" class="close" data-dismiss="modal" aria-label="Fermer" title="Fermer">$services.icon.renderHTML('cross')</button>
         <h4 class="modal-title" id="deleteModalTitle">Confirmer la suppression</h4>
       </div>
       <div class="modal-body">
@@ -482,7 +498,7 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
   <div class="modal-dialog" role="document">
     <div class="modal-content">
       <div class="modal-header" style="background-color: #d9534f; color: white;">
-        <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+        <button type="button" class="close" data-dismiss="modal" aria-label="Fermer" title="Fermer">$services.icon.renderHTML('cross')</button>
         <h4 class="modal-title" id="deleteModalTitle">Confirmer la suppression</h4>
       </div>
       <div class="modal-body">
@@ -516,7 +532,7 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
   <div class="modal-dialog modal-lg" role="document">
     <div class="modal-content">
       <div class="modal-header">
-        <button type="button" class="close" data-dismiss="modal" aria-label="Fermer"><span aria-hidden="true">&times;</span></button>
+        <button type="button" class="close" data-dismiss="modal" aria-label="Fermer" title="Fermer">$services.icon.renderHTML('cross')</button>
         <h4 class="modal-title" id="glossaryModalLabel">Nouveau terme du Glossaire</h4>
       </div>
 
