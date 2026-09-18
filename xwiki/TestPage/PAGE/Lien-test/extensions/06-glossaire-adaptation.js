@@ -12,6 +12,16 @@
   var excelHeaderInfo = null;
   var excelFileName = '';
   var excelSheetName = '';
+  var liensSortState = {
+    personal: { column: 'acronym', direction: 'asc' },
+    common: { column: 'acronym', direction: 'asc' }
+  };
+
+  function getLiensXWikiIcon(name) {
+    var table = document.getElementById('mainGlossaryTable') || document.getElementById('secondaryGlossaryTable');
+    if (!table) return '';
+    return table.getAttribute('data-icon-' + name) || '';
+  }
 
   function getCsrf() {
     var table = document.getElementById('mainGlossaryTable') || document.getElementById('secondaryGlossaryTable');
@@ -133,13 +143,46 @@
     if (tableKind === 'common' && typeof applyPagination2 === 'function') applyPagination2();
   }
 
+  function updateLiensSortButtons(tableId, tableKind) {
+    var table = document.getElementById(tableId);
+    if (!table) return;
+
+    var state = liensSortState[tableKind] || { column: 'acronym', direction: 'asc' };
+    var arrow = getLiensXWikiIcon('right');
+
+    table.querySelectorAll('.liens-sort-btn').forEach(function (button) {
+      var column = button.getAttribute('data-column');
+      var label = button.querySelector('.sort-label');
+      var isActive = column === state.column;
+      var direction = isActive ? state.direction : 'asc';
+
+      button.setAttribute('data-sort-active', isActive ? 'true' : 'false');
+      button.setAttribute('data-sort-direction', direction);
+      button.classList.toggle('active', isActive);
+
+      if (label) {
+        label.innerHTML = direction === 'desc'
+          ? 'Z ' + arrow + ' A'
+          : 'A ' + arrow + ' Z';
+      }
+    });
+  }
+
+  function applyLiensSort(tableId, rowClass, tableKind) {
+    var state = liensSortState[tableKind] || { column: 'acronym', direction: 'asc' };
+    sortTable(tableId, rowClass, tableKind, state.column, state.direction);
+    updateLiensSortButtons(tableId, tableKind);
+  }
+
   function installSortButtons(tableId, rowClass, tableKind, columns) {
     var table = document.getElementById(tableId);
     if (!table || !table.tHead || table.tHead.rows.length < 2) return;
     var filterRow = table.tHead.rows[1];
+
     columns.forEach(function (column, index) {
       var cell = filterRow.cells[index];
       if (!cell || cell.querySelector('.liens-sort-btn')) return;
+
       var wrapper = cell.querySelector('.liens-filter-layout');
       if (!wrapper) {
         wrapper = document.createElement('div');
@@ -147,19 +190,40 @@
         while (cell.firstChild) wrapper.appendChild(cell.firstChild);
         cell.appendChild(wrapper);
       }
+
       var button = document.createElement('button');
       button.type = 'button';
       button.className = 'btn btn-default btn-xs liens-sort-btn';
-      button.innerHTML = '<span class="sort-label">A→Z</span>';
-      button.dataset.direction = 'asc';
+      button.setAttribute('data-column', column);
+      button.setAttribute('data-sort-active', 'false');
+      button.setAttribute('data-sort-direction', 'asc');
+      button.title = 'Trier cette colonne';
+
+      var label = document.createElement('span');
+      label.className = 'sort-label';
+      button.appendChild(label);
+
       button.addEventListener('click', function () {
-        var direction = button.dataset.direction;
-        sortTable(tableId, rowClass, tableKind, column, direction);
-        button.querySelector('.sort-label').textContent = direction === 'asc' ? 'Z→A' : 'A→Z';
-        button.dataset.direction = direction === 'asc' ? 'desc' : 'asc';
+        var state = liensSortState[tableKind];
+
+        // Même logique que le Glossaire :
+        // - clic sur la colonne déjà active => inverse A-Z / Z-A ;
+        // - clic sur une autre colonne => elle devient active en A-Z.
+        if (state.column === column) {
+          state.direction = state.direction === 'asc' ? 'desc' : 'asc';
+        } else {
+          state.column = column;
+          state.direction = 'asc';
+        }
+
+        applyLiensSort(tableId, rowClass, tableKind);
       });
+
       wrapper.appendChild(button);
     });
+
+    // Comme dans le Glossaire, Acronyme A-Z est sélectionné par défaut.
+    applyLiensSort(tableId, rowClass, tableKind);
   }
 
   function currentTableKind() {
@@ -235,7 +299,7 @@
     var deleteButton = document.getElementById('btnBulkDeleteLiens');
     if (deleteButton) {
       deleteButton.disabled = selected.length === 0;
-      deleteButton.innerHTML = '<span class="glyphicon glyphicon-trash"></span> Supprimer la sélection (' + selected.length + ')';
+      deleteButton.innerHTML = getLiensXWikiIcon('trash') + ' Supprimer la sélection (' + selected.length + ')';
     }
   }
 
@@ -271,8 +335,8 @@
     var deleteButton = document.getElementById('btnBulkDeleteLiens');
     if (modeButton) {
       modeButton.innerHTML = bulkDeleteMode
-        ? '<span class="glyphicon glyphicon-remove"></span> Annuler la suppression multiple'
-        : '<span class="glyphicon glyphicon-check"></span> Suppression multiple';
+        ? getLiensXWikiIcon('cross') + ' Annuler la suppression multiple'
+        : getLiensXWikiIcon('check') + ' Suppression multiple';
     }
     if (deleteButton) deleteButton.classList.toggle('is-hidden', !bulkDeleteMode);
     updateBulkDeleteState();
@@ -323,7 +387,7 @@
       modeButton.type = 'button';
       modeButton.id = 'btnBulkDeleteModeLiens';
       modeButton.className = 'btn btn-default glossary-toolbar-button';
-      modeButton.innerHTML = '<span class="glyphicon glyphicon-check"></span> Suppression multiple';
+      modeButton.innerHTML = getLiensXWikiIcon('check') + ' Suppression multiple';
       modeButton.addEventListener('click', function () { setBulkDeleteMode(!bulkDeleteMode); });
       left.appendChild(modeButton);
 
@@ -332,7 +396,7 @@
       deleteButton.id = 'btnBulkDeleteLiens';
       deleteButton.className = 'btn btn-danger glossary-toolbar-button is-hidden';
       deleteButton.disabled = true;
-      deleteButton.innerHTML = '<span class="glyphicon glyphicon-trash"></span> Supprimer la sélection (0)';
+      deleteButton.innerHTML = getLiensXWikiIcon('trash') + ' Supprimer la sélection (0)';
       deleteButton.addEventListener('click', executeBulkDelete);
       left.appendChild(deleteButton);
     }
@@ -347,11 +411,11 @@
 
     right.innerHTML =
       '<button type="button" id="btnExcelExampleLiens" class="btn btn-default">' +
-        '<span class="glyphicon glyphicon-eye-open"></span> Voir un exemple Excel' +
+        getLiensXWikiIcon('eye') + ' Voir un exemple Excel' +
       '</button>' +
       '<input type="file" id="excelLiensFileInput" accept=".xlsx,.xls,.xlsm,.xlsb" class="glossary-hidden-file-input">' +
       '<button type="button" id="btnImportExcelLiens" class="btn btn-default">' +
-        '<span class="glyphicon glyphicon-import"></span> Importer un Excel' +
+        getLiensXWikiIcon('download') + ' Importer un Excel' +
       '</button>';
   }
 
@@ -542,7 +606,7 @@
       editableCell(tr, row, index, 'type', false, false);
       editableCell(tr, row, index, 'author', false, false);
       var action = document.createElement('td'); action.className = 'excel-import-action-cell';
-      var del = document.createElement('button'); del.type = 'button'; del.className = 'btn btn-xs btn-danger'; del.innerHTML = '<span class="glyphicon glyphicon-trash"></span>';
+      var del = document.createElement('button'); del.type = 'button'; del.className = 'btn btn-xs btn-danger'; del.innerHTML = getLiensXWikiIcon('trash');
       del.addEventListener('click', function () { excelRows.splice(index, 1); renderExcelPreview(); });
       action.appendChild(del); tr.appendChild(action); previewBody.appendChild(tr);
 
@@ -674,7 +738,7 @@
     exampleModal.innerHTML =
       '<div class="modal fade" id="excelExampleLiensModal" tabindex="-1" role="dialog" aria-hidden="true">' +
         '<div class="modal-dialog modal-lg" role="document"><div class="modal-content">' +
-          '<div class="modal-header"><button type="button" class="close" data-dismiss="modal"><span>&times;</span></button><h4 class="modal-title">Exemple de fichier Excel</h4></div>' +
+          '<div class="modal-header"><button type="button" class="close" data-dismiss="modal" aria-label="Fermer" title="Fermer">' + getLiensXWikiIcon('cross') + '</button><h4 class="modal-title">Exemple de fichier Excel</h4></div>' +
           '<div class="modal-body"><p>Format conseillé : une première ligne d’entête, puis une ligne par lien.</p>' +
             '<div class="table-responsive"><table class="table table-striped table-bordered">' +
               '<thead><tr><th>Acronyme</th><th>Libellé</th><th>Définition</th><th>Type</th><th>Auteur</th></tr></thead>' +
@@ -690,7 +754,7 @@
     modal.innerHTML =
       '<div class="modal fade" id="excelLiensModal" tabindex="-1" role="dialog" aria-hidden="true">' +
         '<div class="modal-dialog modal-lg excel-import-dialog" role="document"><div class="modal-content">' +
-          '<div class="modal-header"><button type="button" class="close" data-dismiss="modal"><span>&times;</span></button><h4 class="modal-title">Import Excel des liens</h4></div>' +
+          '<div class="modal-header"><button type="button" class="close" data-dismiss="modal" aria-label="Fermer" title="Fermer">' + getLiensXWikiIcon('cross') + '</button><h4 class="modal-title">Import Excel des liens</h4></div>' +
           '<div class="modal-body">' +
             '<div id="excelLiensInfo" class="text-muted excel-import-info"></div>' +
             '<div class="row">' +
