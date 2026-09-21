@@ -86,38 +86,116 @@
             #set($requestedType = $oldType)
           #end
 
-          #set($discard = $obj.set('nom_lien', $acronym))
-          #set($discard = $obj.set('lien', $label))
-          #set($discard = $obj.set('definition', $definition))
-          #set($discard = $obj.set('type', $requestedType))
-          #set($discard = $obj.set('proprietaire', $requestedOwner))
-          #set($discard = $targetDoc.save('Mise à jour via interface Liens', true))
-
-          ## L'arborescence suit toujours LIENDATA.{auteur}.{nom}.
+          ## La page doit suivre LIENDATA.{auteur}.{nom}.
+          ## IMPORTANT : un changement d'auteur est un MOVE vers un autre espace,
+          ## tandis qu'un changement d'acronyme est un RENAME du document.
+          ## On ne passe plus une DocumentReference complète à rename(), car cela
+          ## pouvait créer une page parasite au lieu de déplacer la page existante.
           #set($cleanName = $xwiki.cleanName($acronym))
-          #set($destinationRef = "${dataSpace}.${requestedOwner}.${cleanName}")
-          #set($destinationDoc = $xwiki.getDocument($destinationRef))
-          #if("$destinationRef" != "$targetRef")
-            #set($counter = 1)
-            #set($baseDestinationRef = $destinationRef)
-            #foreach($i in [1..100])
-              #if(!$destinationDoc.isNew())
-                #set($destinationRef = "${baseDestinationRef}_${counter}")
-                #set($destinationDoc = $xwiki.getDocument($destinationRef))
-                #set($counter = $counter + 1)
-              #else
-                #break
-              #end
-            #end
-            #set($sourceReference = $services.model.resolveDocument($targetRef))
-            #set($destinationReference = $services.model.resolveDocument($destinationRef))
-            #set($renameJob = $services.refactoring.rename($sourceReference, $destinationReference))
-            $renameJob.join()
-          #else
-            #set($destinationRef = $targetRef)
+          #if(!$cleanName)
+            #set($cleanName = $targetDoc.name)
           #end
-          #set($finalDoc = $xwiki.getDocument($destinationRef))
-          {{html}}GLOSSAIRE_OK|$destinationRef|$finalDoc.name{{/html}}
+
+          #set($oldSpaceName = "$dataSpace.$oldOwner")
+          #set($destinationSpaceName = "$dataSpace.$requestedOwner")
+          #set($finalName = $cleanName)
+          #set($destinationRef = "$destinationSpaceName.$finalName")
+          #set($destinationDoc = $xwiki.getDocument($destinationRef))
+          #set($counter = 1)
+
+          ## Si une autre page occupe déjà la destination finale, on suffixe le nom.
+          #foreach($i in [1..100])
+            #if(!$destinationDoc.isNew() && "$destinationDoc.documentReference" != "$targetDoc.documentReference")
+              #set($finalName = $cleanName + "_" + $counter)
+              #set($destinationRef = "$destinationSpaceName.$finalName")
+              #set($destinationDoc = $xwiki.getDocument($destinationRef))
+              #set($counter = $counter + 1)
+            #else
+              #break
+            #end
+          #end
+
+          #set($currentRef = "$targetRef")
+          #set($currentName = "$targetDoc.name")
+          #set($ownerChanged = "$requestedOwner" != "$oldOwner")
+          #set($nameChanged = "$finalName" != "$currentName")
+
+          #if($ownerChanged && $nameChanged)
+            ## On préfère renommer avant de déplacer si le nom final est libre dans
+            ## l'ancien espace. Cela évite une collision intermédiaire dans le nouvel
+            ## espace avec l'ancien nom du document.
+            #set($sourceFinalRef = "$oldSpaceName.$finalName")
+            #set($sourceFinalDoc = $xwiki.getDocument($sourceFinalRef))
+
+            #if($sourceFinalDoc.isNew())
+              #set($sourceReference = $services.model.resolveDocument($currentRef))
+              $services.refactoring.rename($sourceReference, $finalName).join()
+              #set($currentRef = "$oldSpaceName.$finalName")
+
+              #set($sourceReference = $services.model.resolveDocument($currentRef))
+              #set($destinationSpaceReference = $services.model.resolveSpace($destinationSpaceName))
+              $services.refactoring.move($sourceReference, $destinationSpaceReference).join()
+              #set($currentRef = "$destinationSpaceName.$finalName")
+            #else
+              ## Cas rare : le nom final existe déjà dans l'ancien espace.
+              ## On utilise un nom temporaire libre dans les deux espaces, puis move + rename.
+              #set($tempCounter = 1)
+              #set($tempName = "__LIENS_MOVE_TMP__1")
+              #foreach($j in [1..100])
+                #set($sourceTempDoc = $xwiki.getDocument("$oldSpaceName.$tempName"))
+                #set($destinationTempDoc = $xwiki.getDocument("$destinationSpaceName.$tempName"))
+                #if($sourceTempDoc.isNew() && $destinationTempDoc.isNew())
+                  #break
+                #else
+                  #set($tempCounter = $tempCounter + 1)
+                  #set($tempName = "__LIENS_MOVE_TMP__" + $tempCounter)
+                #end
+              #end
+
+              #set($sourceReference = $services.model.resolveDocument($currentRef))
+              $services.refactoring.rename($sourceReference, $tempName).join()
+              #set($currentRef = "$oldSpaceName.$tempName")
+
+              #set($sourceReference = $services.model.resolveDocument($currentRef))
+              #set($destinationSpaceReference = $services.model.resolveSpace($destinationSpaceName))
+              $services.refactoring.move($sourceReference, $destinationSpaceReference).join()
+              #set($currentRef = "$destinationSpaceName.$tempName")
+
+              #set($sourceReference = $services.model.resolveDocument($currentRef))
+              $services.refactoring.rename($sourceReference, $finalName).join()
+              #set($currentRef = "$destinationSpaceName.$finalName")
+            #end
+
+          #elseif($ownerChanged)
+            ## Changement de créateur uniquement : on déplace le document existant.
+            #set($sourceReference = $services.model.resolveDocument($currentRef))
+            #set($destinationSpaceReference = $services.model.resolveSpace($destinationSpaceName))
+            $services.refactoring.move($sourceReference, $destinationSpaceReference).join()
+            #set($currentRef = "$destinationSpaceName.$currentName")
+
+          #elseif($nameChanged)
+            ## Changement d'acronyme uniquement : on renomme dans le même espace.
+            #set($sourceReference = $services.model.resolveDocument($currentRef))
+            $services.refactoring.rename($sourceReference, $finalName).join()
+            #set($currentRef = "$oldSpaceName.$finalName")
+          #end
+
+          ## On modifie l'objet APRES le move / rename afin que l'auteur stocké et
+          ## l'emplacement réel de la page restent toujours cohérents.
+          #set($finalDoc = $xwiki.getDocument($currentRef))
+          #set($finalObj = $finalDoc.getObject($className))
+          #if(!$finalObj)
+            {{html}}ERREUR_OBJET_APRES_DEPLACEMENT{{/html}}
+          #else
+            #set($discard = $finalObj.set('nom_lien', $acronym))
+            #set($discard = $finalObj.set('lien', $label))
+            #set($discard = $finalObj.set('definition', $definition))
+            #set($discard = $finalObj.set('type', $requestedType))
+            #set($discard = $finalObj.set('proprietaire', $requestedOwner))
+            #set($discard = $finalDoc.setTitle($acronym))
+            #set($discard = $finalDoc.save('Mise à jour via interface Liens', true))
+            {{html}}GLOSSAIRE_OK|$currentRef|$finalDoc.name{{/html}}
+          #end
         #end
       #end
 
