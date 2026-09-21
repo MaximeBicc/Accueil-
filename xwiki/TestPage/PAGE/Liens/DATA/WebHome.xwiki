@@ -89,6 +89,8 @@
           ## La page doit suivre LIENDATA.{auteur}.{nom}.
           ## IMPORTANT : un changement d'auteur est un MOVE vers un autre espace,
           ## tandis qu'un changement d'acronyme est un RENAME du document.
+          ## Les requêtes désactivent autoRedirect : aucune ancienne page fantôme
+          ## ne doit rester visible dans l'arborescence après l'opération.
           ## On ne passe plus une DocumentReference complète à rename(), car cela
           ## pouvait créer une page parasite au lieu de déplacer la page existante.
           #set($cleanName = $xwiki.cleanName($acronym))
@@ -129,12 +131,16 @@
 
             #if($sourceFinalDoc.isNew())
               #set($sourceReference = $services.model.resolveDocument($currentRef))
-              $services.refactoring.rename($sourceReference, $finalName).join()
+              #set($renameRequest = $services.refactoring.requestFactory.createRenameRequest($sourceReference, $finalName))
+              #set($discard = $renameRequest.setAutoRedirect(false))
+              $services.refactoring.rename($renameRequest).join()
               #set($currentRef = "$oldSpaceName.$finalName")
 
               #set($sourceReference = $services.model.resolveDocument($currentRef))
               #set($destinationSpaceReference = $services.model.resolveSpace($destinationSpaceName))
-              $services.refactoring.move($sourceReference, $destinationSpaceReference).join()
+              #set($moveRequest = $services.refactoring.requestFactory.createMoveRequest($sourceReference, $destinationSpaceReference))
+              #set($discard = $moveRequest.setAutoRedirect(false))
+              $services.refactoring.move($moveRequest).join()
               #set($currentRef = "$destinationSpaceName.$finalName")
             #else
               ## Cas rare : le nom final existe déjà dans l'ancien espace.
@@ -153,16 +159,22 @@
               #end
 
               #set($sourceReference = $services.model.resolveDocument($currentRef))
-              $services.refactoring.rename($sourceReference, $tempName).join()
+              #set($renameRequest = $services.refactoring.requestFactory.createRenameRequest($sourceReference, $tempName))
+              #set($discard = $renameRequest.setAutoRedirect(false))
+              $services.refactoring.rename($renameRequest).join()
               #set($currentRef = "$oldSpaceName.$tempName")
 
               #set($sourceReference = $services.model.resolveDocument($currentRef))
               #set($destinationSpaceReference = $services.model.resolveSpace($destinationSpaceName))
-              $services.refactoring.move($sourceReference, $destinationSpaceReference).join()
+              #set($moveRequest = $services.refactoring.requestFactory.createMoveRequest($sourceReference, $destinationSpaceReference))
+              #set($discard = $moveRequest.setAutoRedirect(false))
+              $services.refactoring.move($moveRequest).join()
               #set($currentRef = "$destinationSpaceName.$tempName")
 
               #set($sourceReference = $services.model.resolveDocument($currentRef))
-              $services.refactoring.rename($sourceReference, $finalName).join()
+              #set($renameRequest = $services.refactoring.requestFactory.createRenameRequest($sourceReference, $finalName))
+              #set($discard = $renameRequest.setAutoRedirect(false))
+              $services.refactoring.rename($renameRequest).join()
               #set($currentRef = "$destinationSpaceName.$finalName")
             #end
 
@@ -170,13 +182,17 @@
             ## Changement de créateur uniquement : on déplace le document existant.
             #set($sourceReference = $services.model.resolveDocument($currentRef))
             #set($destinationSpaceReference = $services.model.resolveSpace($destinationSpaceName))
-            $services.refactoring.move($sourceReference, $destinationSpaceReference).join()
+            #set($moveRequest = $services.refactoring.requestFactory.createMoveRequest($sourceReference, $destinationSpaceReference))
+            #set($discard = $moveRequest.setAutoRedirect(false))
+            $services.refactoring.move($moveRequest).join()
             #set($currentRef = "$destinationSpaceName.$currentName")
 
           #elseif($nameChanged)
             ## Changement d'acronyme uniquement : on renomme dans le même espace.
             #set($sourceReference = $services.model.resolveDocument($currentRef))
-            $services.refactoring.rename($sourceReference, $finalName).join()
+            #set($renameRequest = $services.refactoring.requestFactory.createRenameRequest($sourceReference, $finalName))
+            #set($discard = $renameRequest.setAutoRedirect(false))
+            $services.refactoring.rename($renameRequest).join()
             #set($currentRef = "$oldSpaceName.$finalName")
           #end
 
