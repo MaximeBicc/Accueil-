@@ -6,13 +6,19 @@
   #set($formToken = $!request.getParameter('form_token'))
   #set($nomFichier = $!request.getParameter('nom_fichier'))
   #set($pageParent = $!request.getParameter('page'))
+  #set($docParent = "")
+  #if($pageParent && "$!pageParent" != "")
+    #set($docParent = $xwiki.getDocument($pageParent))
+  #end
   #if(!$services.csrf.isTokenValid($formToken))
     ERREUR_CSRF
-  #elseif($action != "ajouter un fichier")
+  #elseif($action != "ajouter un fichier" && $action != "ajouter un document")
     ERREUR_ACTION
-  #elseif ($nomFichier.trim() == "")
+  #elseif(!$nomFichier || "$!nomFichier" == "")
     ERREUR_CHAMPS
-  #elseif ($pageParent.isNew())
+  #elseif(!$pageParent || "$!pageParent" == "")
+    ERREUR_PAGE_DE_STOCKAGE_INTROUVABLE
+  #elseif($docParent.isNew())
     ERREUR_PAGE_DE_STOCKAGE_INTROUVABLE
     $pageParent
   #elseif (!$xwiki.hasAccessLevel("edit", $xcontext.user, $doc.fullName))
@@ -20,11 +26,13 @@
   #else
     $pageParent
     #try
+      ## Toujours initialiser la variable : sinon Velocity conserve littéralement
+      ## ${pageParentClean} dans le nom de page quand le parent n'est pas transmis.
+      #set($pageParentClean = $pageParent)
       #if($pageParent.endsWith(".WebHome"))
         #set($pageParentClean = $pageParent.substring(0, $pageParent.length() - 8))
       #end
       #set($newPageRef = "${pageParentClean}.${nomFichier}.WebHome")
-      #set($docParent = $xwiki.getDocument($pageParent))
       #set($newPageDoc = $xwiki.getDocument($newPageRef))
       #if ($newPageDoc.isNew())
         $newPageDoc.setTitle("$nomFichier")
