@@ -153,6 +153,7 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
            id="mainGlossaryTable"
            data-csrf="$services.csrf.getToken()"
            data-class-path="$!classPath"
+           data-current-user="$escapetool.xml($userId)"
            data-icon-right="$escapetool.xml($services.icon.renderHTML('right'))"
            data-icon-pencil="$escapetool.xml($services.icon.renderHTML('pencil'))"
            data-icon-trash="$escapetool.xml($services.icon.renderHTML('trash'))"
