@@ -36,6 +36,9 @@ async function saveRowEdition(button) {
   var label = row.querySelector('.edit-label').value;
   var definition = row.querySelector('.edit-definition').value;
   var type = row.querySelector('.edit-type-input').value;
+  // Une ligne de "Mes Liens" appartient forcément à l'utilisateur courant.
+  // Si elle passe de Personnel à Commun, il reste donc son créateur.
+  var proprietaire = table.getAttribute('data-current-user') || '';
 
   const donnees = new FormData();
   donnees.append('action', 'save');
@@ -46,6 +49,7 @@ async function saveRowEdition(button) {
   donnees.append('label', label);
   donnees.append('definition', definition);
   donnees.append('type', type);
+  donnees.append('proprietaire', proprietaire);
 
   try {
     const reponse = await fetch(urlLienData + '?xpage=plain', {
