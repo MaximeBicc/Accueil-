@@ -39,7 +39,7 @@
         $newPageDoc.setContent("")
         $newPageDoc.setParent($docParent.fullName)
         $newPageDoc.save("Création d'un nouveau fichier")
-        #set($className = "TestPage.PAGE.doc-test.CODE.docClass.WebHome")
+        #set($className = "TestPage.PAGE.Doc.CODE.docClass.WebHome")
         #set($numeroObject = $newPageDoc.createNewObject($className))
         #set($object = $newPageDoc.getObject($className, $numeroObject))
         $object.set("nom", $nomFichier)
@@ -102,11 +102,11 @@
       #set($tryRef = $tryParent)
     #end
 
-    #set($table = $collectiontool.reverseModifiable($tryRefHistory))
+    #set($ignore = $collectiontool.reverseModifiable($tryRefHistory))
     <div id="breadcrumb-wrapper">
       <!-- 1. Vue Visuelle (Affichée par défaut) -->
       <div id="breadcrumb-container">
-        #foreach($tableRef in $table)
+        #foreach($tableRef in $tryRefHistory)
           #set($tableDoc = $xwiki.getDocument($tableRef))
           <span class="folder" data-full-name="$escapetool.xml($tableRef)">$escapetool.xml($tableDoc.displayTitle)</span>
           #if($foreach.hasNext)
@@ -117,7 +117,7 @@
 
       <!-- 2. Vue Édition / Input (Masquée par défaut) -->
       #set($textPath = "")
-      #foreach($tableRef in $table)
+      #foreach($tableRef in $tryRefHistory)
         #set($tableDoc = $xwiki.getDocument($tableRef))
         #if($foreach.index == 0)
           #set($textPath = $tableDoc.displayTitle)
@@ -133,7 +133,7 @@
     <ul class="file-explorer-list">
     #foreach($childRef in $children)
       #set($childDoc = $xwiki.getDocument($childRef))
-      #set($metaobj = $childDoc.getObject("TestPage.PAGE.doc-test.CODE.docClass.WebHome"))
+      #set($metaobj = $childDoc.getObject("TestPage.PAGE.Doc.CODE.docClass.WebHome"))
       #set($type = $metaobj.getValue('type'))
       #if($type == "folder")##if($type == "folder" || !$metaobj)
         <li>
