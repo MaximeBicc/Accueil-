@@ -5,8 +5,9 @@ function ajouterFichier() {
 <h4>Nom du fichier ${parentPage}</h4>
 <input type="hidden" name="action" value="ajouter un fichier" />
 <input type="hidden" name="type" value="folder" />
+<input type="hidden" name="page" value="${parentPage}" />
 <input type="text" name="nom_fichier" placeholder="nom du fichier" />
-`;//<input type="hidden" name="page" value="${parentPage}" />
+`;
     popup.style.display = "block";
 }
 
@@ -17,8 +18,9 @@ function ajouterDocument() {
 <h4>Nom du fichier ${parentPage}</h4>
 <input type="hidden" name="action" value="ajouter un document" />
 <input type="hidden" name="type" value="document" />
+<input type="hidden" name="page" value="${parentPage}" />
 <input type="text" name="nom_fichier" placeholder="nom du document" />
-`;//<input type="hidden" name="page" value="${parentPage}" />
+`;
     popup.style.display = "block";
 }
 
@@ -37,6 +39,7 @@ function popupValider() {
 
     // 2. Récupérer toutes les données du formulaire (nom, type, tokens, etc.)
     const formData = new FormData(formulaire);
+    formData.set("page", parentPage);
 
     // 3. Envoyer la requête de création à XWiki de manière asynchrone
     fetch(urlCommande, {
