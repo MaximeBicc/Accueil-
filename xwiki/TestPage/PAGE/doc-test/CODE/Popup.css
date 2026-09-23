@@ -154,3 +154,212 @@
 .branch-import-note {
     margin-top: 8px;
 }
+
+
+/* =============================================================
+   ARBORESCENCE D'IMPORT : LECTURE ET PLIAGE
+   ============================================================= */
+
+.branch-preview-header {
+    align-items: flex-start;
+}
+
+.branch-preview-count {
+    margin-top: 3px;
+    color: #6b7280;
+    font-size: 12px;
+    font-weight: normal;
+}
+
+.branch-preview-tree-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.branch-preview-summary {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.branch-tree {
+    padding: 10px 12px 14px;
+}
+
+.branch-tree ul {
+    position: relative;
+    padding-left: 24px;
+}
+
+.branch-tree ul.branch-tree-root {
+    padding-left: 0;
+}
+
+.branch-tree-children {
+    margin-left: 9px !important;
+    border-left: 1px solid #e5e7eb;
+}
+
+.branch-tree-folder.is-collapsed > .branch-tree-children {
+    display: none;
+}
+
+.branch-tree-row {
+    position: relative;
+    min-height: 32px;
+    padding: 3px 6px;
+    border-radius: 5px;
+}
+
+.branch-tree-row:hover {
+    background: #f9fafb;
+}
+
+.branch-tree-folder-row {
+    font-weight: 600;
+    color: #111827;
+}
+
+.branch-tree-file-row {
+    color: #374151;
+}
+
+.branch-tree-toggle,
+.branch-tree-toggle-spacer {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 18px;
+}
+
+.branch-tree-toggle {
+    position: relative;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    cursor: pointer;
+}
+
+.branch-tree-toggle:hover {
+    background: #e5e7eb;
+}
+
+.branch-tree-toggle::before {
+    content: "";
+    position: absolute;
+    top: 5px;
+    left: 6px;
+    width: 6px;
+    height: 6px;
+    border-right: 1.5px solid #6b7280;
+    border-bottom: 1.5px solid #6b7280;
+    transform: rotate(45deg);
+    transition: transform 0.15s ease;
+}
+
+.branch-tree-folder.is-collapsed > .branch-tree-row .branch-tree-toggle::before {
+    top: 6px;
+    left: 5px;
+    transform: rotate(-45deg);
+}
+
+.branch-tree-node-icon {
+    position: relative;
+    width: 18px;
+    height: 18px;
+    flex: 0 0 18px;
+}
+
+.branch-tree-folder-icon::before {
+    content: "";
+    position: absolute;
+    left: 1px;
+    top: 5px;
+    width: 16px;
+    height: 11px;
+    border: 1px solid #9ca3af;
+    border-radius: 2px;
+    background: #f9fafb;
+}
+
+.branch-tree-folder-icon::after {
+    content: "";
+    position: absolute;
+    left: 2px;
+    top: 2px;
+    width: 7px;
+    height: 5px;
+    border: 1px solid #9ca3af;
+    border-bottom: 0;
+    border-radius: 2px 2px 0 0;
+    background: #f9fafb;
+}
+
+.branch-tree-file-icon::before {
+    content: "";
+    position: absolute;
+    left: 3px;
+    top: 1px;
+    width: 12px;
+    height: 16px;
+    border: 1px solid #9ca3af;
+    border-radius: 2px;
+    background: #ffffff;
+}
+
+.branch-tree-file-icon::after {
+    content: "";
+    position: absolute;
+    right: 3px;
+    top: 1px;
+    width: 5px;
+    height: 5px;
+    border-left: 1px solid #9ca3af;
+    border-bottom: 1px solid #9ca3af;
+    background: #f9fafb;
+}
+
+.branch-tree-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.branch-tree-count {
+    min-width: 22px;
+    padding: 1px 6px;
+    border-radius: 10px;
+    background: #f3f4f6;
+    color: #6b7280;
+    font-size: 11px;
+    font-weight: 500;
+    text-align: center;
+}
+
+.branch-tree-type {
+    min-width: 52px;
+    margin-left: auto;
+}
+
+.branch-tree-empty {
+    padding: 5px 8px;
+}
+
+@media (max-width: 700px) {
+    .branch-preview-header {
+        flex-direction: column;
+    }
+
+    .branch-preview-tree-actions {
+        width: 100%;
+        justify-content: flex-start;
+    }
+
+    .branch-tree ul {
+        padding-left: 16px;
+    }
+}
