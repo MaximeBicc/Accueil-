@@ -149,12 +149,22 @@
           $object.set("tag", "")
           $object.set("description", "")
 
-          ## Utilise le nom d'affichage XWiki du compte courant.
-          ## C'est plus fiable que de reconstruire manuellement first_name / last_name.
-          #set($creatorName = $xwiki.getUserName($xcontext.user, false))
-          #if(!$creatorName || "$!creatorName" == "")
-            #set($creatorName = "$xcontext.user")
+          ## Récupère explicitement le prénom et le nom du profil XWiki.
+          #set($userDoc = $xwiki.getDocument($xcontext.user))
+          #set($firstName = "$!userDoc.getValue('first_name')")
+          #set($lastName = "$!userDoc.getValue('last_name')")
+
+          #if("$!firstName" != "" && "$!lastName" != "")
+            #set($creatorName = "$firstName $lastName")
+          #elseif("$!firstName" != "")
+            #set($creatorName = "$firstName")
+          #elseif("$!lastName" != "")
+            #set($creatorName = "$lastName")
+          #else
+            ## Dernier recours uniquement si le profil n'a ni prénom ni nom.
+            #set($creatorName = $xwiki.getUserName($xcontext.user, false))
           #end
+
           $object.set("createur", "$creatorName")
 
           $newPageDoc.save("Création de l'objet pour le nouveau fichier")
