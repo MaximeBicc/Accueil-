@@ -280,7 +280,7 @@ function assignUniqueTechnicalNames(folderNode) {
         }
     });
 
-    root.technicalName = root.technicalName || getTechnicalPageName(root.pageName || root.name);
+    folderNode.technicalName = folderNode.technicalName || getTechnicalPageName(folderNode.pageName || folderNode.name);
 }
 
 function sortBranchTree(folderNode) {
