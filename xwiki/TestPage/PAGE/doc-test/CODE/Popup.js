@@ -29,7 +29,7 @@ function ajouterDocument() {
     <label for="document-file-input">Document PDF ou Word</label>
     <input id="document-file-input" class="form-control" type="file"
         accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
-    <p class="help-block">Formats acceptés : PDF, DOC et DOCX. Le fichier est facultatif.</p>
+    <p class="help-block">DOC et DOCX sont convertis en contenu XWiki éditable. PDF conserve son affichage d'origine.</p>
 </div>
 `;
 
@@ -116,6 +116,12 @@ async function popupValider() {
         if (importInfo.file) {
             formData.set("source_filename", importInfo.safeName);
             formData.set("source_kind", importInfo.kind);
+
+            // Pour Word, COMMANDE reçoit directement le fichier et utilise
+            // l'Office Importer XWiki pour générer du contenu XWiki éditable.
+            if (importInfo.kind === "word") {
+                formData.append("filePath", importInfo.file, importInfo.safeName);
+            }
         } else {
             formData.set("source_filename", "");
             formData.set("source_kind", "");
