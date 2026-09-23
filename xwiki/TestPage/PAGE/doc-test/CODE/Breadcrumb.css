@@ -138,3 +138,86 @@
         align-self: flex-start;
     }
 }
+
+
+/* =============================================================
+   AJUSTEMENT DU BOUTON COPIE
+   ============================================================= */
+
+.breadcrumb-bar-shell {
+    display: block;
+}
+
+.breadcrumb-bar-shell #breadcrumb-wrapper {
+    position: relative;
+    margin-bottom: 0;
+}
+
+#breadcrumb-container,
+#breadcrumb-input {
+    padding-right: 48px;
+}
+
+.breadcrumb-copy-btn {
+    position: absolute;
+    top: 50%;
+    right: 8px;
+    z-index: 3;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    color: #6b7280;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    transform: translateY(-50%);
+}
+
+.breadcrumb-copy-btn:hover,
+.breadcrumb-copy-btn:focus {
+    border-color: #d1d5db;
+    background: #ffffff;
+    color: #111827;
+    outline: none;
+}
+
+.breadcrumb-copy-icon {
+    position: absolute;
+    left: 8px;
+    top: 7px;
+    width: 10px;
+    height: 11px;
+    border: 1.5px solid currentColor;
+    border-radius: 2px;
+}
+
+.breadcrumb-copy-icon::before {
+    content: "";
+    position: absolute;
+    left: -4px;
+    top: -4px;
+    width: 10px;
+    height: 11px;
+    border: 1.5px solid currentColor;
+    border-radius: 2px;
+    background: #f9fafb;
+    z-index: -1;
+}
+
+.breadcrumb-copy-success {
+    border-color: #86efac !important;
+    background: #f0fdf4 !important;
+    color: #166534 !important;
+}
+
+@media (max-width: 700px) {
+    .breadcrumb-bar-shell {
+        display: block;
+    }
+
+    .breadcrumb-copy-btn {
+        align-self: auto;
+    }
+}
