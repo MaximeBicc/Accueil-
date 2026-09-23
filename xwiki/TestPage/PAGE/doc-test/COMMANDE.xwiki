@@ -383,9 +383,89 @@
   #set($className = "TestPage.PAGE.Doc.CODE.docClass.WebHome")
 
   ## ============================================================
+  ## RESOLUTION SECURISEE DU CHEMIN SAISI DANS L'EXPLORATEUR
+  ## ============================================================
+  #if($action == "resolvePath")
+    #set($segments = $request.getParameterValues('segment'))
+    #set($rootDoc = $xwiki.getDocument($mainParent))
+    #set($currentRef = $mainParent)
+    #set($currentDoc = $rootDoc)
+    #set($pathValid = true)
+    #set($hasSegment = false)
+
+    #if($segments)
+      #foreach($segment in $segments)
+        #if("$!segment" != "")
+          #set($hasSegment = true)
+
+          ## Le premier segment peut être le nom visible de la racine.
+          #if($foreach.index == 0 && ("$segment" == "$rootDoc.displayTitle" || "$segment" == "doc-test"))
+            ## Rien à faire : on est déjà sur la racine.
+          #else
+            #set($matchedRef = "")
+
+            #foreach($candidateRef in $currentDoc.getChildren())
+              #set($candidateDoc = $xwiki.getDocument($candidateRef))
+              #set($candidateObj = $candidateDoc.getObject($className))
+              #set($candidateType = "")
+
+              #if($candidateObj)
+                #set($candidateType = "$!candidateObj.getValue('type')")
+              #end
+
+              ## La barre de chemin sert à naviguer dans des dossiers.
+              #if($candidateType == "folder")
+                #set($candidateClean = "$candidateRef")
+                #if($candidateClean.endsWith(".WebHome"))
+                  #set($candidateClean = $candidateClean.substring(0, $candidateClean.length() - 8))
+                #end
+
+                #set($candidateDot = $candidateClean.lastIndexOf("."))
+                #if($candidateDot >= 0)
+                  #set($candidateTechnicalName = $candidateClean.substring($candidateDot + 1))
+                #else
+                  #set($candidateTechnicalName = $candidateClean)
+                #end
+
+                ## Accepte le titre visible ou le nom technique XWiki.
+                #if("$candidateDoc.displayTitle" == "$segment" || "$candidateTechnicalName" == "$segment")
+                  #set($matchedRef = "$candidateRef")
+                  #break
+                #end
+              #end
+            #end
+
+            #if("$matchedRef" == "")
+              #set($pathValid = false)
+              #break
+            #else
+              #set($currentRef = $matchedRef)
+              #set($currentDoc = $xwiki.getDocument($currentRef))
+            #end
+          #end
+        #end
+      #end
+    #else
+      #set($pathValid = false)
+    #end
+
+    #if($pathValid && $hasSegment)
+      <div id="path-resolution"
+           data-status="ok"
+           data-ref="$escapetool.xml($currentRef)"
+           style="display:none"></div>
+      PATH_OK
+    #else
+      <div id="path-resolution"
+           data-status="invalid"
+           style="display:none"></div>
+      PATH_NOT_FOUND
+    #end
+
+  ## ============================================================
   ## DONNEES POUR LA VUE ARCHITECTURE
   ## ============================================================
-  #if($action == "architecture")
+  #elseif($action == "architecture")
     <div id="architecture-data">
       #set($treeQueue = [])
       #set($ignore = $treeQueue.add($mainParent))
@@ -493,29 +573,50 @@
 
     #set($ignore = $collectiontool.reverseModifiable($tryRefHistory))
 
-    <div id="breadcrumb-wrapper">
-      <div id="breadcrumb-container">
-        #foreach($tableRef in $tryRefHistory)
-          #set($tableDoc = $xwiki.getDocument($tableRef))
-          <span class="folder" data-full-name="$escapetool.xml($tableRef)">$escapetool.xml($tableDoc.displayTitle)</span>
-          #if($foreach.hasNext)
-            <span class="breadcrumb-separator">&rsaquo;</span>
+    #set($textPath = "")
+    #foreach($tableRef in $tryRefHistory)
+      #set($tableDoc = $xwiki.getDocument($tableRef))
+      #if($foreach.index == 0)
+        #set($textPath = $tableDoc.displayTitle)
+      #else
+        #set($textPath = "${textPath} > ${tableDoc.displayTitle}")
+      #end
+    #end
+
+    <div class="breadcrumb-bar-shell">
+      <div id="breadcrumb-wrapper">
+        <div id="breadcrumb-container">
+          #foreach($tableRef in $tryRefHistory)
+            #set($tableDoc = $xwiki.getDocument($tableRef))
+            <span class="folder" data-full-name="$escapetool.xml($tableRef)">$escapetool.xml($tableDoc.displayTitle)</span>
+            #if($foreach.hasNext)
+              <span class="breadcrumb-separator">&rsaquo;</span>
+            #end
           #end
-        #end
+        </div>
+
+        <input type="text"
+               id="breadcrumb-input"
+               value="$escapetool.xml($textPath)"
+               data-valid-path="$escapetool.xml($textPath)"
+               autocomplete="off"
+               spellcheck="false"
+               style="display:none;" />
       </div>
 
-      #set($textPath = "")
-      #foreach($tableRef in $tryRefHistory)
-        #set($tableDoc = $xwiki.getDocument($tableRef))
-        #if($foreach.index == 0)
-          #set($textPath = $tableDoc.displayTitle)
-        #else
-          #set($textPath = "${textPath} > ${tableDoc.displayTitle}")
-        #end
-      #end
-
-      <input type="text" id="breadcrumb-input" value="$escapetool.xml($textPath)" style="display:none;" />
+      <button type="button"
+              id="breadcrumb-copy-btn"
+              class="btn btn-default breadcrumb-copy-btn"
+              title="Copier le chemin">
+        Copier le chemin
+      </button>
     </div>
+
+    <div id="breadcrumb-error"
+         class="breadcrumb-error"
+         role="alert"
+         aria-live="polite"
+         style="display:none;"></div>
 
     #set($children = $parentDoc.getChildren())
     <ul class="file-explorer-list">
