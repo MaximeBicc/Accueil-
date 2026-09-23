@@ -980,7 +980,8 @@ async function fetchArchitectureState() {
     return {
         rootRef: rootRef,
         nodes: nodes,
-        collapsed: {}
+        collapsed: {},
+        selected: {}
     };
 }
 
@@ -1101,6 +1102,14 @@ function renderArchitectureBranch(nodeRef) {
         row.classList.add("architecture-row-changed");
     }
 
+    if (
+        node.type !== "root" &&
+        architectureState.selected &&
+        architectureState.selected[nodeRef]
+    ) {
+        row.classList.add("architecture-row-selected");
+    }
+
     const toggle = document.createElement("button");
     toggle.type = "button";
     toggle.className = "architecture-toggle";
@@ -1142,6 +1151,26 @@ function renderArchitectureBranch(nodeRef) {
     title.textContent = node.title;
 
     row.appendChild(toggle);
+
+    if (node.type !== "root") {
+        const select = document.createElement("input");
+        select.type = "checkbox";
+        select.className = "architecture-select-input";
+        select.setAttribute("data-architecture-select-ref", nodeRef);
+        select.setAttribute("aria-label", "Sélectionner " + node.title);
+        select.checked = !!(
+            architectureState.selected &&
+            architectureState.selected[nodeRef]
+        );
+
+        row.appendChild(select);
+    } else {
+        const selectSpacer = document.createElement("span");
+        selectSpacer.className = "architecture-select-spacer";
+        selectSpacer.setAttribute("aria-hidden", "true");
+        row.appendChild(selectSpacer);
+    }
+
     row.appendChild(nodeIcon);
     row.appendChild(type);
     row.appendChild(title);
@@ -1178,6 +1207,45 @@ function renderArchitectureBranch(nodeRef) {
     return item;
 }
 
+function getSelectedArchitectureNodes() {
+    if (!architectureState || !architectureState.selected) {
+        return [];
+    }
+
+    return Object.keys(architectureState.selected)
+        .filter(function(ref) {
+            return !!architectureState.selected[ref];
+        })
+        .map(function(ref) {
+            return architectureState.nodes[ref];
+        })
+        .filter(function(node) {
+            return !!node && node.type !== "root";
+        });
+}
+
+function getTopLevelSelectedArchitectureNodes() {
+    const items = getSelectedArchitectureNodes().map(function(node) {
+        return {
+            ref: node.currentRef || node.ref,
+            title: node.title,
+            type: node.type,
+            node: node
+        };
+    });
+
+    return filterTopLevelSelection(items);
+}
+
+function clearArchitectureSelection() {
+    if (!architectureState) {
+        return;
+    }
+
+    architectureState.selected = {};
+    renderArchitectureTree();
+}
+
 function getArchitectureChangedNodes() {
     if (!architectureState) {
         return [];
@@ -1199,16 +1267,34 @@ function updateArchitectureSummary() {
     const count = document.getElementById(
         "architecture-change-count"
     );
-
-    if (!count) {
-        return;
-    }
+    const selectedCount = document.getElementById(
+        "architecture-selection-count"
+    );
+    const deleteButton = document.getElementById(
+        "architecture-delete-btn"
+    );
 
     const changed = getArchitectureChangedNodes();
+    const selected = getSelectedArchitectureNodes();
 
-    count.textContent = changed.length > 0
-        ? changed.length + " déplacement(s) prévu(s)"
-        : "Aucun déplacement prévu";
+    if (count) {
+        count.textContent = changed.length > 0
+            ? changed.length + " déplacement(s) prévu(s)"
+            : "Aucun déplacement prévu";
+    }
+
+    if (selectedCount) {
+        selectedCount.textContent = selected.length > 0
+            ? selected.length + " élément(s) sélectionné(s)"
+            : "Aucune sélection";
+    }
+
+    if (deleteButton) {
+        deleteButton.disabled = selected.length === 0;
+        deleteButton.textContent = selected.length > 0
+            ? "Supprimer (" + selected.length + ")"
+            : "Supprimer";
+    }
 }
 
 function renderArchitectureTree() {
@@ -1262,8 +1348,38 @@ function bindArchitectureDragAndDrop() {
         renderArchitectureTree();
     });
 
+    tree.addEventListener("change", function(event) {
+        const checkbox = event.target.closest(".architecture-select-input");
+
+        if (!checkbox || !architectureState) {
+            return;
+        }
+
+        const ref = checkbox.getAttribute("data-architecture-select-ref");
+
+        if (!ref || !architectureState.nodes[ref]) {
+            return;
+        }
+
+        architectureState.selected = architectureState.selected || {};
+        architectureState.selected[ref] = checkbox.checked;
+
+        const row = checkbox.closest(".architecture-row");
+        if (row) {
+            row.classList.toggle(
+                "architecture-row-selected",
+                checkbox.checked
+            );
+        }
+
+        updateArchitectureSummary();
+    });
+
     tree.addEventListener("dragstart", function(event) {
-        if (event.target.closest(".architecture-toggle")) {
+        if (
+            event.target.closest(".architecture-toggle") ||
+            event.target.closest(".architecture-select-input")
+        ) {
             event.preventDefault();
             return;
         }
@@ -1455,6 +1571,104 @@ function updateArchitectureCurrentRefs(
     });
 }
 
+async function deleteArchitectureSelection(box) {
+    if (!architectureState) {
+        return;
+    }
+
+    const changed = getArchitectureChangedNodes();
+
+    // Supprimer alors que des déplacements ne sont pas encore validés peut
+    // rendre la prévisualisation incohérente par rapport à l'arbre réel.
+    if (changed.length > 0) {
+        alert(
+            "Valide ou réinitialise d'abord les déplacements en attente avant de supprimer."
+        );
+        return;
+    }
+
+    const selected = getTopLevelSelectedArchitectureNodes();
+
+    if (selected.length === 0) {
+        return;
+    }
+
+    const folderCount = selected.filter(function(item) {
+        return item.type === "folder";
+    }).length;
+
+    let confirmation =
+        "Supprimer " + selected.length + " élément(s) sélectionné(s) ?";
+
+    if (folderCount > 0) {
+        confirmation +=
+            "\n\nLes dossiers sélectionnés seront supprimés avec tous leurs enfants.";
+    }
+
+    if (!window.confirm(confirmation)) {
+        return;
+    }
+
+    const deleteButton = document.getElementById(
+        "architecture-delete-btn"
+    );
+    const failures = [];
+    let successCount = 0;
+
+    if (deleteButton) {
+        deleteButton.disabled = true;
+    }
+
+    for (let i = 0; i < selected.length; i++) {
+        const item = selected[i];
+
+        if (deleteButton) {
+            deleteButton.textContent =
+                "Suppression " + (i + 1) + "/" + selected.length;
+        }
+
+        try {
+            const result = await postExplorerAction({
+                action: "supprimer element",
+                source_ref: item.ref
+            });
+
+            if (result.indexOf("SUPPRESSION_OK") === -1) {
+                throw new Error(getExplorerActionError(result));
+            }
+
+            successCount++;
+        } catch (error) {
+            failures.push(
+                item.title + " : " +
+                (error && error.message ? error.message : String(error))
+            );
+        }
+    }
+
+    try {
+        architectureState = await fetchArchitectureState();
+        renderArchitectureTree();
+    } catch (error) {
+        closeArchitectureEditor();
+    }
+
+    explorerSelectionMode = false;
+    explorerPendingMove = null;
+
+    if (typeof initialPageRef !== "undefined") {
+        LienPerso(initialPageRef, box);
+    }
+
+    if (failures.length > 0) {
+        alert(
+            successCount + " élément(s) supprimé(s) sur " +
+            selected.length + ".\n\nÉchecs :\n" +
+            failures.join("\n")
+        );
+    }
+}
+
 async function validateArchitectureChanges(box) {
     if (!architectureState) {
         return;
@@ -1617,9 +1831,13 @@ async function openArchitectureEditor(box) {
     count.id = "architecture-change-count";
     count.textContent = "Aucun déplacement prévu";
 
+    const selectionCount = document.createElement("span");
+    selectionCount.id = "architecture-selection-count";
+    selectionCount.textContent = "Aucune sélection";
+
     const instruction = document.createElement("span");
     instruction.textContent =
-        "Dépose les éléments uniquement sur une racine ou un dossier.";
+        "Coche les éléments à supprimer ou fais-les glisser pour les déplacer.";
 
     const treeActions = document.createElement("div");
     treeActions.className = "architecture-tree-actions";
@@ -1644,6 +1862,7 @@ async function openArchitectureEditor(box) {
     treeActions.appendChild(expandAllButton);
 
     info.appendChild(count);
+    info.appendChild(selectionCount);
     info.appendChild(instruction);
     info.appendChild(treeActions);
 
@@ -1653,6 +1872,24 @@ async function openArchitectureEditor(box) {
 
     const footer = document.createElement("div");
     footer.className = "architecture-modal-footer";
+
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.id = "architecture-delete-btn";
+    deleteButton.className = "btn btn-danger";
+    deleteButton.textContent = "Supprimer";
+    deleteButton.disabled = true;
+    deleteButton.addEventListener("click", function() {
+        deleteArchitectureSelection(box);
+    });
+
+    const clearSelectionButton = document.createElement("button");
+    clearSelectionButton.type = "button";
+    clearSelectionButton.className = "btn btn-default";
+    clearSelectionButton.textContent = "Désélectionner";
+    clearSelectionButton.addEventListener("click", function() {
+        clearArchitectureSelection();
+    });
 
     const resetButton = document.createElement("button");
     resetButton.type = "button";
@@ -1679,6 +1916,8 @@ async function openArchitectureEditor(box) {
         validateArchitectureChanges(box);
     });
 
+    footer.appendChild(deleteButton);
+    footer.appendChild(clearSelectionButton);
     footer.appendChild(resetButton);
     footer.appendChild(cancelButton);
     footer.appendChild(validateButton);
