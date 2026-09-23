@@ -442,55 +442,6 @@
     flex: 0 0 18px;
 }
 
-.architecture-folder-icon::before {
-    content: "";
-    position: absolute;
-    left: 1px;
-    top: 5px;
-    width: 16px;
-    height: 11px;
-    border: 1px solid #9ca3af;
-    border-radius: 2px;
-    background: #f9fafb;
-}
-
-.architecture-folder-icon::after {
-    content: "";
-    position: absolute;
-    left: 2px;
-    top: 2px;
-    width: 7px;
-    height: 5px;
-    border: 1px solid #9ca3af;
-    border-bottom: 0;
-    border-radius: 2px 2px 0 0;
-    background: #f9fafb;
-}
-
-.architecture-document-icon::before {
-    content: "";
-    position: absolute;
-    left: 3px;
-    top: 1px;
-    width: 12px;
-    height: 16px;
-    border: 1px solid #9ca3af;
-    border-radius: 2px;
-    background: #ffffff;
-}
-
-.architecture-document-icon::after {
-    content: "";
-    position: absolute;
-    right: 3px;
-    top: 1px;
-    width: 5px;
-    height: 5px;
-    border-left: 1px solid #9ca3af;
-    border-bottom: 1px solid #9ca3af;
-    background: #f9fafb;
-}
-
 .architecture-child-count {
     min-width: 22px;
     padding: 1px 6px;
@@ -566,4 +517,25 @@
     .architecture-modal-footer #architecture-delete-btn {
         margin-right: 0;
     }
+}
+
+
+/* Icônes Architecture : uniquement les icônes natives rendues par XWiki. */
+.architecture-xwiki-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #6b7280;
+}
+
+.architecture-xwiki-icon > * {
+    margin: 0;
+}
+
+.architecture-row-selected .architecture-xwiki-icon {
+    color: #1d4ed8;
+}
+
+.architecture-select-input:indeterminate {
+    accent-color: #2563eb;
 }
