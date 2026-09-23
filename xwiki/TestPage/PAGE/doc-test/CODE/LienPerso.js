@@ -60,31 +60,25 @@ function clearBreadcrumbError(box) {
 }
 
 async function resolveExplorerBreadcrumbPath(pathContent) {
-    const pages = String(pathContent || "")
+    const segments = String(pathContent || "")
         .split(/[>»]+/)
-        .map(function(page) {
-            return page.trim();
+        .map(function(part) {
+            return part.trim();
         })
-        .filter(function(page) {
-            return page;
+        .filter(function(part) {
+            return part;
         });
 
-    if (pages.length === 0) {
+    if (segments.length === 0) {
         return typeof initialPageRef !== "undefined"
             ? initialPageRef
             : "";
     }
 
-    const params = new URLSearchParams();
-    params.set("xpage", "plain");
-    params.set("action", "resolvePath");
-
-    pages.forEach(function(page) {
-        params.append("segment", page);
-    });
-
+    // On s'appuie sur la même source que la vue Architecture.
+    // Elle contient déjà toutes les références, leurs parents et leurs titres.
     const response = await fetch(
-        urlCommande + "?" + params.toString(),
+        urlCommande + "?xpage=plain&action=architecture",
         {
             method: "GET",
             credentials: "same-origin",
@@ -96,16 +90,83 @@ async function resolveExplorerBreadcrumbPath(pathContent) {
 
     const html = await response.text();
     const parsed = new DOMParser().parseFromString(html, "text/html");
-    const result = parsed.getElementById("path-resolution");
+    const elements = Array.prototype.slice.call(
+        parsed.querySelectorAll(".architecture-node-data")
+    );
 
-    if (
-        !result ||
-        result.getAttribute("data-status") !== "ok"
-    ) {
-        return "";
+    if (elements.length === 0) {
+        throw new Error("ARCHITECTURE_DATA_EMPTY");
     }
 
-    return result.getAttribute("data-ref") || "";
+    const nodes = elements.map(function(element) {
+        const ref = element.getAttribute("data-ref") || "";
+        const cleanRef = cleanNestedPageRef(ref);
+        const lastDot = cleanRef.lastIndexOf(".");
+        const technicalName = lastDot >= 0
+            ? cleanRef.substring(lastDot + 1)
+            : cleanRef;
+
+        return {
+            ref: ref,
+            parentRef: element.getAttribute("data-parent-ref") || "",
+            title: element.getAttribute("data-title") || "",
+            type: element.getAttribute("data-type") || "",
+            technicalName: technicalName
+        };
+    });
+
+    const root = nodes.find(function(node) {
+        return node.type === "root";
+    });
+
+    if (!root) {
+        throw new Error("ARCHITECTURE_ROOT_MISSING");
+    }
+
+    let index = 0;
+    let currentRef = root.ref;
+
+    // Le chemin affiché commence normalement par le titre de la racine.
+    // On accepte aussi "doc-test", mais on autorise également un chemin
+    // saisi directement à partir du premier dossier.
+    const first = segments[0].toLowerCase();
+    const rootTitle = String(root.title || "").toLowerCase();
+    const rootTechnical = String(root.technicalName || "").toLowerCase();
+
+    if (
+        first === rootTitle ||
+        first === rootTechnical ||
+        first === "doc-test"
+    ) {
+        index = 1;
+    }
+
+    for (; index < segments.length; index++) {
+        const wanted = segments[index].toLowerCase();
+
+        const match = nodes.find(function(node) {
+            if (node.type !== "folder") {
+                return false;
+            }
+
+            if (node.parentRef !== currentRef) {
+                return false;
+            }
+
+            return (
+                String(node.title || "").toLowerCase() === wanted ||
+                String(node.technicalName || "").toLowerCase() === wanted
+            );
+        });
+
+        if (!match) {
+            return "";
+        }
+
+        currentRef = match.ref;
+    }
+
+    return currentRef;
 }
 
 async function copyExplorerPath(pathText) {
@@ -297,13 +358,15 @@ function createSpan(box) {
             try {
                 await copyExplorerPath(pathToCopy);
 
-                const oldText = copyButton.textContent;
-                copyButton.textContent = "Copié";
+                const oldTitle = copyButton.getAttribute("title") || "Copier le chemin";
                 copyButton.classList.add("breadcrumb-copy-success");
+                copyButton.setAttribute("title", "Chemin copié");
+                copyButton.setAttribute("aria-label", "Chemin copié");
 
                 setTimeout(function() {
-                    copyButton.textContent = oldText;
                     copyButton.classList.remove("breadcrumb-copy-success");
+                    copyButton.setAttribute("title", oldTitle);
+                    copyButton.setAttribute("aria-label", "Copier le chemin");
                 }, 1200);
             } catch (error) {
                 console.error("Copie du chemin impossible :", error);
