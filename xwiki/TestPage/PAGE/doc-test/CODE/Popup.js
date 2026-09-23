@@ -9,6 +9,7 @@ function ajouterFichier() {
     const content = document.getElementById("popupContent");
 
     branchImportSelection = null;
+    documentImportSelection = [];
 
     content.innerHTML = `
 <h4>Ajouter un dossier</h4>
@@ -533,6 +534,30 @@ function bindBranchTreePreviewEvents(preview) {
                 assignUniqueTechnicalNames(branchImportSelection.root);
             }
         });
+
+        tree.addEventListener("input", function(event) {
+            const renameInput = event.target.closest(".branch-tree-rename");
+            const item = event.target.closest("[data-branch-node-id]");
+
+            if (!renameInput || !item) {
+                return;
+            }
+
+            const node = branchImportNodeMap[
+                item.getAttribute("data-branch-node-id")
+            ];
+
+            if (!node) {
+                return;
+            }
+
+            const value = renameInput.value.trim();
+
+            if (value) {
+                node.pageName = value;
+                assignUniqueTechnicalNames(branchImportSelection.root);
+            }
+        });
     }
 
     if (collapseAll) {
@@ -762,6 +787,14 @@ function renderDocumentSelectionPreview() {
         }
 
         if (nameInput) {
+            nameInput.addEventListener("input", function() {
+                const value = nameInput.value.trim();
+
+                if (value) {
+                    item.pageName = value;
+                }
+            });
+
             nameInput.addEventListener("change", function() {
                 const value = nameInput.value.trim();
 
@@ -1254,6 +1287,7 @@ async function popupValider() {
 
 function popupAnnuler() {
     branchImportSelection = null;
+    documentImportSelection = [];
     document.getElementById("popup").style.display = "none";
 }
 
@@ -1265,6 +1299,7 @@ document.addEventListener("DOMContentLoaded", function() {
         const span = closeButtons[closeButtons.length - 1];
         span.onclick = function() {
             branchImportSelection = null;
+            documentImportSelection = [];
             popup.style.display = "none";
         };
     }
@@ -1272,6 +1307,7 @@ document.addEventListener("DOMContentLoaded", function() {
     window.addEventListener("click", function(event) {
         if (event.target === popup) {
             branchImportSelection = null;
+            documentImportSelection = [];
             popup.style.display = "none";
         }
     });
