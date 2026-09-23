@@ -2,234 +2,498 @@
 {{html}}
 #if ($request.getMethod() == "POST")
   #set($action = $!request.getParameter('action'))
-  #set($type = $!request.getParameter('type'))
   #set($formToken = $!request.getParameter('form_token'))
-  #set($nomFichier = $!request.getParameter('nom_fichier'))
-  #set($technicalName = "$!request.getParameter('technical_name')")
-  #if(!$technicalName || "$!technicalName" == "")
-    #set($technicalName = "$nomFichier")
-  #end
-  #set($pageParent = $!request.getParameter('page'))
-  #set($sourceFilename = "$!request.getParameter('source_filename')")
-  #set($sourceKind = "$!request.getParameter('source_kind')")
-
-  #set($docParent = "")
-  #if($pageParent && "$!pageParent" != "")
-    #set($docParent = $xwiki.getDocument($pageParent))
-  #end
+  #set($mainParent = 'TestPage.PAGE.doc-test.WebHome')
+  #set($mainSpace = 'TestPage.PAGE.doc-test')
+  #set($className = "TestPage.PAGE.Doc.CODE.docClass.WebHome")
 
   #if(!$services.csrf.isTokenValid($formToken))
     ERREUR_CSRF
-  #elseif($action != "ajouter un fichier" && $action != "ajouter un document")
-    ERREUR_ACTION
-  #elseif(!$nomFichier || "$!nomFichier" == "")
-    ERREUR_CHAMPS
-  #elseif(!$pageParent || "$!pageParent" == "")
-    ERREUR_PAGE_DE_STOCKAGE_INTROUVABLE
-  #elseif($docParent.isNew())
-    ERREUR_PAGE_DE_STOCKAGE_INTROUVABLE
-    $pageParent
-  #elseif($sourceKind != "" && $sourceKind != "pdf" && $sourceKind != "word" && $sourceKind != "file")
-    ERREUR_FORMAT_DOCUMENT
-  #elseif($sourceFilename.contains('"') || $sourceFilename.contains("{{") || $sourceFilename.contains("}}"))
-    ERREUR_NOM_DOCUMENT
-  #elseif(!$xwiki.hasAccessLevel("edit", $xcontext.user, $doc.fullName))
-    ERREUR_DROITS
-  #else
-    #try
-      #set($pageParentClean = $pageParent)
-      #if($pageParent.endsWith(".WebHome"))
-        #set($pageParentClean = $pageParent.substring(0, $pageParent.length() - 8))
-      #end
 
-      ## Le nom technique est calculé côté navigateur et envoyé explicitement.
-      ## On évite $xwiki.cleanName() ici car sur cette instance il pouvait laisser
-      ## la variable non définie et créer littéralement une page "${technicalName}".
-      #set($newPageRef = "${pageParentClean}.${technicalName}.WebHome")
-      #set($newPageDoc = $xwiki.getDocument($newPageRef))
+  ## ============================================================
+  ## SUPPRESSION D'UN DOCUMENT OU D'UN DOSSIER
+  ## ============================================================
+  #elseif($action == "supprimer element")
+    #set($sourceRef = "$!request.getParameter('source_ref')")
 
-      #if(!$newPageDoc.isNew())
-        ERREUR_PAGE_EXISTE
+    #if(!$sourceRef || "$!sourceRef" == "")
+      ERREUR_SOURCE_MANQUANTE
+    #elseif($sourceRef == $mainParent)
+      ERREUR_RACINE_PROTEGEE
+    #elseif(!$sourceRef.startsWith("${mainSpace}."))
+      ERREUR_SOURCE_HORS_DOCUMENTATION
+    #else
+      #set($sourceDoc = $xwiki.getDocument($sourceRef))
+
+      #if($sourceDoc.isNew())
+        ERREUR_SOURCE_INTROUVABLE
+      #elseif(!$xwiki.hasAccessLevel("delete", $xcontext.user, $sourceDoc.fullName))
+        ERREUR_DROITS
       #else
-        #set($pageReady = false)
+        #set($sourceObj = $sourceDoc.getObject($className))
+        #set($sourceType = "")
+        #if($sourceObj)
+          #set($sourceType = "$!sourceObj.getValue('type')")
+        #end
 
-        ## ------------------------------------------------------------
-        ## WORD : conversion réelle en contenu XWiki éditable.
-        ## On utilise le même service que l'import Office natif de XWiki.
-        ## ------------------------------------------------------------
-        #if($type == "document" && $sourceKind == "word")
-          #set($fileUpload = $xwiki.fileupload)
-          #set($officeFileName = $fileUpload.getFileName("filePath"))
+        #if($sourceType != "folder" && $sourceType != "document")
+          ERREUR_ELEMENT_INVALIDE
+        #else
+          #try
+            #set($deleteRefs = [])
+            #set($ignore = $deleteRefs.add($sourceDoc.documentReference))
+            #set($deleteRequest = $services.refactoring.requestFactory.createDeleteRequest($deleteRefs))
 
-          #if(!$officeFileName || "$!officeFileName" == "")
-            ERREUR_DOCUMENT_MANQUANT
-          #else
-            #set($discard = $fileUpload.loadFileList())
-            #set($officeFileStream = "")
-
-            #foreach($fileItem in $fileUpload.fileItems)
-              #if($fileItem.fieldName == "filePath")
-                #set($officeFileStream = $fileItem.inputStream)
-                #break
-              #end
+            #set($deepDelete = false)
+            #if($sourceType == "folder")
+              #set($deepDelete = true)
             #end
 
-            #if(!$officeFileStream || "$!officeFileStream" == "")
+            #set($ignore = $deleteRequest.setDeep($deepDelete))
+            #set($deleteJob = $services.refactoring.delete($deleteRequest))
+
+            #if(!$deleteJob)
+              ERREUR_SUPPRESSION
+            #else
+              #set($ignore = $deleteJob.join())
+
+              #if($xwiki.getDocument($sourceRef).isNew())
+                SUPPRESSION_OK
+              #else
+                ERREUR_SUPPRESSION
+              #end
+            #end
+          #catch(Exception e)
+            ERREUR_SUPPRESSION: $e.message
+          #end
+        #end
+      #end
+    #end
+
+  ## ============================================================
+  ## DEPLACEMENT D'UN DOCUMENT OU D'UN DOSSIER
+  ## ============================================================
+  #elseif($action == "deplacer element")
+    #set($sourceRef = "$!request.getParameter('source_ref')")
+    #set($targetParentRef = "$!request.getParameter('target_parent_ref')")
+
+    #if(!$sourceRef || "$!sourceRef" == "" || !$targetParentRef || "$!targetParentRef" == "")
+      ERREUR_DEPLACEMENT_PARAMETRES
+    #elseif($sourceRef == $mainParent)
+      ERREUR_RACINE_PROTEGEE
+    #elseif(!$sourceRef.startsWith("${mainSpace}.") || !($targetParentRef == $mainParent || $targetParentRef.startsWith("${mainSpace}.")))
+      ERREUR_DEPLACEMENT_HORS_DOCUMENTATION
+    #else
+      #set($sourceDoc = $xwiki.getDocument($sourceRef))
+      #set($targetParentDoc = $xwiki.getDocument($targetParentRef))
+
+      #if($sourceDoc.isNew())
+        ERREUR_SOURCE_INTROUVABLE
+      #elseif($targetParentDoc.isNew())
+        ERREUR_DESTINATION_INTROUVABLE
+      #else
+        #set($sourceObj = $sourceDoc.getObject($className))
+        #set($sourceType = "")
+        #if($sourceObj)
+          #set($sourceType = "$!sourceObj.getValue('type')")
+        #end
+
+        #set($targetObj = $targetParentDoc.getObject($className))
+        #set($targetType = "")
+        #if($targetParentRef == $mainParent)
+          #set($targetType = "root")
+        #elseif($targetObj)
+          #set($targetType = "$!targetObj.getValue('type')")
+        #end
+
+        #if($sourceType != "folder" && $sourceType != "document")
+          ERREUR_ELEMENT_INVALIDE
+        #elseif($targetType != "root" && $targetType != "folder")
+          ERREUR_DESTINATION_INVALIDE
+        #else
+          #set($sourceClean = $sourceRef)
+          #if($sourceClean.endsWith(".WebHome"))
+            #set($sourceClean = $sourceClean.substring(0, $sourceClean.length() - 8))
+          #end
+
+          #set($targetParentClean = $targetParentRef)
+          #if($targetParentClean.endsWith(".WebHome"))
+            #set($targetParentClean = $targetParentClean.substring(0, $targetParentClean.length() - 8))
+          #end
+
+          #if($sourceType == "folder" && ($targetParentClean == $sourceClean || $targetParentClean.startsWith("${sourceClean}.")))
+            ERREUR_DESTINATION_DANS_SOURCE
+          #else
+            #set($lastDot = $sourceClean.lastIndexOf("."))
+            #if($lastDot >= 0)
+              #set($sourceTechnicalName = $sourceClean.substring($lastDot + 1))
+            #else
+              #set($sourceTechnicalName = $sourceClean)
+            #end
+
+            #set($newPageRef = "${targetParentClean}.${sourceTechnicalName}.WebHome")
+
+            #if($newPageRef == $sourceRef)
+              ERREUR_DEPLACEMENT_IDENTIQUE
+            #elseif(!$xwiki.getDocument($newPageRef).isNew())
+              ERREUR_DESTINATION_EXISTE
+            #elseif(!$xwiki.hasAccessLevel("delete", $xcontext.user, $sourceDoc.fullName))
+              ERREUR_DROITS
+            #elseif(!$xwiki.hasAccessLevel("edit", $xcontext.user, $targetParentDoc.fullName))
+              ERREUR_DROITS
+            #else
+              #try
+                #set($newPageDoc = $xwiki.getDocument($newPageRef))
+                #set($moveRequest = $services.refactoring.requestFactory.createRenameRequest(
+                  $sourceDoc.documentReference,
+                  $newPageDoc.documentReference
+                ))
+
+                #set($deepMove = false)
+                #if($sourceType == "folder")
+                  #set($deepMove = true)
+                #end
+
+                #set($ignore = $moveRequest.setDeep($deepMove))
+                #set($ignore = $moveRequest.setUpdateLinks(true))
+                #set($ignore = $moveRequest.setAutoRedirect(false))
+                #set($ignore = $moveRequest.setUpdateParentField(true))
+
+                #set($moveJob = $services.refactoring.rename($moveRequest))
+
+                #if(!$moveJob)
+                  ERREUR_DEPLACEMENT
+                #else
+                  #set($ignore = $moveJob.join())
+                  #set($movedDoc = $xwiki.getDocument($newPageRef))
+
+                  #if($movedDoc.isNew())
+                    ERREUR_DEPLACEMENT
+                  #else
+                    #set($idQueue = [])
+                    #set($ignore = $idQueue.add($newPageRef))
+
+                    #foreach($queueIndex in [0..500])
+                      #if($queueIndex < $idQueue.size())
+                        #set($idRef = $idQueue.get($queueIndex))
+                        #set($idDoc = $xwiki.getDocument($idRef))
+                        #set($idObj = $idDoc.getObject($className))
+
+                        #if($idObj)
+                          $idObj.set("id", $idRef)
+                          $idDoc.save("Mise à jour après déplacement")
+                        #end
+
+                        #if($sourceType == "folder")
+                          #foreach($idChildRef in $idDoc.getChildren())
+                            #set($idChildDoc = $xwiki.getDocument($idChildRef))
+                            #set($idChildObj = $idChildDoc.getObject($className))
+                            #if($idChildObj)
+                              #set($idChildType = "$!idChildObj.getValue('type')")
+                              #if($idChildType == "folder" || $idChildType == "document")
+                                #set($ignore = $idQueue.add($idChildRef))
+                              #end
+                            #end
+                          #end
+                        #end
+                      #end
+                    #end
+
+                    <div id="move-result"
+                         data-old-ref="$escapetool.xml($sourceRef)"
+                         data-new-ref="$escapetool.xml($newPageRef)"
+                         style="display:none"></div>
+                    DEPLACEMENT_OK
+                  #end
+                #end
+              #catch(Exception e)
+                ERREUR_DEPLACEMENT: $e.message
+              #end
+            #end
+          #end
+        #end
+      #end
+    #end
+
+  ## ============================================================
+  ## CREATION EXISTANTE
+  ## ============================================================
+  #else
+    #set($type = $!request.getParameter('type'))
+    #set($nomFichier = $!request.getParameter('nom_fichier'))
+    #set($technicalName = "$!request.getParameter('technical_name')")
+    #if(!$technicalName || "$!technicalName" == "")
+      #set($technicalName = "$nomFichier")
+    #end
+    #set($pageParent = $!request.getParameter('page'))
+    #set($sourceFilename = "$!request.getParameter('source_filename')")
+    #set($sourceKind = "$!request.getParameter('source_kind')")
+
+    #set($docParent = "")
+    #if($pageParent && "$!pageParent" != "")
+      #set($docParent = $xwiki.getDocument($pageParent))
+    #end
+
+    #if($action != "ajouter un fichier" && $action != "ajouter un document")
+      ERREUR_ACTION
+    #elseif(!$nomFichier || "$!nomFichier" == "")
+      ERREUR_CHAMPS
+    #elseif(!$pageParent || "$!pageParent" == "")
+      ERREUR_PAGE_DE_STOCKAGE_INTROUVABLE
+    #elseif($docParent.isNew())
+      ERREUR_PAGE_DE_STOCKAGE_INTROUVABLE
+      $pageParent
+    #elseif($sourceKind != "" && $sourceKind != "pdf" && $sourceKind != "word" && $sourceKind != "file")
+      ERREUR_FORMAT_DOCUMENT
+    #elseif($sourceFilename.contains('"') || $sourceFilename.contains("{{") || $sourceFilename.contains("}}"))
+      ERREUR_NOM_DOCUMENT
+    #elseif(!$xwiki.hasAccessLevel("edit", $xcontext.user, $doc.fullName))
+      ERREUR_DROITS
+    #else
+      #try
+        #set($pageParentClean = $pageParent)
+        #if($pageParent.endsWith(".WebHome"))
+          #set($pageParentClean = $pageParent.substring(0, $pageParent.length() - 8))
+        #end
+
+        #set($newPageRef = "${pageParentClean}.${technicalName}.WebHome")
+        #set($newPageDoc = $xwiki.getDocument($newPageRef))
+
+        #if(!$newPageDoc.isNew())
+          ERREUR_PAGE_EXISTE
+        #else
+          #set($pageReady = false)
+
+          #if($type == "document" && $sourceKind == "word")
+            #set($fileUpload = $xwiki.fileupload)
+            #set($officeFileName = $fileUpload.getFileName("filePath"))
+
+            #if(!$officeFileName || "$!officeFileName" == "")
               ERREUR_DOCUMENT_MANQUANT
             #else
-              #set($targetDocumentReference = $newPageDoc.documentReference)
-              #set($parentDocumentReference = $docParent.documentReference)
+              #set($discard = $fileUpload.loadFileList())
+              #set($officeFileStream = "")
 
-              ## false = on conserve le plus possible les styles du document source.
-              #set($xdomOfficeDoc = $services.officeimporter.officeToXDOM(
-                $officeFileStream,
-                $officeFileName,
-                $targetDocumentReference,
-                false
-              ))
+              #foreach($fileItem in $fileUpload.fileItems)
+                #if($fileItem.fieldName == "filePath")
+                  #set($officeFileStream = $fileItem.inputStream)
+                  #break
+                #end
+              #end
 
-              #if($xdomOfficeDoc)
-                #set($pageReady = $services.officeimporter.save(
-                  $xdomOfficeDoc,
+              #if(!$officeFileStream || "$!officeFileStream" == "")
+                ERREUR_DOCUMENT_MANQUANT
+              #else
+                #set($targetDocumentReference = $newPageDoc.documentReference)
+                #set($parentDocumentReference = $docParent.documentReference)
+
+                #set($xdomOfficeDoc = $services.officeimporter.officeToXDOM(
+                  $officeFileStream,
+                  $officeFileName,
                   $targetDocumentReference,
-                  $parentDocumentReference,
-                  $nomFichier,
                   false
                 ))
-                #set($discard = $xdomOfficeDoc.close())
 
-                #if(!$pageReady)
+                #if($xdomOfficeDoc)
+                  #set($pageReady = $services.officeimporter.save(
+                    $xdomOfficeDoc,
+                    $targetDocumentReference,
+                    $parentDocumentReference,
+                    $nomFichier,
+                    false
+                  ))
+                  #set($discard = $xdomOfficeDoc.close())
+
+                  #if(!$pageReady)
+                    ERREUR_IMPORT_OFFICE: $services.officeimporter.errorMessage
+                  #end
+                #else
                   ERREUR_IMPORT_OFFICE: $services.officeimporter.errorMessage
                 #end
-              #else
-                ERREUR_IMPORT_OFFICE: $services.officeimporter.errorMessage
+              #end
+            #end
+          #else
+            $newPageDoc.setTitle("$nomFichier")
+            $newPageDoc.setParent($docParent.fullName)
+
+            #if($type == "document" && $sourceKind == "pdf" && $sourceFilename != "")
+              #set($dq = '"')
+              #set($pageContent = "{{pdf filename=${dq}${sourceFilename}${dq}/}}")
+              $newPageDoc.setContent($pageContent)
+            #elseif($type == "document" && $sourceKind == "file" && $sourceFilename != "")
+              #set($pageContent = "[[Télécharger le fichier>>attach:${sourceFilename}]]")
+              $newPageDoc.setContent($pageContent)
+            #else
+              $newPageDoc.setContent("")
+            #end
+
+            $newPageDoc.save("Création d'un nouveau fichier")
+            #set($pageReady = true)
+          #end
+
+          #if($pageReady)
+            #set($newPageDoc = $xwiki.getDocument($newPageRef))
+            #set($object = $newPageDoc.getObject($className))
+
+            #if(!$object)
+              #set($numeroObject = $newPageDoc.createNewObject($className))
+              #set($object = $newPageDoc.getObject($className, $numeroObject))
+            #end
+
+            $object.set("nom", $nomFichier)
+            $object.set("type", "${type}")
+            $object.set("id", $newPageRef)
+            $object.set("tag", "")
+            $object.set("description", "")
+
+            #set($userDoc = $xwiki.getDocument($xcontext.user))
+            #set($firstName = "$!userDoc.getValue('first_name')")
+            #set($lastName = "$!userDoc.getValue('last_name')")
+
+            #if("$!firstName" != "" && "$!lastName" != "")
+              #set($creatorName = "$firstName $lastName")
+            #elseif("$!firstName" != "")
+              #set($creatorName = "$firstName")
+            #elseif("$!lastName" != "")
+              #set($creatorName = "$lastName")
+            #else
+              #set($creatorName = $xwiki.getUserName($xcontext.user, false))
+            #end
+
+            $object.set("createur", "$creatorName")
+            $newPageDoc.save("Création de l'objet pour le nouveau fichier")
+
+            #set($uploadUrl = $newPageDoc.getURL("upload"))
+            <div id="creation-result"
+                 data-page-ref="$escapetool.xml($newPageRef)"
+                 data-upload-url="$escapetool.xml($uploadUrl)"
+                 style="display:none"></div>
+            LIEN_AJOUTE_OK
+          #end
+        #end
+      #catch(Exception e)
+        ERREUR_INCONNUE: $e.message
+      #end
+    #end
+  #end
+
+#elseif ($request.getMethod() == "GET")
+  #set($action = $request.get("action"))
+  #set($mainParent = 'TestPage.PAGE.doc-test.WebHome')
+  #set($className = "TestPage.PAGE.Doc.CODE.docClass.WebHome")
+
+  ## ============================================================
+  ## DONNEES POUR LA VUE ARCHITECTURE
+  ## ============================================================
+  #if($action == "architecture")
+    <div id="architecture-data">
+      #set($treeQueue = [])
+      #set($ignore = $treeQueue.add($mainParent))
+
+      #foreach($treeIndex in [0..500])
+        #if($treeIndex < $treeQueue.size())
+          #set($treeRef = $treeQueue.get($treeIndex))
+          #set($treeDoc = $xwiki.getDocument($treeRef))
+          #set($treeType = "")
+          #set($treeParentRef = "")
+
+          #if($treeRef == $mainParent)
+            #set($treeType = "root")
+          #else
+            #set($treeObj = $treeDoc.getObject($className))
+            #if($treeObj)
+              #set($treeType = "$!treeObj.getValue('type')")
+            #end
+            #set($treeParentRef = "$!treeDoc.getParent()")
+          #end
+
+          #if($treeType == "root" || $treeType == "folder" || $treeType == "document")
+            <div class="architecture-node-data"
+                 data-ref="$escapetool.xml($treeRef)"
+                 data-parent-ref="$escapetool.xml($treeParentRef)"
+                 data-title="$escapetool.xml($treeDoc.displayTitle)"
+                 data-type="$escapetool.xml($treeType)"></div>
+
+            #if($treeType == "root" || $treeType == "folder")
+              #foreach($treeChildRef in $treeDoc.getChildren())
+                #set($treeChildDoc = $xwiki.getDocument($treeChildRef))
+                #set($treeChildObj = $treeChildDoc.getObject($className))
+                #if($treeChildObj)
+                  #set($treeChildType = "$!treeChildObj.getValue('type')")
+                  #if($treeChildType == "folder" || $treeChildType == "document")
+                    #set($ignore = $treeQueue.add($treeChildRef))
+                  #end
+                #end
               #end
             #end
           #end
-
-        ## ------------------------------------------------------------
-        ## PDF / page vide : création classique.
-        ## Le PDF reste un fichier affiché tel quel ; ce format n'est
-        ## pas transformé nativement en contenu XWiki éditable.
-        ## ------------------------------------------------------------
-        #else
-          $newPageDoc.setTitle("$nomFichier")
-          $newPageDoc.setParent($docParent.fullName)
-
-          #if($type == "document" && $sourceKind == "pdf" && $sourceFilename != "")
-            #set($dq = '"')
-            #set($pageContent = "{{pdf filename=${dq}${sourceFilename}${dq}/}}")
-            $newPageDoc.setContent($pageContent)
-          #elseif($type == "document" && $sourceKind == "file" && $sourceFilename != "")
-            #set($pageContent = "[[Télécharger le fichier>>attach:${sourceFilename}]]")
-            $newPageDoc.setContent($pageContent)
-          #else
-            $newPageDoc.setContent("")
-          #end
-
-          $newPageDoc.save("Création d'un nouveau fichier")
-          #set($pageReady = true)
-        #end
-
-        ## ------------------------------------------------------------
-        ## Métadonnées de l'explorateur.
-        ## Cette partie est appliquée après l'import Office afin que le
-        ## document converti se comporte comme une page XWiki normale.
-        ## ------------------------------------------------------------
-        #if($pageReady)
-          #set($newPageDoc = $xwiki.getDocument($newPageRef))
-          #set($className = "TestPage.PAGE.Doc.CODE.docClass.WebHome")
-          #set($object = $newPageDoc.getObject($className))
-
-          #if(!$object)
-            #set($numeroObject = $newPageDoc.createNewObject($className))
-            #set($object = $newPageDoc.getObject($className, $numeroObject))
-          #end
-
-          $object.set("nom", $nomFichier)
-          $object.set("type", "${type}")
-          $object.set("id", $newPageRef)
-          $object.set("tag", "")
-          $object.set("description", "")
-
-          ## Récupère explicitement le prénom et le nom du profil XWiki.
-          #set($userDoc = $xwiki.getDocument($xcontext.user))
-          #set($firstName = "$!userDoc.getValue('first_name')")
-          #set($lastName = "$!userDoc.getValue('last_name')")
-
-          #if("$!firstName" != "" && "$!lastName" != "")
-            #set($creatorName = "$firstName $lastName")
-          #elseif("$!firstName" != "")
-            #set($creatorName = "$firstName")
-          #elseif("$!lastName" != "")
-            #set($creatorName = "$lastName")
-          #else
-            ## Dernier recours uniquement si le profil n'a ni prénom ni nom.
-            #set($creatorName = $xwiki.getUserName($xcontext.user, false))
-          #end
-
-          $object.set("createur", "$creatorName")
-
-          $newPageDoc.save("Création de l'objet pour le nouveau fichier")
-
-          ## On renvoie aussi l'URL d'upload pour conserver le fichier
-          ## source (Word ou PDF) comme pièce jointe de la page.
-          #set($uploadUrl = $newPageDoc.getURL("upload"))
-          <div id="creation-result"
-               data-page-ref="$escapetool.xml($newPageRef)"
-               data-upload-url="$escapetool.xml($uploadUrl)"
-               style="display:none"></div>
-          LIEN_AJOUTE_OK
         #end
       #end
-    #catch(Exception e)
-      ERREUR_INCONNUE: $e.message
-    #end
-  #end
-#elseif ($request.getMethod() == "GET")
-  #set($parentRef = $request.get("childRef"))
-  #set($action = $request.get("action"))
-  #if($action == "recupContact")
-    #set($parentDoc = $xwiki.getDocument($parentRef)) ##parentDoc
-    <div id="pageData" parent-page="$parentRef"><h4>$escapetool.xml($parentDoc.displayTitle)</h4></div>
-    ## Construit le fil d'Ariane uniquement dans la branche doc-test.
-    ## L'ancienne version continuait à remonter tant que l'ancienne racine PAGE.Doc
-    ## n'était pas trouvée, ce qui pouvait faire apparaître PAGE / COMMANDE / ACCUEIL en boucle.
-    #set($mainParent = 'TestPage.PAGE.doc-test.WebHome')
-    #set($tryRefHistory = [])
+    </div>
+
+  ## ============================================================
+  ## EXPLORATEUR NORMAL
+  ## ============================================================
+  #elseif($action == "recupContact")
+    #set($parentRef = $request.get("childRef"))
+    #set($parentDoc = $xwiki.getDocument($parentRef))
+
+    <div id="pageData" parent-page="$escapetool.xml($parentRef)">
+      <h4>$escapetool.xml($parentDoc.displayTitle)</h4>
+    </div>
+
+    <div class="explorer-management-toolbar">
+      <div class="explorer-management-left">
+        <button type="button" id="explorer-select-toggle" class="btn btn-default">Sélectionner</button>
+        <button type="button" id="explorer-move-btn" class="btn btn-default" disabled>Déplacer</button>
+        <button type="button" id="explorer-delete-btn" class="btn btn-danger" disabled>Supprimer</button>
+        <button type="button" id="explorer-architecture-btn" class="btn btn-default">Architecture</button>
+      </div>
+      <span id="explorer-selection-count" class="explorer-selection-count"></span>
+    </div>
+
+    <div id="explorer-move-destination" class="explorer-move-destination" style="display:none;">
+      <div>
+        <strong>Déplacement en cours :</strong>
+        <span id="explorer-move-title"></span>
+      </div>
+      <div class="explorer-move-destination-actions">
+        <button type="button" id="explorer-move-here-btn" class="btn btn-primary">Déplacer ici</button>
+        <button type="button" id="explorer-move-cancel-btn" class="btn btn-default">Annuler</button>
+      </div>
+    </div>
+
+    #set($tryRefHistory = [$parentRef])
+    #set($trouve = false)
     #set($tryRef = $parentRef)
 
     #foreach($niveau in [0..100])
-      #if(!$tryRef || $tryRef == "")
+      #if($tryRef == $mainParent)
+        #set($trouve = true)
         #break
       #end
 
-      ## Evite toute boucle de parenté anormale.
-      #if($tryRefHistory.contains($tryRef))
-        #break
+      #if(!$trouve)
+        #set($tryDoc = $xwiki.getDocument($tryRef))
+        #set($tryParent = $tryDoc.getParent())
+
+        #if(!$tryParent || $tryParent == "" || $tryParent == $tryRef)
+          #break
+        #end
+
+        #set($tryRef = $tryParent)
+
+        #if(!$tryRefHistory.contains($tryRef))
+          #set($ignore = $tryRefHistory.add($tryRef))
+        #else
+          #break
+        #end
       #end
-
-      #set($ignore = $tryRefHistory.add($tryRef))
-
-      ## On s'arrête dès que la vraie racine doc-test est atteinte.
-      #if($tryRef.equals($mainParent))
-        #break
-      #end
-
-      #set($tryDoc = $xwiki.getDocument($tryRef))
-      #set($tryParent = $tryDoc.getParent())
-
-      ## Ne jamais remonter au-dessus de doc-test ni boucler sur la même page.
-      #if(!$tryParent || $tryParent == "" || $tryParent.equals($tryRef))
-        #break
-      #end
-
-      #set($tryRef = $tryParent)
     #end
 
     #set($ignore = $collectiontool.reverseModifiable($tryRefHistory))
+
     <div id="breadcrumb-wrapper">
-      <!-- 1. Vue Visuelle (Affichée par défaut) -->
       <div id="breadcrumb-container">
         #foreach($tableRef in $tryRefHistory)
           #set($tableDoc = $xwiki.getDocument($tableRef))
@@ -240,7 +504,6 @@
         #end
       </div>
 
-      <!-- 2. Vue Édition / Input (Masquée par défaut) -->
       #set($textPath = "")
       #foreach($tableRef in $tryRefHistory)
         #set($tableDoc = $xwiki.getDocument($tableRef))
@@ -250,45 +513,74 @@
           #set($textPath = "${textPath} > ${tableDoc.displayTitle}")
         #end
       #end
-      <input type="text" id="breadcrumb-input" value="$escapetool.xml($textPath)" style="display: none;" />
-    </div>
 
+      <input type="text" id="breadcrumb-input" value="$escapetool.xml($textPath)" style="display:none;" />
+    </div>
 
     #set($children = $parentDoc.getChildren())
     <ul class="file-explorer-list">
-    #foreach($childRef in $children)
-      #set($childDoc = $xwiki.getDocument($childRef))
-      #set($metaobj = $childDoc.getObject("TestPage.PAGE.Doc.CODE.docClass.WebHome"))
-      #set($type = $metaobj.getValue('type'))
-      #if($type == "folder")##if($type == "folder" || !$metaobj)
-        <li>
-          <!-- Ajout d'une classe wrapper .folder-item pour harmoniser le CSS -->
-          <span class="folder folder-item" data-full-name="$escapetool.xml($childRef)">
-            $services.icon.renderHTML('folder') $escapetool.xml($childDoc.displayTitle)
-          </span>
-        </li>
-      #elseif($type == "document")
-        #set($description = $metaobj.getValue('description'))
-        #set($creator = $metaobj.getValue('createur'))
-        #set($created = $xwiki.formatDate($childDoc.creationDate, 'dd/MM/yyyy HH:mm'))
-        #set($modified = $xwiki.formatDate($childDoc.date, 'dd/MM/yyyy HH:mm'))
-        #set($docUrl = $childDoc.getURL('view'))
-        #set($docUrlPreview = $childDoc.getURL('view', 'xpage=print'))
-        <li>
-          <span class="document-item"
-            data-full-name="$escapetool.xml($childRef)"
-            data-title="$escapetool.xml($childDoc.displayTitle)"
-            data-creator="$escapetool.xml($creator)"
-            data-created="$created"
-            data-modified="$modified"
-            data-desc="$escapetool.xml($description)"
-            data-url="$docUrl"
-            data-url-preview="$docUrlPreview">
-            $services.icon.renderHTML('page') $escapetool.xml($childDoc.displayTitle)
-          </span>
-        </li>
+      #foreach($childRef in $children)
+        #set($childDoc = $xwiki.getDocument($childRef))
+        #set($metaobj = $childDoc.getObject($className))
+
+        #if($metaobj)
+          #set($childType = "$!metaobj.getValue('type')")
+
+          #if($childType == "folder")
+            <li class="explorer-row"
+                data-ref="$escapetool.xml($childRef)"
+                data-title="$escapetool.xml($childDoc.displayTitle)"
+                data-type="folder">
+              <label class="explorer-select-box">
+                <input type="checkbox"
+                       class="explorer-select-input"
+                       data-ref="$escapetool.xml($childRef)"
+                       data-title="$escapetool.xml($childDoc.displayTitle)"
+                       data-type="folder" />
+              </label>
+              <span class="folder folder-item"
+                    data-full-name="$escapetool.xml($childRef)"
+                    data-title="$escapetool.xml($childDoc.displayTitle)"
+                    data-type="folder">
+                $services.icon.renderHTML('folder') $escapetool.xml($childDoc.displayTitle)
+              </span>
+            </li>
+
+          #elseif($childType == "document")
+            #set($description = $metaobj.getValue('description'))
+            #set($creator = $metaobj.getValue('createur'))
+            #set($created = $xwiki.formatDate($childDoc.creationDate, 'dd/MM/yyyy HH:mm'))
+            #set($modified = $xwiki.formatDate($childDoc.date, 'dd/MM/yyyy HH:mm'))
+            #set($docUrl = $childDoc.getURL('view'))
+            #set($docUrlPreview = $childDoc.getURL('view', 'xpage=print'))
+
+            <li class="explorer-row"
+                data-ref="$escapetool.xml($childRef)"
+                data-title="$escapetool.xml($childDoc.displayTitle)"
+                data-type="document">
+              <label class="explorer-select-box">
+                <input type="checkbox"
+                       class="explorer-select-input"
+                       data-ref="$escapetool.xml($childRef)"
+                       data-title="$escapetool.xml($childDoc.displayTitle)"
+                       data-type="document" />
+              </label>
+              <span class="document-item"
+                    data-full-name="$escapetool.xml($childRef)"
+                    data-title="$escapetool.xml($childDoc.displayTitle)"
+                    data-type="document"
+                    data-creator="$escapetool.xml($creator)"
+                    data-created="$created"
+                    data-modified="$modified"
+                    data-desc="$escapetool.xml($description)"
+                    data-url="$docUrl"
+                    data-url-preview="$docUrlPreview">
+                $services.icon.renderHTML('page') $escapetool.xml($childDoc.displayTitle)
+              </span>
+            </li>
+          #end
+        #end
       #end
-    #end
     </ul>
 
     <div id="preview-sidebar" class="sidebar-preview">
@@ -313,11 +605,12 @@
             </div>
           </div>
         </div>
-      </div> <!-- BALISE QUI MANQUAIT ICI (Ferme la sidebar-body) -->
+      </div>
       <div class="sidebar-footer">
         <a id="sidebar-open-btn" href="#" class="open-doc-btn" target="_blank">Ouvrir le document</a>
       </div>
     </div>
+
   #else
     ERREUR_ACTION
   #end
