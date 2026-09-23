@@ -8,10 +8,12 @@
   #set($pageParent = $!request.getParameter('page'))
   #set($sourceFilename = "$!request.getParameter('source_filename')")
   #set($sourceKind = "$!request.getParameter('source_kind')")
+
   #set($docParent = "")
   #if($pageParent && "$!pageParent" != "")
     #set($docParent = $xwiki.getDocument($pageParent))
   #end
+
   #if(!$services.csrf.isTokenValid($formToken))
     ERREUR_CSRF
   #elseif($action != "ajouter un fichier" && $action != "ajouter un document")
@@ -27,69 +29,135 @@
     ERREUR_FORMAT_DOCUMENT
   #elseif($sourceFilename.contains('"') || $sourceFilename.contains("{{") || $sourceFilename.contains("}}"))
     ERREUR_NOM_DOCUMENT
-  #elseif (!$xwiki.hasAccessLevel("edit", $xcontext.user, $doc.fullName))
+  #elseif(!$xwiki.hasAccessLevel("edit", $xcontext.user, $doc.fullName))
     ERREUR_DROITS
   #else
-    $pageParent
     #try
-      ## Toujours initialiser la variable : sinon Velocity conserve littéralement
-      ## ${pageParentClean} dans le nom de page quand le parent n'est pas transmis.
       #set($pageParentClean = $pageParent)
       #if($pageParent.endsWith(".WebHome"))
         #set($pageParentClean = $pageParent.substring(0, $pageParent.length() - 8))
       #end
+
       #set($newPageRef = "${pageParentClean}.${nomFichier}.WebHome")
       #set($newPageDoc = $xwiki.getDocument($newPageRef))
 
-      #if (!$newPageDoc.isNew())
+      #if(!$newPageDoc.isNew())
         ERREUR_PAGE_EXISTE
       #else
-        $newPageDoc.setTitle("$nomFichier")
-        $newPageDoc.setParent($docParent.fullName)
+        #set($pageReady = false)
 
-        ## Si un fichier a été choisi, la page affiche directement son contenu.
-        ## Word : conversion par l'Office Macro avec les styles conservés.
-        ## PDF : affichage du PDF attaché dans la page via la macro PDF.
-        #if($type == "document" && $sourceFilename != "")
-          ## On évite les guillemets échappés directement dans #set :
-          ## certaines versions de Velocity/XWiki les interprètent mal.
-          #set($dq = '"')
-          #if($sourceKind == "word")
-            #set($pageContent = "{{office reference=${dq}attach:${sourceFilename}${dq} filterStyles=${dq}false${dq}/}}")
-          #elseif($sourceKind == "pdf")
-            #set($pageContent = "{{pdf filename=${dq}${sourceFilename}${dq}/}}")
+        ## ------------------------------------------------------------
+        ## WORD : conversion réelle en contenu XWiki éditable.
+        ## On utilise le même service que l'import Office natif de XWiki.
+        ## ------------------------------------------------------------
+        #if($type == "document" && $sourceKind == "word")
+          #set($fileUpload = $xwiki.fileupload)
+          #set($officeFileName = $fileUpload.getFileName("filePath"))
+
+          #if(!$officeFileName || "$!officeFileName" == "")
+            ERREUR_DOCUMENT_MANQUANT
           #else
-            #set($pageContent = "")
+            #set($discard = $fileUpload.loadFileList())
+            #set($officeFileStream = "")
+
+            #foreach($fileItem in $fileUpload.fileItems)
+              #if($fileItem.fieldName == "filePath")
+                #set($officeFileStream = $fileItem.inputStream)
+                #break
+              #end
+            #end
+
+            #if(!$officeFileStream || "$!officeFileStream" == "")
+              ERREUR_DOCUMENT_MANQUANT
+            #else
+              #set($targetDocumentReference = $newPageDoc.documentReference)
+              #set($parentDocumentReference = $docParent.documentReference)
+
+              ## false = on conserve le plus possible les styles du document source.
+              #set($xdomOfficeDoc = $services.officeimporter.officeToXDOM(
+                $officeFileStream,
+                $officeFileName,
+                $targetDocumentReference,
+                false
+              ))
+
+              #if($xdomOfficeDoc)
+                #set($pageReady = $services.officeimporter.save(
+                  $xdomOfficeDoc,
+                  $targetDocumentReference,
+                  $parentDocumentReference,
+                  $nomFichier,
+                  false
+                ))
+                #set($discard = $xdomOfficeDoc.close())
+
+                #if(!$pageReady)
+                  ERREUR_IMPORT_OFFICE: $services.officeimporter.errorMessage
+                #end
+              #else
+                ERREUR_IMPORT_OFFICE: $services.officeimporter.errorMessage
+              #end
+            #end
           #end
-          $newPageDoc.setContent($pageContent)
+
+        ## ------------------------------------------------------------
+        ## PDF / page vide : création classique.
+        ## Le PDF reste un fichier affiché tel quel ; ce format n'est
+        ## pas transformé nativement en contenu XWiki éditable.
+        ## ------------------------------------------------------------
         #else
-          $newPageDoc.setContent("")
+          $newPageDoc.setTitle("$nomFichier")
+          $newPageDoc.setParent($docParent.fullName)
+
+          #if($type == "document" && $sourceKind == "pdf" && $sourceFilename != "")
+            #set($dq = '"')
+            #set($pageContent = "{{pdf filename=${dq}${sourceFilename}${dq}/}}")
+            $newPageDoc.setContent($pageContent)
+          #else
+            $newPageDoc.setContent("")
+          #end
+
+          $newPageDoc.save("Création d'un nouveau fichier")
+          #set($pageReady = true)
         #end
 
-        $newPageDoc.save("Création d'un nouveau fichier")
-        #set($className = "TestPage.PAGE.Doc.CODE.docClass.WebHome")
-        #set($numeroObject = $newPageDoc.createNewObject($className))
-        #set($object = $newPageDoc.getObject($className, $numeroObject))
-        $object.set("nom", $nomFichier)
-        $object.set("type", "${type}")
-        $object.set("id", $newPageRef)
-        $object.set("tag", "")
-        $object.set("description", "")
-        ##$object.set("date_creation", $services.dateTool.now())
-        ##$object.set("date_modification", $services.dateTool.now())
-        #set($userDoc = $xwiki.getDocument($xcontext.user))
-        #set($firstname = $userDoc.getValue("first_name"))
-        #set($lastname = $userDoc.getValue("last_name"))
-        $object.set("createur", "${firstname} ${lastname}")
-        ##$object.set("last_modification", "${firstname} ${lastname}")
-        $newPageDoc.save("Création de l'objet pour le nouveau fichier")
+        ## ------------------------------------------------------------
+        ## Métadonnées de l'explorateur.
+        ## Cette partie est appliquée après l'import Office afin que le
+        ## document converti se comporte comme une page XWiki normale.
+        ## ------------------------------------------------------------
+        #if($pageReady)
+          #set($newPageDoc = $xwiki.getDocument($newPageRef))
+          #set($className = "TestPage.PAGE.Doc.CODE.docClass.WebHome")
+          #set($object = $newPageDoc.getObject($className))
 
-        #set($uploadUrl = $newPageDoc.getURL("upload"))
-        <div id="creation-result"
-             data-page-ref="$escapetool.xml($newPageRef)"
-             data-upload-url="$escapetool.xml($uploadUrl)"
-             style="display:none"></div>
-        LIEN_AJOUTE_OK
+          #if(!$object)
+            #set($numeroObject = $newPageDoc.createNewObject($className))
+            #set($object = $newPageDoc.getObject($className, $numeroObject))
+          #end
+
+          $object.set("nom", $nomFichier)
+          $object.set("type", "${type}")
+          $object.set("id", $newPageRef)
+          $object.set("tag", "")
+          $object.set("description", "")
+
+          #set($userDoc = $xwiki.getDocument($xcontext.user))
+          #set($firstname = $userDoc.getValue("first_name"))
+          #set($lastname = $userDoc.getValue("last_name"))
+          $object.set("createur", "${firstname} ${lastname}")
+
+          $newPageDoc.save("Création de l'objet pour le nouveau fichier")
+
+          ## On renvoie aussi l'URL d'upload pour conserver le fichier
+          ## source (Word ou PDF) comme pièce jointe de la page.
+          #set($uploadUrl = $newPageDoc.getURL("upload"))
+          <div id="creation-result"
+               data-page-ref="$escapetool.xml($newPageRef)"
+               data-upload-url="$escapetool.xml($uploadUrl)"
+               style="display:none"></div>
+          LIEN_AJOUTE_OK
+        #end
       #end
     #catch(Exception e)
       ERREUR_INCONNUE: $e.message
