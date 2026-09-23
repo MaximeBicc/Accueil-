@@ -204,7 +204,10 @@ function updateExplorerSelectionState(box) {
     const count = box.querySelector("#explorer-selection-count");
 
     if (moveButton) {
-        moveButton.disabled = selected.length !== 1;
+        moveButton.disabled = selected.length === 0;
+        moveButton.textContent = selected.length > 1
+            ? "Déplacer (" + selected.length + ")"
+            : "Déplacer";
     }
 
     if (deleteButton) {
@@ -417,16 +420,16 @@ async function deleteExplorerItems(box, items) {
 }
 
 function startDirectExplorerMove(box) {
-    const selected = getSelectedExplorerItems(box);
+    const selected = filterTopLevelSelection(
+        getSelectedExplorerItems(box)
+    );
 
-    if (selected.length !== 1) {
+    if (selected.length === 0) {
         return;
     }
 
     explorerPendingMove = {
-        ref: selected[0].ref,
-        title: selected[0].title,
-        type: selected[0].type
+        items: selected
     };
 
     setExplorerSelectionMode(box, false);
@@ -438,15 +441,24 @@ function cancelDirectExplorerMove(box) {
     updateMoveDestinationBar(box);
 }
 
+function getPendingMoveItems() {
+    if (!explorerPendingMove || !Array.isArray(explorerPendingMove.items)) {
+        return [];
+    }
+
+    return explorerPendingMove.items;
+}
+
 function updateMoveDestinationBar(box) {
     const bar = box.querySelector("#explorer-move-destination");
     const title = box.querySelector("#explorer-move-title");
+    const items = getPendingMoveItems();
 
     if (!bar) {
         return;
     }
 
-    if (!explorerPendingMove) {
+    if (items.length === 0) {
         bar.style.display = "none";
         return;
     }
@@ -454,12 +466,25 @@ function updateMoveDestinationBar(box) {
     bar.style.display = "flex";
 
     if (title) {
-        title.textContent = explorerPendingMove.title;
+        if (items.length === 1) {
+            title.textContent = items[0].title;
+        } else {
+            const preview = items.slice(0, 3).map(function(item) {
+                return item.title;
+            }).join(", ");
+
+            title.textContent =
+                items.length + " éléments" +
+                (preview ? " : " + preview : "") +
+                (items.length > 3 ? ", ..." : "");
+        }
     }
 }
 
 async function confirmDirectExplorerMove(box) {
-    if (!explorerPendingMove) {
+    const items = getPendingMoveItems();
+
+    if (items.length === 0) {
         return;
     }
 
@@ -470,22 +495,26 @@ async function confirmDirectExplorerMove(box) {
         return;
     }
 
-    if (
-        explorerPendingMove.type === "folder" &&
-        isRefInside(explorerPendingMove.ref, destinationRef)
-    ) {
+    const invalidFolder = items.find(function(item) {
+        return (
+            item.type === "folder" &&
+            isRefInside(item.ref, destinationRef)
+        );
+    });
+
+    if (invalidFolder) {
         alert(
-            "Ce dossier ne peut pas être déplacé dans lui-même ou dans un de ses descendants."
+            'Le dossier "' + invalidFolder.title +
+            '" ne peut pas être déplacé dans lui-même ou dans un de ses descendants.'
         );
         return;
     }
 
-    if (
-        !window.confirm(
-            'Déplacer "' + explorerPendingMove.title +
-            '" dans "' + destinationTitle + '" ?'
-        )
-    ) {
+    const confirmation = items.length === 1
+        ? 'Déplacer "' + items[0].title + '" dans "' + destinationTitle + '" ?'
+        : "Déplacer " + items.length + ' éléments dans "' + destinationTitle + '" ?';
+
+    if (!window.confirm(confirmation)) {
         return;
     }
 
@@ -493,28 +522,44 @@ async function confirmDirectExplorerMove(box) {
 
     if (moveHereButton) {
         moveHereButton.disabled = true;
-        moveHereButton.textContent = "Déplacement...";
     }
 
-    try {
-        await moveExplorerItem(
-            explorerPendingMove.ref,
-            destinationRef
-        );
+    const failures = [];
+    let successCount = 0;
 
-        explorerPendingMove = null;
-        LienPerso(destinationRef, box);
-    } catch (error) {
-        alert(
-            error && error.message
-                ? error.message
-                : "Le déplacement a échoué."
-        );
-    } finally {
+    for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+
         if (moveHereButton) {
-            moveHereButton.disabled = false;
-            moveHereButton.textContent = "Déplacer ici";
+            moveHereButton.textContent =
+                "Déplacement " + (i + 1) + "/" + items.length;
         }
+
+        try {
+            await moveExplorerItem(item.ref, destinationRef);
+            successCount++;
+        } catch (error) {
+            failures.push(
+                item.title + " : " +
+                (error && error.message ? error.message : String(error))
+            );
+        }
+    }
+
+    explorerPendingMove = null;
+    LienPerso(destinationRef, box);
+
+    if (failures.length > 0) {
+        alert(
+            successCount + " élément(s) déplacé(s) sur " +
+            items.length + ".\n\nÉchecs :\n" +
+            failures.join("\n")
+        );
+    }
+
+    if (moveHereButton) {
+        moveHereButton.disabled = false;
+        moveHereButton.textContent = "Déplacer ici";
     }
 }
 
@@ -671,7 +716,8 @@ async function fetchArchitectureState() {
 
     return {
         rootRef: rootRef,
-        nodes: nodes
+        nodes: nodes,
+        collapsed: {}
     };
 }
 
@@ -727,11 +773,53 @@ function architectureWouldCreateCycle(sourceRef, targetRef) {
     return false;
 }
 
+function setArchitectureCollapsed(nodeRef, collapsed) {
+    if (!architectureState) {
+        return;
+    }
+
+    architectureState.collapsed = architectureState.collapsed || {};
+    architectureState.collapsed[nodeRef] = !!collapsed;
+}
+
+function setAllArchitectureFoldersCollapsed(collapsed) {
+    if (!architectureState) {
+        return;
+    }
+
+    architectureState.collapsed = architectureState.collapsed || {};
+
+    Object.keys(architectureState.nodes).forEach(function(ref) {
+        const node = architectureState.nodes[ref];
+
+        if (node.type === "root" || node.type === "folder") {
+            architectureState.collapsed[ref] = !!collapsed;
+        }
+    });
+
+    // La racine reste visible, mais son contenu peut être plié comme les autres.
+    renderArchitectureTree();
+}
+
 function renderArchitectureBranch(nodeRef) {
     const node = architectureState.nodes[nodeRef];
     const item = document.createElement("li");
     item.className = "architecture-item";
     item.setAttribute("data-architecture-ref", nodeRef);
+
+    const children = (
+        node.type === "root" || node.type === "folder"
+    ) ? getArchitectureChildren(nodeRef) : [];
+
+    const hasChildren = children.length > 0;
+    const collapsed = !!(
+        architectureState.collapsed &&
+        architectureState.collapsed[nodeRef]
+    );
+
+    if (collapsed) {
+        item.classList.add("architecture-item-collapsed");
+    }
 
     const row = document.createElement("div");
     row.className = "architecture-row";
@@ -750,6 +838,33 @@ function renderArchitectureBranch(nodeRef) {
         row.classList.add("architecture-row-changed");
     }
 
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "architecture-toggle";
+
+    if (hasChildren) {
+        toggle.setAttribute("data-architecture-toggle-ref", nodeRef);
+        toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+        toggle.setAttribute(
+            "aria-label",
+            collapsed ? "Déplier " + node.title : "Plier " + node.title
+        );
+    } else {
+        toggle.classList.add("architecture-toggle-empty");
+        toggle.disabled = true;
+        toggle.setAttribute("aria-hidden", "true");
+    }
+
+    const nodeIcon = document.createElement("span");
+    nodeIcon.className =
+        "architecture-node-icon " +
+        (
+            node.type === "root" || node.type === "folder"
+                ? "architecture-folder-icon"
+                : "architecture-document-icon"
+        );
+    nodeIcon.setAttribute("aria-hidden", "true");
+
     const type = document.createElement("span");
     type.className = "architecture-type";
     type.textContent =
@@ -763,8 +878,17 @@ function renderArchitectureBranch(nodeRef) {
     title.className = "architecture-title";
     title.textContent = node.title;
 
+    row.appendChild(toggle);
+    row.appendChild(nodeIcon);
     row.appendChild(type);
     row.appendChild(title);
+
+    if (hasChildren) {
+        const childCount = document.createElement("span");
+        childCount.className = "architecture-child-count";
+        childCount.textContent = String(children.length);
+        row.appendChild(childCount);
+    }
 
     if (node.parentRef !== node.originalParentRef) {
         const changed = document.createElement("span");
@@ -775,20 +899,17 @@ function renderArchitectureBranch(nodeRef) {
 
     item.appendChild(row);
 
-    if (node.type === "root" || node.type === "folder") {
-        const children = getArchitectureChildren(nodeRef);
+    if (hasChildren) {
+        const list = document.createElement("ul");
+        list.className = "architecture-children";
 
-        if (children.length > 0) {
-            const list = document.createElement("ul");
+        children.forEach(function(child) {
+            list.appendChild(
+                renderArchitectureBranch(child.id)
+            );
+        });
 
-            children.forEach(function(child) {
-                list.appendChild(
-                    renderArchitectureBranch(child.id)
-                );
-            });
-
-            item.appendChild(list);
-        }
+        item.appendChild(list);
     }
 
     return item;
@@ -853,7 +974,37 @@ function bindArchitectureDragAndDrop() {
         return;
     }
 
+    tree.addEventListener("click", function(event) {
+        const toggle = event.target.closest(".architecture-toggle");
+
+        if (!toggle || toggle.disabled) {
+            return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+
+        const ref = toggle.getAttribute("data-architecture-toggle-ref");
+
+        if (!ref) {
+            return;
+        }
+
+        const isCollapsed = !!(
+            architectureState.collapsed &&
+            architectureState.collapsed[ref]
+        );
+
+        setArchitectureCollapsed(ref, !isCollapsed);
+        renderArchitectureTree();
+    });
+
     tree.addEventListener("dragstart", function(event) {
+        if (event.target.closest(".architecture-toggle")) {
+            event.preventDefault();
+            return;
+        }
+
         const row = event.target.closest(".architecture-row");
 
         if (!row) {
@@ -960,6 +1111,10 @@ function bindArchitectureDragAndDrop() {
         }
 
         source.parentRef = targetRef;
+
+        // On déplie automatiquement la destination pour montrer
+        // immédiatement l'élément qui vient d'y être placé.
+        setArchitectureCollapsed(targetRef, false);
         renderArchitectureTree();
     });
 
@@ -1203,8 +1358,31 @@ async function openArchitectureEditor(box) {
     instruction.textContent =
         "Dépose les éléments uniquement sur une racine ou un dossier.";
 
+    const treeActions = document.createElement("div");
+    treeActions.className = "architecture-tree-actions";
+
+    const collapseAllButton = document.createElement("button");
+    collapseAllButton.type = "button";
+    collapseAllButton.className = "btn btn-xs btn-default";
+    collapseAllButton.textContent = "Tout plier";
+    collapseAllButton.addEventListener("click", function() {
+        setAllArchitectureFoldersCollapsed(true);
+    });
+
+    const expandAllButton = document.createElement("button");
+    expandAllButton.type = "button";
+    expandAllButton.className = "btn btn-xs btn-default";
+    expandAllButton.textContent = "Tout déplier";
+    expandAllButton.addEventListener("click", function() {
+        setAllArchitectureFoldersCollapsed(false);
+    });
+
+    treeActions.appendChild(collapseAllButton);
+    treeActions.appendChild(expandAllButton);
+
     info.appendChild(count);
     info.appendChild(instruction);
+    info.appendChild(treeActions);
 
     const tree = document.createElement("div");
     tree.id = "architecture-tree";
