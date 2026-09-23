@@ -6,6 +6,8 @@
   #set($formToken = $!request.getParameter('form_token'))
   #set($nomFichier = $!request.getParameter('nom_fichier'))
   #set($pageParent = $!request.getParameter('page'))
+  #set($sourceFilename = "$!request.getParameter('source_filename')")
+  #set($sourceKind = "$!request.getParameter('source_kind')")
   #set($docParent = "")
   #if($pageParent && "$!pageParent" != "")
     #set($docParent = $xwiki.getDocument($pageParent))
@@ -21,6 +23,10 @@
   #elseif($docParent.isNew())
     ERREUR_PAGE_DE_STOCKAGE_INTROUVABLE
     $pageParent
+  #elseif($sourceKind != "" && $sourceKind != "pdf" && $sourceKind != "word")
+    ERREUR_FORMAT_DOCUMENT
+  #elseif($sourceFilename.contains('"') || $sourceFilename.contains("{{") || $sourceFilename.contains("}}"))
+    ERREUR_NOM_DOCUMENT
   #elseif (!$xwiki.hasAccessLevel("edit", $xcontext.user, $doc.fullName))
     ERREUR_DROITS
   #else
@@ -34,10 +40,29 @@
       #end
       #set($newPageRef = "${pageParentClean}.${nomFichier}.WebHome")
       #set($newPageDoc = $xwiki.getDocument($newPageRef))
-      #if ($newPageDoc.isNew())
+
+      #if (!$newPageDoc.isNew())
+        ERREUR_PAGE_EXISTE
+      #else
         $newPageDoc.setTitle("$nomFichier")
-        $newPageDoc.setContent("")
         $newPageDoc.setParent($docParent.fullName)
+
+        ## Si un fichier a été choisi, la page affiche directement son contenu.
+        ## Word : conversion par l'Office Macro avec les styles conservés.
+        ## PDF : affichage du PDF attaché dans la page via la macro PDF.
+        #if($type == "document" && $sourceFilename != "")
+          #if($sourceKind == "word")
+            #set($pageContent = "{{office reference=\"attach:${sourceFilename}\" filterStyles=\"false\"/}}")
+          #elseif($sourceKind == "pdf")
+            #set($pageContent = "{{pdf filename=\"${sourceFilename}\" /}}")
+          #else
+            #set($pageContent = "")
+          #end
+          $newPageDoc.setContent($pageContent)
+        #else
+          $newPageDoc.setContent("")
+        #end
+
         $newPageDoc.save("Création d'un nouveau fichier")
         #set($className = "TestPage.PAGE.Doc.CODE.docClass.WebHome")
         #set($numeroObject = $newPageDoc.createNewObject($className))
@@ -55,8 +80,14 @@
         $object.set("createur", "${firstname} ${lastname}")
         ##$object.set("last_modification", "${firstname} ${lastname}")
         $newPageDoc.save("Création de l'objet pour le nouveau fichier")
+
+        #set($uploadUrl = $newPageDoc.getURL("upload"))
+        <div id="creation-result"
+             data-page-ref="$escapetool.xml($newPageRef)"
+             data-upload-url="$escapetool.xml($uploadUrl)"
+             style="display:none"></div>
+        LIEN_AJOUTE_OK
       #end
-      LIEN_AJOUTE_OK
     #catch(Exception e)
       ERREUR_INCONNUE: $e.message
     #end
