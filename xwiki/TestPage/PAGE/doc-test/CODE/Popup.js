@@ -1,4 +1,7 @@
 let branchImportSelection = null;
+let branchImportNodeMap = {};
+let branchImportNextNodeId = 1;
+let documentImportSelection = [];
 
 function ajouterFichier() {
     const pageData = document.getElementById("pageData");
@@ -159,6 +162,8 @@ function createBranchFolderNode(name) {
         name: name,
         pageName: name,
         technicalName: "",
+        enabled: true,
+        nodeId: "",
         children: []
     };
 }
@@ -169,6 +174,8 @@ function createBranchFileNode(file) {
         name: file.name,
         pageName: getPageNameFromFile(file),
         technicalName: "",
+        enabled: true,
+        nodeId: "",
         file: file,
         sourceKind: getBranchFileKind(file),
         safeName: getSafeAttachmentName(file.name)
@@ -253,15 +260,37 @@ function getSafeAttachmentName(name) {
 }
 
 function prepareBranchTree(root) {
+    branchImportNodeMap = {};
+    branchImportNextNodeId = 1;
+
+    assignBranchNodeIds(root);
     assignUniqueTechnicalNames(root);
     sortBranchTree(root);
 }
 
+function assignBranchNodeIds(node) {
+    if (!node.nodeId) {
+        node.nodeId = "branch-node-" + branchImportNextNodeId++;
+    }
+
+    branchImportNodeMap[node.nodeId] = node;
+
+    if (node.kind === "folder") {
+        node.children.forEach(function(child) {
+            assignBranchNodeIds(child);
+        });
+    }
+}
+
 function assignUniqueTechnicalNames(folderNode) {
+    folderNode.technicalName = getTechnicalPageName(
+        folderNode.pageName || folderNode.name
+    );
+
     const used = {};
 
     folderNode.children.forEach(function(child) {
-        const baseName = child.kind === "folder" ? child.name : child.pageName;
+        const baseName = child.pageName || child.name;
         const baseTechnicalName = getTechnicalPageName(baseName);
 
         let technicalName = baseTechnicalName;
@@ -279,8 +308,78 @@ function assignUniqueTechnicalNames(folderNode) {
             assignUniqueTechnicalNames(child);
         }
     });
+}
 
-    folderNode.technicalName = folderNode.technicalName || getTechnicalPageName(folderNode.pageName || folderNode.name);
+function setBranchNodeEnabled(node, enabled) {
+    node.enabled = !!enabled;
+
+    if (node.kind === "folder") {
+        node.children.forEach(function(child) {
+            setBranchNodeEnabled(child, enabled);
+        });
+    }
+}
+
+function syncBranchNodeEnabledUi(node) {
+    const preview = document.getElementById("branch-import-preview");
+
+    if (!preview) return;
+
+    const item = preview.querySelector(
+        '[data-branch-node-id="' + node.nodeId + '"]'
+    );
+
+    if (item) {
+        item.classList.toggle("branch-tree-disabled", !node.enabled);
+
+        const checkbox = item.querySelector(
+            ":scope > .branch-tree-row .branch-tree-enabled"
+        );
+        const renameInput = item.querySelector(
+            ":scope > .branch-tree-row .branch-tree-rename"
+        );
+
+        if (checkbox) checkbox.checked = !!node.enabled;
+        if (renameInput) renameInput.disabled = !node.enabled;
+    }
+
+    if (node.kind === "folder") {
+        node.children.forEach(function(child) {
+            syncBranchNodeEnabledUi(child);
+        });
+    }
+}
+
+function countEnabledBranchNodes(node) {
+    if (!node.enabled) {
+        return 0;
+    }
+
+    let total = 1;
+
+    if (node.kind === "folder") {
+        node.children.forEach(function(child) {
+            total += countEnabledBranchNodes(child);
+        });
+    }
+
+    return total;
+}
+
+function updateBranchImportActiveSummary() {
+    const summary = document.getElementById("branch-preview-active-count");
+
+    if (
+        !summary ||
+        !branchImportSelection ||
+        !branchImportSelection.root
+    ) {
+        return;
+    }
+
+    summary.textContent =
+        countEnabledBranchNodes(branchImportSelection.root) +
+        " élément(s) seront copiés";
 }
 
 function sortBranchTree(folderNode) {
@@ -354,6 +453,7 @@ function renderBranchImportPreview() {
     </div>
 </div>
 <div class="branch-preview-summary">
+    <span id="branch-preview-active-count"></span>
     <span>Word : ${stats.word}</span>
     <span>PDF : ${stats.pdf}</span>
     <span>Autres fichiers : ${stats.other}</span>
@@ -365,6 +465,7 @@ ${emptyFolderNote}
 `;
 
     bindBranchTreePreviewEvents(preview);
+    updateBranchImportActiveSummary();
 
     if (clearButton) {
         clearButton.style.display = "inline-block";
@@ -396,12 +497,50 @@ function bindBranchTreePreviewEvents(preview) {
             const collapsed = item.classList.toggle("is-collapsed");
             toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
         });
+
+        tree.addEventListener("change", function(event) {
+            const enabledInput = event.target.closest(".branch-tree-enabled");
+            const renameInput = event.target.closest(".branch-tree-rename");
+            const item = event.target.closest("[data-branch-node-id]");
+
+            if (!item) {
+                return;
+            }
+
+            const nodeId = item.getAttribute("data-branch-node-id");
+            const node = branchImportNodeMap[nodeId];
+
+            if (!node) {
+                return;
+            }
+
+            if (enabledInput) {
+                setBranchNodeEnabled(node, enabledInput.checked);
+                syncBranchNodeEnabledUi(node);
+                updateBranchImportActiveSummary();
+                return;
+            }
+
+            if (renameInput) {
+                const newName = renameInput.value.trim();
+
+                if (!newName) {
+                    renameInput.value = node.pageName || node.name;
+                    return;
+                }
+
+                node.pageName = newName;
+                assignUniqueTechnicalNames(branchImportSelection.root);
+            }
+        });
     }
 
     if (collapseAll) {
         collapseAll.addEventListener("click", function() {
             preview.querySelectorAll(".branch-tree-folder").forEach(function(item) {
-                const toggle = item.querySelector(":scope > .branch-tree-row .branch-tree-toggle");
+                const toggle = item.querySelector(
+                    ":scope > .branch-tree-row .branch-tree-toggle"
+                );
 
                 item.classList.add("is-collapsed");
 
@@ -415,7 +554,9 @@ function bindBranchTreePreviewEvents(preview) {
     if (expandAll) {
         expandAll.addEventListener("click", function() {
             preview.querySelectorAll(".branch-tree-folder").forEach(function(item) {
-                const toggle = item.querySelector(":scope > .branch-tree-row .branch-tree-toggle");
+                const toggle = item.querySelector(
+                    ":scope > .branch-tree-row .branch-tree-toggle"
+                );
 
                 item.classList.remove("is-collapsed");
 
@@ -428,6 +569,10 @@ function bindBranchTreePreviewEvents(preview) {
 }
 
 function renderBranchTreeNode(node, isRoot) {
+    const checked = node.enabled ? " checked" : "";
+    const disabledClass = node.enabled ? "" : " branch-tree-disabled";
+    const displayName = node.pageName || node.name;
+
     if (node.kind === "folder") {
         const children = node.children.map(function(child) {
             return renderBranchTreeNode(child, false);
@@ -435,14 +580,23 @@ function renderBranchTreeNode(node, isRoot) {
         const childCount = node.children.length;
 
         return `
-<li class="branch-tree-folder${isRoot ? " branch-tree-folder-root" : ""}">
+<li class="branch-tree-folder${isRoot ? " branch-tree-folder-root" : ""}${disabledClass}"
+    data-branch-node-id="${node.nodeId}">
     <div class="branch-tree-row branch-tree-folder-row">
         <button type="button"
                 class="branch-tree-toggle"
-                aria-label="Plier ou déplier ${escapeDocumentText(node.name)}"
+                aria-label="Plier ou déplier ${escapeDocumentText(displayName)}"
                 aria-expanded="true"></button>
+        <input class="branch-tree-enabled"
+               type="checkbox"
+               title="Copier cet élément et ses enfants"
+               ${checked} />
         <span class="branch-tree-node-icon branch-tree-folder-icon" aria-hidden="true"></span>
-        <strong class="branch-tree-name">${escapeDocumentText(node.name)}</strong>
+        <input class="branch-tree-rename"
+               type="text"
+               value="${escapeDocumentText(displayName)}"
+               title="Nom qui sera créé dans XWiki"
+               ${node.enabled ? "" : "disabled"} />
         <span class="branch-tree-count">${childCount}</span>
     </div>
     <ul class="branch-tree-children">
@@ -464,11 +618,20 @@ function renderBranchTreeNode(node, isRoot) {
     }
 
     return `
-<li class="branch-tree-file ${typeClass}">
+<li class="branch-tree-file ${typeClass}${disabledClass}"
+    data-branch-node-id="${node.nodeId}">
     <div class="branch-tree-row branch-tree-file-row">
         <span class="branch-tree-toggle-spacer" aria-hidden="true"></span>
+        <input class="branch-tree-enabled"
+               type="checkbox"
+               title="Copier ce document"
+               ${checked} />
         <span class="branch-tree-node-icon branch-tree-file-icon" aria-hidden="true"></span>
-        <span class="branch-tree-name">${escapeDocumentText(node.name)}</span>
+        <input class="branch-tree-rename"
+               type="text"
+               value="${escapeDocumentText(displayName)}"
+               title="Nom de la page XWiki"
+               ${node.enabled ? "" : "disabled"} />
         <span class="branch-tree-type">${label}</span>
     </div>
 </li>
@@ -481,6 +644,7 @@ function ajouterDocument() {
     const content = document.getElementById("popupContent");
 
     branchImportSelection = null;
+    documentImportSelection = [];
 
     content.innerHTML = `
 <h4>Ajouter un ou plusieurs documents</h4>
@@ -488,63 +652,128 @@ function ajouterDocument() {
 <input type="hidden" name="type" value="document" />
 <input type="hidden" name="page" value="${parentPage}" />
 
-<div class="form-group">
-    <label for="document-name-input">Nom de la page</label>
+<div class="form-group" id="document-empty-page-group">
+    <label for="document-name-input">Créer une page vide</label>
     <input id="document-name-input" class="form-control" type="text" name="nom_fichier"
-        placeholder="Facultatif si un fichier est sélectionné" />
-    <p id="document-name-help" class="help-block">
-        Pour un seul document, tu peux modifier le nom de la page. Pour plusieurs documents, chaque page reprend le nom de son fichier.
-    </p>
+        placeholder="Nom de la page si aucun fichier n'est sélectionné" />
 </div>
 
 <div class="form-group">
     <label for="document-file-input">Documents PDF ou Word</label>
     <input id="document-file-input" class="form-control" type="file" multiple
         accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
-    <p class="help-block">Tu peux sélectionner plusieurs fichiers en une seule fois. Une page XWiki sera créée pour chaque document.</p>
+    <p class="help-block">
+        Après sélection, tu peux modifier séparément le nom de chaque page avant l'import.
+    </p>
     <div id="document-selection-info"></div>
 </div>
 `;
 
     const fileInput = document.getElementById("document-file-input");
-    const nameInput = document.getElementById("document-name-input");
-    const selectionInfo = document.getElementById("document-selection-info");
+    const emptyPageGroup = document.getElementById("document-empty-page-group");
 
-    if (fileInput && nameInput) {
+    if (fileInput) {
         fileInput.addEventListener("change", function() {
             const files = Array.prototype.slice.call(fileInput.files || []);
 
-            if (files.length === 1) {
-                nameInput.disabled = false;
-                if (!nameInput.value) {
-                    nameInput.value = getPageNameFromFile(files[0]);
-                }
-            } else if (files.length > 1) {
-                nameInput.value = "";
-                nameInput.disabled = true;
-                nameInput.placeholder = "Nom automatique pour chaque document";
-            } else {
-                nameInput.disabled = false;
-                nameInput.placeholder = "Facultatif si un fichier est sélectionné";
+            documentImportSelection = files.map(function(file, index) {
+                return {
+                    id: "document-import-" + index,
+                    file: file,
+                    enabled: true,
+                    pageName: getPageNameFromFile(file)
+                };
+            });
+
+            if (emptyPageGroup) {
+                emptyPageGroup.style.display = files.length > 0 ? "none" : "";
             }
 
-            if (selectionInfo) {
-                if (files.length === 0) {
-                    selectionInfo.innerHTML = "";
-                } else {
-                    const names = files.map(function(file) {
-                        return "<li>" + escapeDocumentText(file.name) + "</li>";
-                    }).join("");
-
-                    selectionInfo.innerHTML =
-                        "<strong>" + files.length + " document(s) sélectionné(s)</strong>" +
-                        "<ul>" + names + "</ul>";
-                }
-            }
+            renderDocumentSelectionPreview();
         });
     }
 
     document.getElementById("popup").style.display = "block";
+}
+
+function renderDocumentSelectionPreview() {
+    const selectionInfo = document.getElementById("document-selection-info");
+
+    if (!selectionInfo) {
+        return;
+    }
+
+    if (documentImportSelection.length === 0) {
+        selectionInfo.innerHTML = "";
+        return;
+    }
+
+    selectionInfo.innerHTML = `
+<div class="document-import-preview">
+    <div class="document-import-preview-header">
+        <strong>${documentImportSelection.length} document(s) sélectionné(s)</strong>
+        <span>Décoche un document pour ne pas l'importer.</span>
+    </div>
+    <div class="document-import-list">
+        ${documentImportSelection.map(function(item) {
+            return `
+            <div class="document-import-row${item.enabled ? "" : " is-disabled"}"
+                 data-document-import-id="${item.id}">
+                <input class="document-import-enabled"
+                       type="checkbox"
+                       ${item.enabled ? "checked" : ""}
+                       title="Importer ce document" />
+                <span class="document-import-source"
+                      title="${escapeDocumentText(item.file.name)}">
+                    ${escapeDocumentText(item.file.name)}
+                </span>
+                <input class="document-import-name form-control"
+                       type="text"
+                       value="${escapeDocumentText(item.pageName)}"
+                       ${item.enabled ? "" : "disabled"}
+                       aria-label="Nom de la page XWiki" />
+            </div>
+            `;
+        }).join("")}
+    </div>
+</div>
+`;
+
+    selectionInfo.querySelectorAll(".document-import-row").forEach(function(row) {
+        const id = row.getAttribute("data-document-import-id");
+        const item = documentImportSelection.find(function(candidate) {
+            return candidate.id === id;
+        });
+
+        if (!item) return;
+
+        const checkbox = row.querySelector(".document-import-enabled");
+        const nameInput = row.querySelector(".document-import-name");
+
+        if (checkbox) {
+            checkbox.addEventListener("change", function() {
+                item.enabled = checkbox.checked;
+                row.classList.toggle("is-disabled", !item.enabled);
+
+                if (nameInput) {
+                    nameInput.disabled = !item.enabled;
+                }
+            });
+        }
+
+        if (nameInput) {
+            nameInput.addEventListener("change", function() {
+                const value = nameInput.value.trim();
+
+                if (!value) {
+                    nameInput.value = item.pageName;
+                    return;
+                }
+
+                item.pageName = value;
+            });
+        }
+    });
 }
 
 function escapeDocumentText(value) {
@@ -615,15 +844,11 @@ function getDocumentImportInfo(file, pageName) {
 }
 
 function getSelectedDocumentImports() {
-    const fileInput = document.getElementById("document-file-input");
     const nameInput = document.getElementById("document-name-input");
-    const files = fileInput
-        ? Array.prototype.slice.call(fileInput.files || [])
-        : [];
 
-    const manualName = nameInput && !nameInput.disabled ? nameInput.value : "";
+    if (documentImportSelection.length === 0) {
+        const manualName = nameInput ? nameInput.value.trim() : "";
 
-    if (files.length === 0) {
         if (!manualName) {
             throw new Error("NOM_DOCUMENT_MANQUANT");
         }
@@ -631,12 +856,22 @@ function getSelectedDocumentImports() {
         return [getDocumentImportInfo(null, manualName)];
     }
 
-    return files.map(function(file) {
-        const pageName = files.length === 1 && manualName
-            ? manualName
-            : getPageNameFromFile(file);
+    const enabledItems = documentImportSelection.filter(function(item) {
+        return item.enabled;
+    });
 
-        return getDocumentImportInfo(file, pageName);
+    if (enabledItems.length === 0) {
+        throw new Error("AUCUN_DOCUMENT_SELECTIONNE");
+    }
+
+    return enabledItems.map(function(item) {
+        const pageName = String(item.pageName || "").trim();
+
+        if (!pageName) {
+            throw new Error("NOM_DOCUMENT_MANQUANT");
+        }
+
+        return getDocumentImportInfo(item.file, pageName);
     });
 }
 
@@ -744,6 +979,10 @@ function formatDocumentImportError(error, pageName) {
 }
 
 function countBranchNodes(node) {
+    if (!node.enabled) {
+        return 0;
+    }
+
     let total = 1;
 
     if (node.kind === "folder") {
@@ -758,11 +997,20 @@ function countBranchNodes(node) {
 async function importBranchTree(formulaire, parentPage, formToken, button) {
     const root = branchImportSelection.root;
     const total = countBranchNodes(root);
+
+    if (total === 0) {
+        throw new Error("AUCUN_ELEMENT_SELECTIONNE");
+    }
+
     const failures = [];
     let completed = 0;
     let successCount = 0;
 
     async function importFolderNode(folderNode, targetParentPage) {
+        if (!folderNode.enabled) {
+            return;
+        }
+
         const folderInfo = {
             file: null,
             kind: "",
@@ -801,6 +1049,10 @@ async function importBranchTree(formulaire, parentPage, formToken, button) {
 
         for (let i = 0; i < folderNode.children.length; i++) {
             const child = folderNode.children[i];
+
+            if (!child.enabled) {
+                continue;
+            }
 
             if (child.kind === "folder") {
                 await importFolderNode(child, folderResult.pageRef);
@@ -983,6 +1235,10 @@ async function popupValider() {
             );
         } else if (message === "NOM_DOCUMENT_MANQUANT") {
             alert("Entre un nom de page ou sélectionne au moins un document.");
+        } else if (message === "AUCUN_DOCUMENT_SELECTIONNE") {
+            alert("Sélectionne au moins un document à importer.");
+        } else if (message === "AUCUN_ELEMENT_SELECTIONNE") {
+            alert("Active au moins un élément de l'arborescence à copier.");
         } else if (message === "NOM_DOSSIER_MANQUANT") {
             alert("Entre un nom de dossier ou sélectionne une arborescence à importer.");
         } else {
