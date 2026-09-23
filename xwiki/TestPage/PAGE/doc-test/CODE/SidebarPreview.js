@@ -1,133 +1,179 @@
 // Variable globale pour stocker la valeur numérique du zoom
 let currentZoom = 0.8;
 
+// La sidebar est injectée dynamiquement par LienPerso().
+// Ces variables globales permettent donc de réinitialiser proprement
+// les comportements à chaque changement de dossier.
+let activeResizeSidebar = null;
+let zoomTimeout = null;
+
 function applyZoom(zoomValue) {
-    // Récupération dynamique des éléments pour éviter l'erreur d'initialisation
     const iframe = document.getElementById('sidebar-iframe');
     const zoomLabel = document.getElementById('zoom-level');
 
-    if (!iframe || !zoomLabel) return; // Sécurité si les éléments n'existent pas
+    if (!iframe || !zoomLabel) return;
 
-    currentZoom = Math.min(Math.max(zoomValue, 0.5), 1.5); // Limite entre 50% et 150%
+    currentZoom = Math.min(Math.max(zoomValue, 0.5), 1.5);
 
-    // Affichage du pourcentage textuel
     zoomLabel.innerText = Math.round(currentZoom * 100) + '%';
-
-    // Application du style sur l'iframe
     iframe.style.transform = `scale(${currentZoom})`;
     iframe.style.width = (100 / currentZoom) + '%';
     iframe.style.height = (100 / currentZoom) + '%';
 }
 
-document.addEventListener('click', function(e) {
-    // Clic sur un document
-    if (e.target && e.target.classList.contains('document-item')) {
-        const el = e.target;
-        const iframe = document.getElementById('sidebar-iframe');
+function initSidebarPreview(root) {
+    const scope = root || document;
+    const sidebar = scope.querySelector
+        ? scope.querySelector('#preview-sidebar')
+        : document.getElementById('preview-sidebar');
 
-        document.getElementById('sidebar-title').innerText = el.getAttribute('data-title') || '';
-        document.getElementById('sidebar-creator').innerText = el.getAttribute('data-creator') || '';
-        document.getElementById('sidebar-created').innerText = el.getAttribute('data-created') || '';
-        document.getElementById('sidebar-modified').innerText = el.getAttribute('data-modified') || '';
-        document.getElementById('sidebar-desc').innerText = el.getAttribute('data-desc') || '';
+    if (!sidebar) return;
 
-        const docUrl = el.getAttribute('data-url');
-        const docUrlPreview = el.getAttribute('data-url-preview');
+    // ---------------------------------------------------------
+    // 1. Redimensionnement de la sidebar
+    // ---------------------------------------------------------
+    const dragHandle = sidebar.querySelector('#sidebar-drag-handle');
 
-        if (iframe) {
-            iframe.src = docUrlPreview;
-        }
-        document.getElementById('sidebar-open-btn').href = docUrl;
+    if (dragHandle && !dragHandle.hasAttribute('data-sidebar-resize-ready')) {
+        dragHandle.addEventListener('mousedown', function(e) {
+            e.preventDefault();
 
-        // Force le zoom initial à 80% à chaque ouverture
-        applyZoom(0.8);
+            activeResizeSidebar = sidebar;
+            document.body.style.cursor = 'ew-resize';
+            document.body.style.userSelect = 'none';
+            sidebar.style.transition = 'none';
+        });
 
-        document.getElementById('preview-sidebar').classList.add('active');
+        dragHandle.setAttribute('data-sidebar-resize-ready', 'true');
     }
 
-    // Fermeture du panneau
-    if (e.target && (e.target.id === 'sidebar-close' || e.target.closest('#sidebar-close'))) {
-        const sidebar = document.getElementById('preview-sidebar');
-        if (sidebar) {
-            sidebar.classList.remove('active');
-            sidebar.style.right = ''; // MODIFIÉ : Efface le style inline pour laisser le CSS (-105%) reprendre le dessus
-        }
-    }
+    // ---------------------------------------------------------
+    // 2. Apparition des contrôles de zoom
+    // ---------------------------------------------------------
+    const previewContainer = sidebar.querySelector('.preview-frame-container');
+    const zoomControls = sidebar.querySelector('.zoom-controls');
 
-    // Gestion des clics sur les boutons de zoom
-    if (e.target && e.target.id === 'btn-zoom-in') {
-        applyZoom(currentZoom + 0.1); // +10%
+    if (
+        previewContainer &&
+        zoomControls &&
+        !previewContainer.hasAttribute('data-sidebar-zoom-ready')
+    ) {
+        const showZoom = function() {
+            zoomControls.classList.add('visible');
+
+            clearTimeout(zoomTimeout);
+            zoomTimeout = setTimeout(function() {
+                zoomControls.classList.remove('visible');
+            }, 2000);
+        };
+
+        previewContainer.addEventListener('mousemove', showZoom);
+        previewContainer.addEventListener('mouseenter', showZoom);
+
+        previewContainer.addEventListener('mouseleave', function() {
+            clearTimeout(zoomTimeout);
+            zoomControls.classList.remove('visible');
+        });
+
+        previewContainer.setAttribute('data-sidebar-zoom-ready', 'true');
     }
-    if (e.target && e.target.id === 'btn-zoom-out') {
-        applyZoom(currentZoom - 0.1); // -10%
+}
+
+// -------------------------------------------------------------
+// Redimensionnement global
+// -------------------------------------------------------------
+document.addEventListener('mousemove', function(e) {
+    if (!activeResizeSidebar) return;
+
+    const newWidth = window.innerWidth - e.clientX;
+    const minWidth = 350;
+    const maxWidth = window.innerWidth * 0.9;
+
+    if (newWidth >= minWidth && newWidth <= maxWidth) {
+        activeResizeSidebar.style.width = newWidth + 'px';
     }
 });
 
-// --- SYSTÈME DE REDIMENSIONNEMENT DE LA SIDEBAR ---
-const sidebar = document.getElementById('preview-sidebar');
-const dragHandle = document.getElementById('sidebar-drag-handle');
+document.addEventListener('mouseup', function() {
+    if (!activeResizeSidebar) return;
 
-if (sidebar && dragHandle) {
-    let isResizing = false;
+    activeResizeSidebar.style.transition = 'right 0.3s ease-in-out';
+    activeResizeSidebar = null;
 
-    // Début du glissement au clic sur la poignée
-    dragHandle.addEventListener('mousedown', function(e) {
-        e.preventDefault();
-        isResizing = true;
-        document.body.style.cursor = 'ew-resize'; // Change le curseur globalement
-        sidebar.style.transition = 'none'; // Désactive la transition CSS pendant le drag
-    });
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+});
 
-    // Calcul de la largeur pendant le mouvement de la souris
-    document.addEventListener('mousemove', function(e) {
-        if (!isResizing) return;
+// -------------------------------------------------------------
+// Clics : ouverture, fermeture et zoom
+// -------------------------------------------------------------
+document.addEventListener('click', function(e) {
+    const documentItem = e.target && e.target.closest
+        ? e.target.closest('.document-item')
+        : null;
 
-        // Calcul de la nouvelle largeur (distance entre le curseur et le bord droit)
-        let newWidth = window.innerWidth - e.clientX;
+    // Clic sur un document
+    if (documentItem) {
+        const iframe = document.getElementById('sidebar-iframe');
+        const sidebar = document.getElementById('preview-sidebar');
 
-        // Limites de sécurité pour éviter de casser l'affichage
-        const minWidth = 350;
-        const maxWidth = window.innerWidth * 0.9; // Max 90% de l'écran
+        if (!sidebar) return;
 
-        if (newWidth >= minWidth && newWidth <= maxWidth) {
-            sidebar.style.width = newWidth + 'px';
+        const title = document.getElementById('sidebar-title');
+        const creator = document.getElementById('sidebar-creator');
+        const created = document.getElementById('sidebar-created');
+        const modified = document.getElementById('sidebar-modified');
+        const desc = document.getElementById('sidebar-desc');
+        const openButton = document.getElementById('sidebar-open-btn');
+
+        if (title) title.innerText = documentItem.getAttribute('data-title') || '';
+        if (creator) creator.innerText = documentItem.getAttribute('data-creator') || '';
+        if (created) created.innerText = documentItem.getAttribute('data-created') || '';
+        if (modified) modified.innerText = documentItem.getAttribute('data-modified') || '';
+        if (desc) desc.innerText = documentItem.getAttribute('data-desc') || '';
+
+        const docUrl = documentItem.getAttribute('data-url');
+        const docUrlPreview = documentItem.getAttribute('data-url-preview');
+
+        if (iframe) {
+            iframe.src = docUrlPreview || '';
         }
-    });
 
-    // Fin du glissement
-    document.addEventListener('mouseup', function() {
-        if (isResizing) {
-            isResizing = false;
-            document.body.style.cursor = 'default';
-            sidebar.style.transition = 'right 0.3s ease-in-out'; // Réactive l'effet fluide pour l'ouverture/fermeture
+        if (openButton) {
+            openButton.href = docUrl || '#';
         }
-    });
-}
 
-// --- SYSTÈME D'APPARITION DU ZOOM AU MOUVEMENT ---
-const previewContainer = document.querySelector('.preview-frame-container');
-const zoomControls = document.querySelector('.zoom-controls');
-let zoomTimeout;
+        applyZoom(0.8);
+        sidebar.classList.add('active');
 
-if (previewContainer && zoomControls) {
-    // Fonction pour afficher le zoom
-    const showZoom = () => {
-        zoomControls.classList.add('visible');
-        // Réinitialise le minuteur à chaque mouvement
-        clearTimeout(zoomTimeout);
-        // Cache le zoom après 2 secondes d'immobilité
-        zoomTimeout = setTimeout(() => {
-            zoomControls.classList.remove('visible');
-        }, 2000);
-    };
+        // Le HTML de la sidebar vient d'être injecté par AJAX :
+        // on s'assure que le zoom et la poignée sont bien branchés.
+        initSidebarPreview(document);
+    }
 
-    // Déclencheurs : mouvement de souris ou survol de la zone de preview
-    previewContainer.addEventListener('mousemove', showZoom);
-    previewContainer.addEventListener('mouseenter', showZoom);
+    // Fermeture du panneau
+    if (e.target && e.target.closest && e.target.closest('#sidebar-close')) {
+        const sidebar = document.getElementById('preview-sidebar');
 
-    // Cache immédiatement si la souris quitte complètement la zone de preview
-    previewContainer.addEventListener('mouseleave', () => {
-        clearTimeout(zoomTimeout);
-        zoomControls.classList.remove('visible');
-    });
-}
+        if (sidebar) {
+            sidebar.classList.remove('active');
+            sidebar.style.right = '';
+        }
+    }
+
+    // Zoom +
+    if (e.target && e.target.closest && e.target.closest('#btn-zoom-in')) {
+        applyZoom(currentZoom + 0.1);
+    }
+
+    // Zoom -
+    if (e.target && e.target.closest && e.target.closest('#btn-zoom-out')) {
+        applyZoom(currentZoom - 0.1);
+    }
+});
+
+// Premier essai d'initialisation si la sidebar existe déjà.
+// Si elle est injectée plus tard, LienPerso() rappellera initSidebarPreview().
+document.addEventListener('DOMContentLoaded', function() {
+    initSidebarPreview(document);
+});
