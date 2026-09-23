@@ -51,10 +51,13 @@
         ## Word : conversion par l'Office Macro avec les styles conservés.
         ## PDF : affichage du PDF attaché dans la page via la macro PDF.
         #if($type == "document" && $sourceFilename != "")
+          ## On évite les guillemets échappés directement dans #set :
+          ## certaines versions de Velocity/XWiki les interprètent mal.
+          #set($dq = '"')
           #if($sourceKind == "word")
-            #set($pageContent = "{{office reference=\"attach:${sourceFilename}\" filterStyles=\"false\"/}}")
+            #set($pageContent = "{{office reference=${dq}attach:${sourceFilename}${dq} filterStyles=${dq}false${dq}/}}")
           #elseif($sourceKind == "pdf")
-            #set($pageContent = "{{pdf filename=\"${sourceFilename}\" /}}")
+            #set($pageContent = "{{pdf filename=${dq}${sourceFilename}${dq}/}}")
           #else
             #set($pageContent = "")
           #end
