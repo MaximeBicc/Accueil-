@@ -103,6 +103,25 @@ function getPageNameFromFile(file) {
     return file.name;
 }
 
+function getTechnicalPageName(pageName) {
+    let value = String(pageName || "");
+
+    // Retire les accents pour garder une référence XWiki simple et stable.
+    if (value.normalize) {
+        value = value.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    }
+
+    // Évite que les points, slashs et autres caractères spéciaux soient
+    // interprétés comme une nouvelle arborescence XWiki.
+    value = value
+        .replace(/[\\\/:*?"<>|#%{}.$]/g, "_")
+        .replace(/\s+/g, "_")
+        .replace(/_+/g, "_")
+        .replace(/^_+|_+$/g, "");
+
+    return value || "Document";
+}
+
 function getDocumentImportInfo(file, pageName) {
     if (!file) {
         return {
@@ -183,6 +202,7 @@ async function sendCreationRequest(formulaire, parentPage, importInfo, formToken
 
     formData.set("page", parentPage);
     formData.set("nom_fichier", importInfo.pageName || "");
+    formData.set("technical_name", getTechnicalPageName(importInfo.pageName || ""));
     formData.set("source_filename", importInfo.safeName || "");
     formData.set("source_kind", importInfo.kind || "");
 
@@ -273,6 +293,8 @@ async function popupValider() {
         if (actionInput.value === "ajouter un fichier") {
             const formData = new FormData(formulaire);
             formData.set("page", parentPage);
+            const folderNameInput = formulaire.querySelector('input[name="nom_fichier"]');
+            formData.set("technical_name", getTechnicalPageName(folderNameInput ? folderNameInput.value : ""));
             formData.set("source_filename", "");
             formData.set("source_kind", "");
 
