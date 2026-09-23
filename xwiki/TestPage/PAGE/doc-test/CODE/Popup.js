@@ -344,52 +344,132 @@ function renderBranchImportPreview() {
 
     preview.innerHTML = `
 <div class="branch-preview-header">
-    <strong>Aperçu de l'arborescence</strong>
-    <span>
-        ${stats.folders} dossier(s), ${stats.files} fichier(s)
-    </span>
+    <div>
+        <strong>Aperçu de l'arborescence</strong>
+        <div class="branch-preview-count">${stats.folders} dossier(s), ${stats.files} fichier(s)</div>
+    </div>
+    <div class="branch-preview-tree-actions">
+        <button type="button" class="btn btn-xs btn-default" id="branch-tree-collapse-all">Tout plier</button>
+        <button type="button" class="btn btn-xs btn-default" id="branch-tree-expand-all">Tout déplier</button>
+    </div>
 </div>
 <div class="branch-preview-summary">
-    Word : ${stats.word} | PDF : ${stats.pdf} | Autres fichiers : ${stats.other}
+    <span>Word : ${stats.word}</span>
+    <span>PDF : ${stats.pdf}</span>
+    <span>Autres fichiers : ${stats.other}</span>
 </div>
-<div class="branch-tree">
-    <ul>${renderBranchTreeNode(branchImportSelection.root)}</ul>
+<div class="branch-tree" id="branch-tree-preview">
+    <ul class="branch-tree-root">${renderBranchTreeNode(branchImportSelection.root, true)}</ul>
 </div>
 ${emptyFolderNote}
 `;
+
+    bindBranchTreePreviewEvents(preview);
 
     if (clearButton) {
         clearButton.style.display = "inline-block";
     }
 }
 
-function renderBranchTreeNode(node) {
+function bindBranchTreePreviewEvents(preview) {
+    const tree = preview.querySelector("#branch-tree-preview");
+    const collapseAll = preview.querySelector("#branch-tree-collapse-all");
+    const expandAll = preview.querySelector("#branch-tree-expand-all");
+
+    if (tree) {
+        tree.addEventListener("click", function(event) {
+            const toggle = event.target.closest(".branch-tree-toggle");
+
+            if (!toggle || !tree.contains(toggle)) {
+                return;
+            }
+
+            event.preventDefault();
+            event.stopPropagation();
+
+            const item = toggle.closest(".branch-tree-folder");
+
+            if (!item) {
+                return;
+            }
+
+            const collapsed = item.classList.toggle("is-collapsed");
+            toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+        });
+    }
+
+    if (collapseAll) {
+        collapseAll.addEventListener("click", function() {
+            preview.querySelectorAll(".branch-tree-folder").forEach(function(item) {
+                const toggle = item.querySelector(":scope > .branch-tree-row .branch-tree-toggle");
+
+                item.classList.add("is-collapsed");
+
+                if (toggle) {
+                    toggle.setAttribute("aria-expanded", "false");
+                }
+            });
+        });
+    }
+
+    if (expandAll) {
+        expandAll.addEventListener("click", function() {
+            preview.querySelectorAll(".branch-tree-folder").forEach(function(item) {
+                const toggle = item.querySelector(":scope > .branch-tree-row .branch-tree-toggle");
+
+                item.classList.remove("is-collapsed");
+
+                if (toggle) {
+                    toggle.setAttribute("aria-expanded", "true");
+                }
+            });
+        });
+    }
+}
+
+function renderBranchTreeNode(node, isRoot) {
     if (node.kind === "folder") {
-        const children = node.children.map(renderBranchTreeNode).join("");
+        const children = node.children.map(function(child) {
+            return renderBranchTreeNode(child, false);
+        }).join("");
+        const childCount = node.children.length;
 
         return `
-<li class="branch-tree-folder">
-    <div class="branch-tree-row">
-        <span class="branch-tree-type">Dossier</span>
-        <strong>${escapeDocumentText(node.name)}</strong>
+<li class="branch-tree-folder${isRoot ? " branch-tree-folder-root" : ""}">
+    <div class="branch-tree-row branch-tree-folder-row">
+        <button type="button"
+                class="branch-tree-toggle"
+                aria-label="Plier ou déplier ${escapeDocumentText(node.name)}"
+                aria-expanded="true"></button>
+        <span class="branch-tree-node-icon branch-tree-folder-icon" aria-hidden="true"></span>
+        <strong class="branch-tree-name">${escapeDocumentText(node.name)}</strong>
+        <span class="branch-tree-count">${childCount}</span>
     </div>
-    ${children ? "<ul>" + children + "</ul>" : '<ul><li class="branch-tree-empty">Dossier vide</li></ul>'}
+    <ul class="branch-tree-children">
+        ${children || '<li class="branch-tree-empty">Dossier vide</li>'}
+    </ul>
 </li>
 `;
     }
 
     let label = "Fichier";
+    let typeClass = "branch-tree-file-generic";
+
     if (node.sourceKind === "word") {
         label = "Word";
+        typeClass = "branch-tree-file-word";
     } else if (node.sourceKind === "pdf") {
         label = "PDF";
+        typeClass = "branch-tree-file-pdf";
     }
 
     return `
-<li class="branch-tree-file">
-    <div class="branch-tree-row">
+<li class="branch-tree-file ${typeClass}">
+    <div class="branch-tree-row branch-tree-file-row">
+        <span class="branch-tree-toggle-spacer" aria-hidden="true"></span>
+        <span class="branch-tree-node-icon branch-tree-file-icon" aria-hidden="true"></span>
+        <span class="branch-tree-name">${escapeDocumentText(node.name)}</span>
         <span class="branch-tree-type">${label}</span>
-        <span>${escapeDocumentText(node.name)}</span>
     </div>
 </li>
 `;
