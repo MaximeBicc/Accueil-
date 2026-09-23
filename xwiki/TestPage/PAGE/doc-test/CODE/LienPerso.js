@@ -31,6 +31,111 @@ function LienPerso(url, zone) {
     });
 }
 
+function showBreadcrumbError(box, message) {
+    const errorZone = box.querySelector("#breadcrumb-error");
+    const wrapper = box.querySelector("#breadcrumb-wrapper");
+
+    if (wrapper) {
+        wrapper.classList.add("breadcrumb-invalid");
+    }
+
+    if (errorZone) {
+        errorZone.textContent = message;
+        errorZone.style.display = "block";
+    }
+}
+
+function clearBreadcrumbError(box) {
+    const errorZone = box.querySelector("#breadcrumb-error");
+    const wrapper = box.querySelector("#breadcrumb-wrapper");
+
+    if (wrapper) {
+        wrapper.classList.remove("breadcrumb-invalid");
+    }
+
+    if (errorZone) {
+        errorZone.textContent = "";
+        errorZone.style.display = "none";
+    }
+}
+
+async function resolveExplorerBreadcrumbPath(pathContent) {
+    const pages = String(pathContent || "")
+        .split(/[>»]+/)
+        .map(function(page) {
+            return page.trim();
+        })
+        .filter(function(page) {
+            return page;
+        });
+
+    if (pages.length === 0) {
+        return typeof initialPageRef !== "undefined"
+            ? initialPageRef
+            : "";
+    }
+
+    const params = new URLSearchParams();
+    params.set("xpage", "plain");
+    params.set("action", "resolvePath");
+
+    pages.forEach(function(page) {
+        params.append("segment", page);
+    });
+
+    const response = await fetch(
+        urlCommande + "?" + params.toString(),
+        {
+            method: "GET",
+            credentials: "same-origin",
+            headers: {
+                "X-Requested-With": "XMLHttpRequest"
+            }
+        }
+    );
+
+    const html = await response.text();
+    const parsed = new DOMParser().parseFromString(html, "text/html");
+    const result = parsed.getElementById("path-resolution");
+
+    if (
+        !result ||
+        result.getAttribute("data-status") !== "ok"
+    ) {
+        return "";
+    }
+
+    return result.getAttribute("data-ref") || "";
+}
+
+async function copyExplorerPath(pathText) {
+    if (
+        navigator.clipboard &&
+        typeof navigator.clipboard.writeText === "function"
+    ) {
+        await navigator.clipboard.writeText(pathText);
+        return;
+    }
+
+    const temporary = document.createElement("textarea");
+    temporary.value = pathText;
+    temporary.setAttribute("readonly", "readonly");
+    temporary.style.position = "fixed";
+    temporary.style.left = "-9999px";
+    temporary.style.top = "0";
+
+    document.body.appendChild(temporary);
+    temporary.focus();
+    temporary.select();
+
+    const copied = document.execCommand("copy");
+    temporary.remove();
+
+    if (!copied) {
+        throw new Error("COPY_FAILED");
+    }
+}
+
 function createSpan(box) {
     // ---------------------------------------------------------
     // Navigation dans les dossiers
@@ -52,15 +157,23 @@ function createSpan(box) {
     });
 
     // ---------------------------------------------------------
-    // Fil d'Ariane modifiable
+    // Fil d'Ariane modifiable, sécurisé et copiable
     // ---------------------------------------------------------
     const wrapper = box.querySelector("#breadcrumb-wrapper");
     const container = box.querySelector("#breadcrumb-container");
     const input = box.querySelector("#breadcrumb-input");
+    const copyButton = box.querySelector("#breadcrumb-copy-btn");
     const test = document.getElementById("test");
 
     if (wrapper && container && input && !wrapper.hasAttribute("data-event-listener")) {
         wrapper.addEventListener("click", function(e) {
+            // Un clic dans le champ sert à placer le curseur ou sélectionner
+            // du texte. Il ne faut surtout pas remettre le curseur à la fin.
+            if (e.target === input) {
+                return;
+            }
+
+            // Les dossiers parents restent des liens de navigation.
             if (
                 e.target.classList.contains("folder") &&
                 e.target !== container.querySelector(".folder:last-of-type")
@@ -68,40 +181,81 @@ function createSpan(box) {
                 return;
             }
 
+            const enteringEditMode =
+                input.style.display === "none" ||
+                window.getComputedStyle(input).display === "none";
+
             container.style.display = "none";
             input.style.display = "block";
-            input.focus();
 
-            const textLength = input.value.length;
-            input.setSelectionRange(textLength, textLength);
+            if (enteringEditMode) {
+                input.focus();
+
+                // Première ouverture uniquement : curseur à la fin.
+                // Les clics suivants n'écrasent plus la sélection bleue native.
+                const textLength = input.value.length;
+                input.setSelectionRange(textLength, textLength);
+            }
         });
 
-        input.addEventListener("keydown", function(event) {
+        input.addEventListener("focus", function() {
+            clearBreadcrumbError(box);
+        });
+
+        input.addEventListener("keydown", async function(event) {
             if (event.key === "Enter") {
                 event.preventDefault();
 
                 const pathContent = input.value.trim();
-                const pages = pathContent
-                    .split(/[>»]+/)
-                    .map(function(page) {
-                        return page.trim();
-                    })
-                    .filter(function(page) {
-                        return page;
-                    });
 
-                if (pages.length > 0) {
-                    const url = "TestPage.PAGE." + pages.join(".") + ".WebHome";
+                if (!pathContent) {
+                    if (typeof initialPageRef !== "undefined") {
+                        LienPerso(initialPageRef, box);
+                    }
+                    return;
+                }
 
-                    if (test) {
-                        test.innerHTML = url;
+                clearBreadcrumbError(box);
+                input.classList.add("breadcrumb-input-checking");
+
+                try {
+                    const resolvedRef = await resolveExplorerBreadcrumbPath(pathContent);
+
+                    if (!resolvedRef) {
+                        showBreadcrumbError(
+                            box,
+                            "Chemin introuvable. Vérifie le nom des dossiers."
+                        );
+
+                        input.focus();
+                        return;
                     }
 
-                    LienPerso(url, box);
-                } else if (typeof initialPageRef !== "undefined") {
-                    LienPerso(initialPageRef, box);
+                    if (test) {
+                        test.textContent = resolvedRef;
+                    }
+
+                    LienPerso(resolvedRef, box);
+                } catch (error) {
+                    console.error("Erreur de vérification du chemin :", error);
+
+                    showBreadcrumbError(
+                        box,
+                        "Impossible de vérifier ce chemin pour le moment."
+                    );
+
+                    input.focus();
+                } finally {
+                    input.classList.remove("breadcrumb-input-checking");
                 }
             } else if (event.key === "Escape") {
+                event.preventDefault();
+
+                input.value =
+                    input.getAttribute("data-valid-path") ||
+                    input.value;
+
+                clearBreadcrumbError(box);
                 input.style.display = "none";
                 container.style.display = "flex";
             }
@@ -109,12 +263,58 @@ function createSpan(box) {
 
         input.addEventListener("blur", function() {
             setTimeout(function() {
+                // Si le champ a repris le focus entre-temps (sélection,
+                // clic maintenu, retour après erreur), on ne le masque pas.
+                if (document.activeElement === input) {
+                    return;
+                }
+
                 input.style.display = "none";
                 container.style.display = "flex";
             }, 200);
         });
 
         wrapper.setAttribute("data-event-listener", "true");
+    }
+
+    if (copyButton && !copyButton.hasAttribute("data-event-listener")) {
+        copyButton.addEventListener("click", async function(event) {
+            event.preventDefault();
+            event.stopPropagation();
+
+            const pathToCopy = input
+                ? (
+                    input.getAttribute("data-valid-path") ||
+                    input.value ||
+                    ""
+                )
+                : "";
+
+            if (!pathToCopy) {
+                return;
+            }
+
+            try {
+                await copyExplorerPath(pathToCopy);
+
+                const oldText = copyButton.textContent;
+                copyButton.textContent = "Copié";
+                copyButton.classList.add("breadcrumb-copy-success");
+
+                setTimeout(function() {
+                    copyButton.textContent = oldText;
+                    copyButton.classList.remove("breadcrumb-copy-success");
+                }, 1200);
+            } catch (error) {
+                console.error("Copie du chemin impossible :", error);
+                showBreadcrumbError(
+                    box,
+                    "Impossible de copier le chemin."
+                );
+            }
+        });
+
+        copyButton.setAttribute("data-event-listener", "true");
     }
 
     initExplorerManagement(box);
