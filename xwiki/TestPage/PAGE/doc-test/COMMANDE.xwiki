@@ -602,14 +602,15 @@
                autocomplete="off"
                spellcheck="false"
                style="display:none;" />
-      </div>
 
-      <button type="button"
-              id="breadcrumb-copy-btn"
-              class="btn btn-default breadcrumb-copy-btn"
-              title="Copier le chemin">
-        Copier le chemin
-      </button>
+        <button type="button"
+                id="breadcrumb-copy-btn"
+                class="breadcrumb-copy-btn"
+                title="Copier le chemin"
+                aria-label="Copier le chemin">
+          <span class="breadcrumb-copy-icon" aria-hidden="true"></span>
+        </button>
+      </div>
     </div>
 
     <div id="breadcrumb-error"
