@@ -38,7 +38,11 @@
         #set($pageParentClean = $pageParent.substring(0, $pageParent.length() - 8))
       #end
 
-      #set($newPageRef = "${pageParentClean}.${nomFichier}.WebHome")
+      ## Le titre visible reste le nom d'origine, mais le nom technique de page
+      ## est nettoyé afin qu'un nom de fichier contenant espaces, points ou accents
+      ## ne crée pas une arborescence XWiki involontaire.
+      #set($technicalName = $xwiki.cleanName($nomFichier))
+      #set($newPageRef = "${pageParentClean}.${technicalName}.WebHome")
       #set($newPageDoc = $xwiki.getDocument($newPageRef))
 
       #if(!$newPageDoc.isNew())
