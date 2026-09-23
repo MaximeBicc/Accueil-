@@ -6,6 +6,9 @@
   #set($formToken = $!request.getParameter('form_token'))
   #set($nomFichier = $!request.getParameter('nom_fichier'))
   #set($technicalName = "$!request.getParameter('technical_name')")
+  #if(!$technicalName || "$!technicalName" == "")
+    #set($technicalName = "$nomFichier")
+  #end
   #set($pageParent = $!request.getParameter('page'))
   #set($sourceFilename = "$!request.getParameter('source_filename')")
   #set($sourceKind = "$!request.getParameter('source_kind')")
@@ -21,8 +24,6 @@
     ERREUR_ACTION
   #elseif(!$nomFichier || "$!nomFichier" == "")
     ERREUR_CHAMPS
-  #elseif(!$technicalName || "$!technicalName" == "")
-    #set($technicalName = "$nomFichier")
   #elseif(!$pageParent || "$!pageParent" == "")
     ERREUR_PAGE_DE_STOCKAGE_INTROUVABLE
   #elseif($docParent.isNew())
@@ -44,7 +45,7 @@
       ## Le nom technique est calculé côté navigateur et envoyé explicitement.
       ## On évite $xwiki.cleanName() ici car sur cette instance il pouvait laisser
       ## la variable non définie et créer littéralement une page "${technicalName}".
-      #set($newPageRef = $pageParentClean + "." + $technicalName + ".WebHome")
+      #set($newPageRef = "${pageParentClean}.${technicalName}.WebHome")
       #set($newPageDoc = $xwiki.getDocument($newPageRef))
 
       #if(!$newPageDoc.isNew())
