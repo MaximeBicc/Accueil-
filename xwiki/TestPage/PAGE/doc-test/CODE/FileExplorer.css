@@ -526,3 +526,44 @@
         padding-left: 14px !important;
     }
 }
+
+
+/* =============================================================
+   ARCHITECTURE : SELECTION ET SUPPRESSION
+   ============================================================= */
+
+.architecture-select-input,
+.architecture-select-spacer {
+    width: 16px;
+    height: 16px;
+    flex: 0 0 16px;
+    margin: 0;
+}
+
+.architecture-select-input {
+    cursor: pointer;
+}
+
+.architecture-row-selected {
+    border-color: #bfdbfe !important;
+    background: #eff6ff !important;
+}
+
+.architecture-row-selected:hover {
+    background: #dbeafe !important;
+}
+
+#architecture-selection-count {
+    color: #1d4ed8;
+    font-weight: 600;
+}
+
+.architecture-modal-footer #architecture-delete-btn {
+    margin-right: auto;
+}
+
+@media (max-width: 700px) {
+    .architecture-modal-footer #architecture-delete-btn {
+        margin-right: 0;
+    }
+}
