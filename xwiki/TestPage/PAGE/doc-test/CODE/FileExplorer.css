@@ -360,3 +360,169 @@
         padding-left: 16px;
     }
 }
+
+
+/* =============================================================
+   ARCHITECTURE : LECTURE, GUIDES ET PLIAGE
+   ============================================================= */
+
+.architecture-tree-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+}
+
+.architecture-tree-editor ul {
+    position: relative;
+}
+
+.architecture-children {
+    margin-left: 10px !important;
+    padding-left: 22px !important;
+    border-left: 1px solid #e5e7eb;
+}
+
+.architecture-item-collapsed > .architecture-children {
+    display: none;
+}
+
+.architecture-row {
+    min-height: 40px;
+    gap: 8px;
+}
+
+.architecture-row:hover {
+    border-color: #e5e7eb;
+}
+
+.architecture-toggle {
+    position: relative;
+    width: 20px;
+    height: 20px;
+    flex: 0 0 20px;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    cursor: pointer;
+}
+
+.architecture-toggle:hover:not(:disabled) {
+    background: #e5e7eb;
+}
+
+.architecture-toggle::before {
+    content: "";
+    position: absolute;
+    top: 6px;
+    left: 7px;
+    width: 6px;
+    height: 6px;
+    border-right: 1.5px solid #6b7280;
+    border-bottom: 1.5px solid #6b7280;
+    transform: rotate(45deg);
+    transition: transform 0.15s ease;
+}
+
+.architecture-item-collapsed > .architecture-row .architecture-toggle::before {
+    top: 7px;
+    left: 6px;
+    transform: rotate(-45deg);
+}
+
+.architecture-toggle-empty::before {
+    display: none;
+}
+
+.architecture-node-icon {
+    position: relative;
+    width: 18px;
+    height: 18px;
+    flex: 0 0 18px;
+}
+
+.architecture-folder-icon::before {
+    content: "";
+    position: absolute;
+    left: 1px;
+    top: 5px;
+    width: 16px;
+    height: 11px;
+    border: 1px solid #9ca3af;
+    border-radius: 2px;
+    background: #f9fafb;
+}
+
+.architecture-folder-icon::after {
+    content: "";
+    position: absolute;
+    left: 2px;
+    top: 2px;
+    width: 7px;
+    height: 5px;
+    border: 1px solid #9ca3af;
+    border-bottom: 0;
+    border-radius: 2px 2px 0 0;
+    background: #f9fafb;
+}
+
+.architecture-document-icon::before {
+    content: "";
+    position: absolute;
+    left: 3px;
+    top: 1px;
+    width: 12px;
+    height: 16px;
+    border: 1px solid #9ca3af;
+    border-radius: 2px;
+    background: #ffffff;
+}
+
+.architecture-document-icon::after {
+    content: "";
+    position: absolute;
+    right: 3px;
+    top: 1px;
+    width: 5px;
+    height: 5px;
+    border-left: 1px solid #9ca3af;
+    border-bottom: 1px solid #9ca3af;
+    background: #f9fafb;
+}
+
+.architecture-child-count {
+    min-width: 22px;
+    padding: 1px 6px;
+    border-radius: 10px;
+    background: #f3f4f6;
+    color: #6b7280;
+    font-size: 11px;
+    font-weight: 500;
+    text-align: center;
+}
+
+.architecture-row[data-type="root"] .architecture-title,
+.architecture-row[data-type="folder"] .architecture-title {
+    font-weight: 600;
+    color: #111827;
+}
+
+.architecture-row[data-type="document"] .architecture-title {
+    color: #374151;
+}
+
+@media (max-width: 700px) {
+    .architecture-modal-info {
+        align-items: flex-start;
+    }
+
+    .architecture-tree-actions {
+        width: 100%;
+        margin-left: 0;
+    }
+
+    .architecture-children {
+        padding-left: 14px !important;
+    }
+}
