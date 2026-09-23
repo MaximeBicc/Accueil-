@@ -1,61 +1,118 @@
 function ajouterFichier() {
     const pageData = document.getElementById("pageData");
     const parentPage = pageData.getAttribute("parent-page");
-    popupContent.innerHTML = `
+    const content = document.getElementById("popupContent");
+
+    content.innerHTML = `
 <h4>Nom du fichier ${parentPage}</h4>
 <input type="hidden" name="action" value="ajouter un fichier" />
 <input type="hidden" name="type" value="folder" />
 <input type="hidden" name="page" value="${parentPage}" />
 <input type="text" name="nom_fichier" placeholder="nom du fichier" />
 `;
-    popup.style.display = "block";
+
+    document.getElementById("popup").style.display = "block";
 }
 
 function ajouterDocument() {
     const pageData = document.getElementById("pageData");
     const parentPage = pageData.getAttribute("parent-page");
-    popupContent.innerHTML = `
-<h4>Ajouter un document</h4>
+    const content = document.getElementById("popupContent");
+
+    content.innerHTML = `
+<h4>Ajouter un ou plusieurs documents</h4>
 <input type="hidden" name="action" value="ajouter un document" />
 <input type="hidden" name="type" value="document" />
 <input type="hidden" name="page" value="${parentPage}" />
 
 <div class="form-group">
     <label for="document-name-input">Nom de la page</label>
-    <input id="document-name-input" class="form-control" type="text" name="nom_fichier" placeholder="Nom du document" />
+    <input id="document-name-input" class="form-control" type="text" name="nom_fichier"
+        placeholder="Facultatif si un fichier est sélectionné" />
+    <p id="document-name-help" class="help-block">
+        Pour un seul document, tu peux modifier le nom de la page. Pour plusieurs documents, chaque page reprend le nom de son fichier.
+    </p>
 </div>
 
 <div class="form-group">
-    <label for="document-file-input">Document PDF ou Word</label>
-    <input id="document-file-input" class="form-control" type="file"
+    <label for="document-file-input">Documents PDF ou Word</label>
+    <input id="document-file-input" class="form-control" type="file" multiple
         accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
-    <p class="help-block">DOC et DOCX sont convertis en contenu XWiki éditable. PDF conserve son affichage d'origine.</p>
+    <p class="help-block">Tu peux sélectionner plusieurs fichiers en une seule fois. Une page XWiki sera créée pour chaque document.</p>
+    <div id="document-selection-info"></div>
 </div>
 `;
 
     const fileInput = document.getElementById("document-file-input");
     const nameInput = document.getElementById("document-name-input");
+    const selectionInfo = document.getElementById("document-selection-info");
 
     if (fileInput && nameInput) {
         fileInput.addEventListener("change", function() {
-            const file = fileInput.files && fileInput.files[0];
-            if (!file || nameInput.value) return;
+            const files = Array.prototype.slice.call(fileInput.files || []);
 
-            const lastDot = file.name.lastIndexOf(".");
-            nameInput.value = lastDot > 0 ? file.name.substring(0, lastDot) : file.name;
+            if (files.length === 1) {
+                nameInput.disabled = false;
+                if (!nameInput.value) {
+                    nameInput.value = getPageNameFromFile(files[0]);
+                }
+            } else if (files.length > 1) {
+                nameInput.value = "";
+                nameInput.disabled = true;
+                nameInput.placeholder = "Nom automatique pour chaque document";
+            } else {
+                nameInput.disabled = false;
+                nameInput.placeholder = "Facultatif si un fichier est sélectionné";
+            }
+
+            if (selectionInfo) {
+                if (files.length === 0) {
+                    selectionInfo.innerHTML = "";
+                } else {
+                    const names = files.map(function(file) {
+                        return "<li>" + escapeDocumentText(file.name) + "</li>";
+                    }).join("");
+
+                    selectionInfo.innerHTML =
+                        "<strong>" + files.length + " document(s) sélectionné(s)</strong>" +
+                        "<ul>" + names + "</ul>";
+                }
+            }
         });
     }
 
-    popup.style.display = "block";
+    document.getElementById("popup").style.display = "block";
 }
 
-function getDocumentImportInfo() {
-    const fileInput = document.getElementById("document-file-input");
-    if (!fileInput || !fileInput.files || !fileInput.files[0]) {
-        return { file: null, kind: "", safeName: "" };
+function escapeDocumentText(value) {
+    return String(value || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+}
+
+function getPageNameFromFile(file) {
+    if (!file) return "";
+
+    const lastDot = file.name.lastIndexOf(".");
+    if (lastDot > 0) {
+        return file.name.substring(0, lastDot);
     }
 
-    const file = fileInput.files[0];
+    return file.name;
+}
+
+function getDocumentImportInfo(file, pageName) {
+    if (!file) {
+        return {
+            file: null,
+            kind: "",
+            safeName: "",
+            pageName: pageName || ""
+        };
+    }
+
     const dot = file.name.lastIndexOf(".");
     const extension = dot >= 0 ? file.name.substring(dot + 1).toLowerCase() : "";
 
@@ -65,14 +122,43 @@ function getDocumentImportInfo() {
     } else if (extension === "doc" || extension === "docx") {
         kind = "word";
     } else {
-        throw new Error("FORMAT_DOCUMENT_NON_SUPPORTE");
+        throw new Error("FORMAT_DOCUMENT_NON_SUPPORTE:" + file.name);
     }
 
-    // Le nom de l'attachement est nettoyé pour ne pas casser la syntaxe XWiki
-    // utilisée dans le contenu de la nouvelle page.
     const safeName = file.name.replace(/[\\\/:*?"<>|#%{}]/g, "_");
 
-    return { file: file, kind: kind, safeName: safeName };
+    return {
+        file: file,
+        kind: kind,
+        safeName: safeName,
+        pageName: pageName || getPageNameFromFile(file)
+    };
+}
+
+function getSelectedDocumentImports() {
+    const fileInput = document.getElementById("document-file-input");
+    const nameInput = document.getElementById("document-name-input");
+    const files = fileInput
+        ? Array.prototype.slice.call(fileInput.files || [])
+        : [];
+
+    const manualName = nameInput && !nameInput.disabled ? nameInput.value : "";
+
+    if (files.length === 0) {
+        if (!manualName) {
+            throw new Error("NOM_DOCUMENT_MANQUANT");
+        }
+
+        return [getDocumentImportInfo(null, manualName)];
+    }
+
+    return files.map(function(file) {
+        const pageName = files.length === 1 && manualName
+            ? manualName
+            : getPageNameFromFile(file);
+
+        return getDocumentImportInfo(file, pageName);
+    });
 }
 
 async function uploadImportedDocument(uploadUrl, file, safeName, formToken) {
@@ -92,88 +178,183 @@ async function uploadImportedDocument(uploadUrl, file, safeName, formToken) {
     }
 }
 
+async function sendCreationRequest(formulaire, parentPage, importInfo, formToken) {
+    const formData = new FormData(formulaire);
+
+    formData.set("page", parentPage);
+    formData.set("nom_fichier", importInfo.pageName || "");
+    formData.set("source_filename", importInfo.safeName || "");
+    formData.set("source_kind", importInfo.kind || "");
+
+    // Pour Word, COMMANDE reçoit le fichier directement afin de le convertir
+    // en contenu XWiki éditable avec l'Office Importer.
+    if (importInfo.file && importInfo.kind === "word") {
+        formData.append("filePath", importInfo.file, importInfo.safeName);
+    }
+
+    const response = await fetch(urlCommande, {
+        method: "POST",
+        body: formData,
+        credentials: "same-origin",
+        headers: { "X-Requested-With": "XMLHttpRequest" }
+    });
+
+    const resultat = await response.text();
+
+    if (!resultat.includes("LIEN_AJOUTE_OK")) {
+        throw new Error(resultat);
+    }
+
+    if (importInfo.file) {
+        const parsed = new DOMParser().parseFromString(resultat, "text/html");
+        const creationResult = parsed.getElementById("creation-result");
+        const uploadUrl = creationResult
+            ? creationResult.getAttribute("data-upload-url")
+            : "";
+
+        if (!uploadUrl) {
+            throw new Error("URL_UPLOAD_INTROUVABLE");
+        }
+
+        await uploadImportedDocument(
+            uploadUrl,
+            importInfo.file,
+            importInfo.safeName,
+            formToken
+        );
+    }
+}
+
+function formatDocumentImportError(error, pageName) {
+    const message = error && error.message ? error.message : String(error || "");
+
+    if (message.indexOf("ERREUR_PAGE_EXISTE") !== -1) {
+        return pageName + " : une page avec ce nom existe déjà.";
+    }
+
+    if (message.indexOf("ERREUR_IMPORT_OFFICE") !== -1) {
+        return pageName + " : la conversion Word vers XWiki a échoué.";
+    }
+
+    if (message.indexOf("ERREUR_DOCUMENT_MANQUANT") !== -1) {
+        return pageName + " : le fichier Word n'a pas été reçu.";
+    }
+
+    if (message.indexOf("ERREUR_CSRF") !== -1) {
+        return pageName + " : la session de sécurité a expiré.";
+    }
+
+    return pageName + " : " + message.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ");
+}
+
 async function popupValider() {
     const formulaire = document.getElementById("formulairePopup");
     const pageData = document.getElementById("pageData");
     const parentPage = pageData ? pageData.getAttribute("parent-page") : null;
     const box = document.getElementById("box");
-    const actionInput = formulaire ? formulaire.querySelector('input[name="action"]') : null;
-    const formTokenInput = formulaire ? formulaire.querySelector('input[name="form_token"]') : null;
+    const actionInput = formulaire
+        ? formulaire.querySelector('input[name="action"]')
+        : null;
+    const formTokenInput = formulaire
+        ? formulaire.querySelector('input[name="form_token"]')
+        : null;
     const button = document.getElementById("btn-popup-valide");
 
     if (!formulaire || !parentPage || !box || !actionInput) return;
 
-    let importInfo = { file: null, kind: "", safeName: "" };
-
     try {
-        if (actionInput.value === "ajouter un document") {
-            importInfo = getDocumentImportInfo();
-        }
-
-        const formData = new FormData(formulaire);
-        formData.set("page", parentPage);
-
-        if (importInfo.file) {
-            formData.set("source_filename", importInfo.safeName);
-            formData.set("source_kind", importInfo.kind);
-
-            // Pour Word, COMMANDE reçoit directement le fichier et utilise
-            // l'Office Importer XWiki pour générer du contenu XWiki éditable.
-            if (importInfo.kind === "word") {
-                formData.append("filePath", importInfo.file, importInfo.safeName);
-            }
-        } else {
-            formData.set("source_filename", "");
-            formData.set("source_kind", "");
-        }
-
         if (button) {
             button.disabled = true;
-            button.textContent = importInfo.file ? "Création..." : "Chargement...";
         }
 
-        const response = await fetch(urlCommande, {
-            method: "POST",
-            body: formData,
-            credentials: "same-origin",
-            headers: { "X-Requested-With": "XMLHttpRequest" }
-        });
+        // ---------------------------------------------------------
+        // Création d'un dossier : comportement existant inchangé.
+        // ---------------------------------------------------------
+        if (actionInput.value === "ajouter un fichier") {
+            const formData = new FormData(formulaire);
+            formData.set("page", parentPage);
+            formData.set("source_filename", "");
+            formData.set("source_kind", "");
 
-        const resultat = await response.text();
+            if (button) button.textContent = "Création...";
 
-        if (!resultat.includes("LIEN_AJOUTE_OK")) {
-            throw new Error(resultat);
-        }
+            const response = await fetch(urlCommande, {
+                method: "POST",
+                body: formData,
+                credentials: "same-origin",
+                headers: { "X-Requested-With": "XMLHttpRequest" }
+            });
 
-        if (importInfo.file) {
-            const parsed = new DOMParser().parseFromString(resultat, "text/html");
-            const creationResult = parsed.getElementById("creation-result");
-            const uploadUrl = creationResult ? creationResult.getAttribute("data-upload-url") : "";
+            const resultat = await response.text();
 
-            if (!uploadUrl) {
-                throw new Error("URL_UPLOAD_INTROUVABLE");
+            if (!resultat.includes("LIEN_AJOUTE_OK")) {
+                throw new Error(resultat);
             }
 
-            if (button) button.textContent = "Import du document...";
-
-            await uploadImportedDocument(
-                uploadUrl,
-                importInfo.file,
-                importInfo.safeName,
-                formTokenInput ? formTokenInput.value : ""
-            );
+            document.getElementById("popup").style.display = "none";
+            formulaire.reset();
+            LienPerso(parentPage, box);
+            return;
         }
 
-        document.getElementById("popup").style.display = "none";
-        formulaire.reset();
-        LienPerso(parentPage, box);
+        // ---------------------------------------------------------
+        // Documents : un appel de création par fichier sélectionné.
+        // ---------------------------------------------------------
+        const imports = getSelectedDocumentImports();
+        const formToken = formTokenInput ? formTokenInput.value : "";
+        const failures = [];
+        let successCount = 0;
+
+        for (let i = 0; i < imports.length; i++) {
+            const importInfo = imports[i];
+
+            if (button) {
+                button.textContent =
+                    "Import " + (i + 1) + "/" + imports.length +
+                    " : " + importInfo.pageName;
+            }
+
+            try {
+                await sendCreationRequest(
+                    formulaire,
+                    parentPage,
+                    importInfo,
+                    formToken
+                );
+                successCount++;
+            } catch (error) {
+                console.error("Erreur import " + importInfo.pageName + " :", error);
+                failures.push(formatDocumentImportError(error, importInfo.pageName));
+            }
+        }
+
+        if (successCount > 0) {
+            document.getElementById("popup").style.display = "none";
+            formulaire.reset();
+            LienPerso(parentPage, box);
+        }
+
+        if (failures.length > 0) {
+            alert(
+                successCount + " document(s) créé(s) sur " + imports.length + ".\n\n" +
+                "Échecs :\n" + failures.join("\n")
+            );
+        }
     } catch (error) {
         console.error("Erreur création/import :", error);
 
-        if (error && error.message === "FORMAT_DOCUMENT_NON_SUPPORTE") {
-            alert("Format non supporté. Choisis un fichier PDF, DOC ou DOCX.");
+        const message = error && error.message ? error.message : String(error || "");
+
+        if (message.indexOf("FORMAT_DOCUMENT_NON_SUPPORTE:") === 0) {
+            alert(
+                "Format non supporté pour " +
+                message.substring("FORMAT_DOCUMENT_NON_SUPPORTE:".length) +
+                ". Choisis uniquement des fichiers PDF, DOC ou DOCX."
+            );
+        } else if (message === "NOM_DOCUMENT_MANQUANT") {
+            alert("Entre un nom de page ou sélectionne au moins un document.");
         } else {
-            alert("Erreur lors de la création ou de l'import du document : " + (error.message || error));
+            alert("Erreur lors de la création : " + message);
         }
     } finally {
         if (button) {
@@ -184,21 +365,23 @@ async function popupValider() {
 }
 
 function popupAnnuler() {
-    popup.style.display = "none";
+    document.getElementById("popup").style.display = "none";
 }
 
 document.addEventListener("DOMContentLoaded", function() {
     const popup = document.getElementById("popup");
-    const popupContent = document.getElementById("popupContent");
-    const span = document.getElementsByClassName("close")[1];
+    const closeButtons = document.getElementsByClassName("close");
 
-    span.onclick = function() {
-        popup.style.display = "none";
+    if (closeButtons.length > 0) {
+        const span = closeButtons[closeButtons.length - 1];
+        span.onclick = function() {
+            popup.style.display = "none";
+        };
     }
 
-    window.onclick = function(event) {
-        if (event.target == popup) {
+    window.addEventListener("click", function(event) {
+        if (event.target === popup) {
             popup.style.display = "none";
         }
-    }
+    });
 });
