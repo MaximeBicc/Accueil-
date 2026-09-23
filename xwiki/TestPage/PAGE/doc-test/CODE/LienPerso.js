@@ -977,11 +977,22 @@ async function fetchArchitectureState() {
         throw new Error("Impossible de récupérer la racine de l'architecture.");
     }
 
+    const folderIconTemplate = parsed.getElementById(
+        "architecture-icon-folder-template"
+    );
+    const documentIconTemplate = parsed.getElementById(
+        "architecture-icon-document-template"
+    );
+
     return {
         rootRef: rootRef,
         nodes: nodes,
         collapsed: {},
-        selected: {}
+        selected: {},
+        icons: {
+            folder: folderIconTemplate ? folderIconTemplate.innerHTML : "",
+            document: documentIconTemplate ? documentIconTemplate.innerHTML : ""
+        }
     };
 }
 
@@ -1128,14 +1139,15 @@ function renderArchitectureBranch(nodeRef) {
     }
 
     const nodeIcon = document.createElement("span");
-    nodeIcon.className =
-        "architecture-node-icon " +
-        (
-            node.type === "root" || node.type === "folder"
-                ? "architecture-folder-icon"
-                : "architecture-document-icon"
-        );
+    nodeIcon.className = "architecture-node-icon architecture-xwiki-icon";
     nodeIcon.setAttribute("aria-hidden", "true");
+
+    if (architectureState.icons) {
+        nodeIcon.innerHTML =
+            node.type === "document"
+                ? architectureState.icons.document
+                : architectureState.icons.folder;
+    }
 
     const type = document.createElement("span");
     type.className = "architecture-type";
@@ -1162,6 +1174,9 @@ function renderArchitectureBranch(nodeRef) {
             architectureState.selected &&
             architectureState.selected[nodeRef]
         );
+        select.indeterminate =
+            !select.checked &&
+            hasSelectedArchitectureDescendant(nodeRef);
 
         row.appendChild(select);
     } else {
@@ -1205,6 +1220,72 @@ function renderArchitectureBranch(nodeRef) {
     }
 
     return item;
+}
+
+function setArchitectureSelectionRecursive(nodeRef, selected) {
+    if (!architectureState || !architectureState.nodes[nodeRef]) {
+        return;
+    }
+
+    architectureState.selected = architectureState.selected || {};
+
+    const node = architectureState.nodes[nodeRef];
+
+    if (node.type !== "root") {
+        architectureState.selected[nodeRef] = !!selected;
+    }
+
+    if (node.type === "folder" || node.type === "root") {
+        getArchitectureChildren(nodeRef).forEach(function(child) {
+            setArchitectureSelectionRecursive(child.id, selected);
+        });
+    }
+}
+
+function refreshArchitectureAncestorSelection(nodeRef) {
+    if (!architectureState || !architectureState.nodes[nodeRef]) {
+        return;
+    }
+
+    let parentRef = architectureState.nodes[nodeRef].parentRef;
+    let guard = 0;
+
+    while (
+        parentRef &&
+        architectureState.nodes[parentRef] &&
+        guard < 1000
+    ) {
+        const parent = architectureState.nodes[parentRef];
+        const children = getArchitectureChildren(parentRef);
+
+        if (parent.type !== "root") {
+            const allChildrenSelected =
+                children.length > 0 &&
+                children.every(function(child) {
+                    return !!architectureState.selected[child.id];
+                });
+
+            architectureState.selected[parentRef] = allChildrenSelected;
+        }
+
+        parentRef = parent.parentRef;
+        guard++;
+    }
+}
+
+function hasSelectedArchitectureDescendant(nodeRef) {
+    if (!architectureState || !architectureState.nodes[nodeRef]) {
+        return false;
+    }
+
+    const children = getArchitectureChildren(nodeRef);
+
+    return children.some(function(child) {
+        return (
+            !!architectureState.selected[child.id] ||
+            hasSelectedArchitectureDescendant(child.id)
+        );
+    });
 }
 
 function getSelectedArchitectureNodes() {
@@ -1362,17 +1443,15 @@ function bindArchitectureDragAndDrop() {
         }
 
         architectureState.selected = architectureState.selected || {};
-        architectureState.selected[ref] = checkbox.checked;
 
-        const row = checkbox.closest(".architecture-row");
-        if (row) {
-            row.classList.toggle(
-                "architecture-row-selected",
-                checkbox.checked
-            );
-        }
+        // Sélectionner / désélectionner un dossier agit sur toute sa branche.
+        setArchitectureSelectionRecursive(ref, checkbox.checked);
 
-        updateArchitectureSummary();
+        // Si un enfant est décoché après sélection du parent, le parent
+        // devient automatiquement partiel au lieu de rester sélectionné.
+        refreshArchitectureAncestorSelection(ref);
+
+        renderArchitectureTree();
     });
 
     tree.addEventListener("dragstart", function(event) {
