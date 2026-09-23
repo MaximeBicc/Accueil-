@@ -363,3 +363,157 @@
         padding-left: 16px;
     }
 }
+
+
+/* =============================================================
+   IMPORT : ACTIVATION / DESACTIVATION ET RENOMMAGE
+   ============================================================= */
+
+.branch-tree-row {
+    gap: 7px;
+}
+
+.branch-tree-enabled,
+.document-import-enabled {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    flex: 0 0 16px;
+    cursor: pointer;
+}
+
+.branch-tree-rename {
+    flex: 1;
+    min-width: 120px;
+    height: 28px;
+    padding: 3px 7px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
+    color: #374151;
+    font: inherit;
+    font-weight: inherit;
+}
+
+.branch-tree-rename:hover:not(:disabled) {
+    border-color: #d1d5db;
+    background: #ffffff;
+}
+
+.branch-tree-rename:focus {
+    border-color: #93c5fd;
+    background: #ffffff;
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.12);
+}
+
+.branch-tree-folder-row .branch-tree-rename {
+    color: #111827;
+    font-weight: 600;
+}
+
+.branch-tree-disabled > .branch-tree-row {
+    opacity: 0.5;
+    background: #f9fafb;
+}
+
+.branch-tree-disabled > .branch-tree-row .branch-tree-rename {
+    text-decoration: line-through;
+    cursor: not-allowed;
+}
+
+.branch-tree-disabled > .branch-tree-children {
+    opacity: 0.58;
+}
+
+#branch-preview-active-count {
+    color: #111827;
+    font-weight: 600;
+}
+
+/* =============================================================
+   AJOUT DE PLUSIEURS DOCUMENTS
+   ============================================================= */
+
+.document-import-preview {
+    margin-top: 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #ffffff;
+}
+
+.document-import-preview-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 10px 12px;
+    border-bottom: 1px solid #e5e7eb;
+    background: #f9fafb;
+}
+
+.document-import-preview-header span {
+    color: #6b7280;
+    font-size: 12px;
+}
+
+.document-import-list {
+    max-height: 320px;
+    overflow: auto;
+}
+
+.document-import-row {
+    display: grid;
+    grid-template-columns: 20px minmax(140px, 1fr) minmax(180px, 1.25fr);
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    border-bottom: 1px solid #f3f4f6;
+}
+
+.document-import-row:last-child {
+    border-bottom: 0;
+}
+
+.document-import-row:hover {
+    background: #f9fafb;
+}
+
+.document-import-row.is-disabled {
+    opacity: 0.5;
+    background: #f9fafb;
+}
+
+.document-import-source {
+    min-width: 0;
+    overflow: hidden;
+    color: #6b7280;
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.document-import-name {
+    min-width: 0;
+    height: 32px;
+}
+
+.document-import-row.is-disabled .document-import-source {
+    text-decoration: line-through;
+}
+
+@media (max-width: 700px) {
+    .branch-tree-rename {
+        min-width: 80px;
+    }
+
+    .document-import-row {
+        grid-template-columns: 20px 1fr;
+    }
+
+    .document-import-name {
+        grid-column: 2;
+    }
+}
