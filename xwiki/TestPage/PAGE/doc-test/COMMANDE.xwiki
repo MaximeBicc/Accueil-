@@ -29,7 +29,7 @@
   #elseif($docParent.isNew())
     ERREUR_PAGE_DE_STOCKAGE_INTROUVABLE
     $pageParent
-  #elseif($sourceKind != "" && $sourceKind != "pdf" && $sourceKind != "word")
+  #elseif($sourceKind != "" && $sourceKind != "pdf" && $sourceKind != "word" && $sourceKind != "file")
     ERREUR_FORMAT_DOCUMENT
   #elseif($sourceFilename.contains('"') || $sourceFilename.contains("{{") || $sourceFilename.contains("}}"))
     ERREUR_NOM_DOCUMENT
@@ -119,6 +119,9 @@
           #if($type == "document" && $sourceKind == "pdf" && $sourceFilename != "")
             #set($dq = '"')
             #set($pageContent = "{{pdf filename=${dq}${sourceFilename}${dq}/}}")
+            $newPageDoc.setContent($pageContent)
+          #elseif($type == "document" && $sourceKind == "file" && $sourceFilename != "")
+            #set($pageContent = "[[Télécharger le fichier>>attach:${sourceFilename}]]")
             $newPageDoc.setContent($pageContent)
           #else
             $newPageDoc.setContent("")
