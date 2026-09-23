@@ -69,3 +69,72 @@
     outline: none;
     box-sizing: border-box;
 }
+
+
+/* =============================================================
+   BARRE DE CHEMIN : COPIE, ERREUR ET SELECTION DE TEXTE
+   ============================================================= */
+
+.breadcrumb-bar-shell {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    margin-bottom: 20px;
+}
+
+.breadcrumb-bar-shell #breadcrumb-wrapper {
+    flex: 1;
+    min-width: 0;
+    margin-bottom: 0;
+}
+
+.breadcrumb-copy-btn {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+.breadcrumb-copy-success {
+    border-color: #86efac !important;
+    background: #f0fdf4 !important;
+    color: #166534 !important;
+}
+
+#breadcrumb-input {
+    user-select: text;
+    -webkit-user-select: text;
+    cursor: text;
+}
+
+#breadcrumb-input::selection {
+    background: Highlight;
+    color: HighlightText;
+}
+
+#breadcrumb-input.breadcrumb-input-checking {
+    cursor: progress;
+}
+
+#breadcrumb-wrapper.breadcrumb-invalid {
+    border-color: #ef4444;
+    box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.10);
+}
+
+.breadcrumb-error {
+    margin: -12px 0 16px;
+    padding: 7px 10px;
+    border: 1px solid #fecaca;
+    border-radius: 6px;
+    background: #fef2f2;
+    color: #b91c1c;
+    font-size: 12px;
+}
+
+@media (max-width: 700px) {
+    .breadcrumb-bar-shell {
+        flex-direction: column;
+    }
+
+    .breadcrumb-copy-btn {
+        align-self: flex-start;
+    }
+}
