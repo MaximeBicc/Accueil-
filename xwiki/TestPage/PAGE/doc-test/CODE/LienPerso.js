@@ -7,6 +7,12 @@ function LienPerso(url, zone) {
     .then(function(html) {
         zone.innerHTML = html;
         createSpan(zone); // Ré-attache les écouteurs sur le nouveau code HTML injecté
+
+        // La sidebar, la poignée et les contrôles de zoom sont eux aussi
+        // contenus dans le HTML injecté. Il faut donc les initialiser ici.
+        if (typeof initSidebarPreview === "function") {
+            initSidebarPreview(zone);
+        }
     })
     .catch(function(error) {
         zone.innerHTML = "<p style='color: %23ef4444; padding: 10px;'>Erreur pendant le chargement.</p>";
