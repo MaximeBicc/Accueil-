@@ -517,7 +517,7 @@
     <div id="architecture-data">
       ## Modèles d'icônes natifs XWiki récupérés ensuite par le JavaScript.
       <span id="architecture-icon-folder-template" style="display:none;">$services.icon.renderHTML('folder')</span>
-      <span id="architecture-icon-document-template" style="display:none;">$services.icon.renderHTML('page')</span>
+      <span id="architecture-icon-document-template" style="display:none;">$services.icon.renderHTML('file')</span>
 
       #set($treeQueue = [])
       #set($ignore = $treeQueue.add($mainParent))
