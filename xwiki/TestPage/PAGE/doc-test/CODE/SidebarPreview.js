@@ -314,42 +314,6 @@ async function saveSidebarMetadata() {
     }
 }
 
-function toggleSidebarSection(section) {
-    if (!section) {
-        return;
-    }
-
-    const toggle = section.querySelector(".sidebar-section-toggle");
-    const content = section.querySelector(".sidebar-section-content");
-
-    if (!toggle || !content) {
-        return;
-    }
-
-    const isOpen = !section.classList.contains("is-open");
-
-    section.classList.toggle("is-open", isOpen);
-    toggle.setAttribute(
-        "aria-expanded",
-        isOpen ? "true" : "false"
-    );
-    content.hidden = !isOpen;
-
-    const sidebar = section.closest("#preview-sidebar");
-
-    if (sidebar) {
-        const previewSection = sidebar.querySelector(
-            '.sidebar-section[data-sidebar-section="preview"]'
-        );
-
-        sidebar.classList.toggle(
-            "sidebar-preview-collapsed",
-            !!previewSection &&
-            !previewSection.classList.contains("is-open")
-        );
-    }
-}
-
 function initSidebarPreview(root) {
     const scope = root || document;
     const sidebar = scope.querySelector
@@ -359,29 +323,7 @@ function initSidebarPreview(root) {
     if (!sidebar) return;
 
     // ---------------------------------------------------------
-    // 1. Sections pliables
-    // ---------------------------------------------------------
-    // On normalise simplement l'état ici. Le clic est géré plus bas
-    // par délégation globale, ce qui reste fiable même après injection AJAX.
-    sidebar.querySelectorAll(".sidebar-section").forEach(function(section) {
-        const toggle = section.querySelector(".sidebar-section-toggle");
-        const content = section.querySelector(".sidebar-section-content");
-
-        if (!toggle || !content) {
-            return;
-        }
-
-        const isOpen = section.classList.contains("is-open");
-
-        toggle.setAttribute(
-            "aria-expanded",
-            isOpen ? "true" : "false"
-        );
-        content.hidden = !isOpen;
-    });
-
-    // ---------------------------------------------------------
-    // 2. Redimensionnement de la sidebar
+    // 1. Redimensionnement de la sidebar
     // ---------------------------------------------------------
     const dragHandle = sidebar.querySelector(
         "#sidebar-drag-handle"
@@ -407,7 +349,7 @@ function initSidebarPreview(root) {
     }
 
     // ---------------------------------------------------------
-    // 3. Apparition des contrôles de zoom
+    // 2. Apparition des contrôles de zoom
     // ---------------------------------------------------------
     const previewContainer = sidebar.querySelector(
         ".preview-frame-container"
@@ -452,7 +394,7 @@ function initSidebarPreview(root) {
     }
 
     // ---------------------------------------------------------
-    // 4. Edition description / mots-clés
+    // 3. Edition description / mots-clés
     // ---------------------------------------------------------
     const descriptionInput = sidebar.querySelector(
         "#sidebar-desc-input"
@@ -587,22 +529,6 @@ document.addEventListener("mouseup", function() {
 // Clics : ouverture, fermeture et zoom
 // -------------------------------------------------------------
 document.addEventListener("click", function(e) {
-    const sectionToggle = e.target && e.target.closest
-        ? e.target.closest(".sidebar-section-toggle")
-        : null;
-
-    // Sections de la sidebar : gestion déléguée pour fonctionner même
-    // lorsque toute la sidebar est recréée par AJAX.
-    if (sectionToggle) {
-        const section = sectionToggle.closest(".sidebar-section");
-
-        if (section) {
-            e.preventDefault();
-            toggleSidebarSection(section);
-            return;
-        }
-    }
-
     const documentItem = e.target && e.target.closest
         ? e.target.closest(".document-item")
         : null;
