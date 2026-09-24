@@ -1,7 +1,44 @@
 /* Styles du glossaire. Aucun style spécifique au module ne doit rester dans WebHome. */
 
 .glossary-status-alert {
-    margin-bottom: 20px;
+    display: none;
+}
+
+.glossary-toast {
+    position: fixed;
+    right: 22px;
+    bottom: 22px;
+    z-index: 100000;
+    max-width: min(420px, calc(100vw - 44px));
+    padding: 13px 16px;
+    border-radius: 13px;
+    border: 1px solid #dbe4ef;
+    background: #ffffff;
+    color: #18324f;
+    box-shadow: 0 18px 48px rgba(22, 55, 104, .16);
+    font-size: 13px;
+    line-height: 1.45;
+    display: none;
+}
+
+.glossary-toast.is-visible {
+    display: block;
+    animation: glossary-toast-in .3s ease both;
+}
+
+.glossary-toast.is-error {
+    border-color: rgba(239, 35, 60, .30);
+}
+
+@keyframes glossary-toast-in {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 .glossary-toolbar {
