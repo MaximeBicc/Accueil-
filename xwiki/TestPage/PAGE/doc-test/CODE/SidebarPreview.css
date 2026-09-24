@@ -432,3 +432,135 @@
         align-self: flex-start;
     }
 }
+
+
+/* =============================================================
+   6. SECTIONS PLIABLES DE LA SIDEBAR
+   ============================================================= */
+
+.sidebar-body {
+    padding: 14px 16px 16px;
+    gap: 8px;
+    overflow: hidden;
+    min-height: 0;
+}
+
+.sidebar-section {
+    flex: 0 0 auto;
+    min-height: 0;
+    overflow: hidden;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: #ffffff;
+}
+
+.sidebar-section-preview {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 44px;
+}
+
+.sidebar-section-preview.is-open {
+    min-height: 230px;
+}
+
+.sidebar-section-toggle {
+    width: 100%;
+    min-height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 9px 12px;
+    border: 0;
+    background: #f9fafb;
+    color: #1f2937;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+}
+
+.sidebar-section-toggle:hover {
+    background: #f3f4f6;
+}
+
+.sidebar-section.is-open > .sidebar-section-toggle {
+    border-bottom: 1px solid #e5e7eb;
+    background: #ffffff;
+}
+
+.sidebar-section-chevron {
+    width: 7px;
+    height: 7px;
+    flex: 0 0 7px;
+    border-right: 1.5px solid #6b7280;
+    border-bottom: 1.5px solid #6b7280;
+    transform: rotate(45deg);
+    transition: transform 0.15s ease;
+}
+
+.sidebar-section.is-open > .sidebar-section-toggle .sidebar-section-chevron {
+    transform: rotate(225deg);
+}
+
+.sidebar-section-content {
+    padding: 12px;
+}
+
+.sidebar-section-content[hidden] {
+    display: none !important;
+}
+
+.sidebar-info-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.sidebar-section[data-sidebar-section="metadata"] .sidebar-section-content {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    max-height: 46vh;
+    overflow-y: auto;
+}
+
+.sidebar-preview-content {
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: 10px;
+    display: flex;
+}
+
+.sidebar-preview-content .preview-frame-container {
+    flex: 1 1 auto;
+    min-height: 0;
+    margin-top: 0;
+}
+
+.sidebar-preview-content .iframe-wrapper {
+    min-height: 0;
+    height: 100%;
+}
+
+.sidebar-preview-collapsed .sidebar-section-preview {
+    flex: 0 0 auto;
+    min-height: 40px;
+}
+
+@media (max-width: 520px) {
+    .sidebar-body {
+        padding: 10px;
+    }
+
+    .sidebar-section-preview.is-open {
+        min-height: 200px;
+    }
+
+    .sidebar-section[data-sidebar-section="metadata"] .sidebar-section-content {
+        max-height: 42vh;
+    }
+}
