@@ -691,3 +691,80 @@
         max-height: 42vh;
     }
 }
+
+
+/* =============================================================
+   9. ACCORDEON SIDEBAR - MODE XWIKI FIABLE
+   ============================================================= */
+
+.sidebar-section {
+    display: block !important;
+}
+
+.sidebar-section-toggle {
+    width: 100%;
+    min-height: 40px;
+    display: flex !important;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    box-sizing: border-box;
+    padding: 9px 12px;
+    border: 0;
+    background: #f9fafb;
+    color: #1f2937;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+    user-select: none;
+}
+
+.sidebar-section-toggle:hover {
+    background: #f3f4f6;
+}
+
+.sidebar-section.is-open > .sidebar-section-toggle {
+    border-bottom: 1px solid #e5e7eb;
+    background: #ffffff;
+}
+
+.sidebar-section:not(.is-open) > .sidebar-section-content {
+    display: none !important;
+}
+
+.sidebar-section.is-open[data-sidebar-section="information"] > .sidebar-section-content {
+    display: block;
+}
+
+.sidebar-section.is-open[data-sidebar-section="metadata"] > .sidebar-section-content {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.sidebar-section.is-open[data-sidebar-section="preview"] > .sidebar-section-content {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.sidebar-section-preview {
+    flex: 0 0 auto;
+}
+
+.sidebar-section-preview.is-open {
+    display: flex !important;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 230px;
+}
+
+.sidebar-section:not(.is-open) > .sidebar-section-toggle .sidebar-section-chevron {
+    transform: rotate(45deg);
+}
+
+.sidebar-section.is-open > .sidebar-section-toggle .sidebar-section-chevron {
+    transform: rotate(225deg);
+}
