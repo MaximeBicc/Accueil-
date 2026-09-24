@@ -9,7 +9,7 @@ $xwiki.jsx.use("TestPage.PAGE.Glossaire.CODE.GlossairePageExtension")
 $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
 
 #set($createAction = $request.getParameter("action"))
-#if("$!createAction" == "checkAndCreate" && $request.acronyme && $request.libelle && $request.definition)
+#if("$!createAction" == "checkAndCreate" && $request.acronyme && $request.libelle)
   ## Aucun .trim() côté Velocity sur cette instance XWiki.
   #set($acronymeInput = "$!request.acronyme")
   #set($libelleInput = "$!request.libelle")
@@ -322,11 +322,10 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
               </div>
 
               <div class="form-group">
-                <label>Définition :</label>
+                <label>Définition (facultatif) :</label>
                 <textarea name="definition"
                           class="form-control"
                           rows="5"
-                          required
                           placeholder="Saisir une définition"></textarea>
               </div>
             </div>
