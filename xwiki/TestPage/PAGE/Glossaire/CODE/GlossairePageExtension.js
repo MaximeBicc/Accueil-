@@ -340,7 +340,7 @@ async function fixedReadGlossaryExcelFile(file) {
         xlsxLibrary = await fixedEnsureSheetJSLoaded();
     } catch (error) {
         console.error(error);
-        alert('La bibliothèque Excel n\'a pas pu être chargée correctement : ' + error.message);
+        showGlossaryToast('La bibliothèque Excel n\'a pas pu être chargée correctement : ' + error.message, true);
         return;
     }
 
@@ -352,7 +352,7 @@ async function fixedReadGlossaryExcelFile(file) {
 
         var workbook = xlsxLibrary.read(buffer, { type: 'array' });
         if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
-            alert('Le fichier Excel ne contient aucune feuille lisible.');
+            showGlossaryToast('Le fichier Excel ne contient aucune feuille lisible.', true);
             return;
         }
 
@@ -365,7 +365,7 @@ async function fixedReadGlossaryExcelFile(file) {
         });
 
         if (!rawRows.length) {
-            alert('La première feuille du fichier est vide.');
+            showGlossaryToast('La première feuille du fichier est vide.', true);
             return;
         }
 
@@ -376,7 +376,7 @@ async function fixedReadGlossaryExcelFile(file) {
         excelImportRows = fixedAnalyzeExcelRows(rawRows, headerInfo);
 
         if (!excelImportRows.length) {
-            alert('Aucune ligne de données n\'a été trouvée dans les trois colonnes attendues.');
+            showGlossaryToast('Aucune ligne de données n\'a été trouvée dans les trois colonnes attendues.', true);
             return;
         }
 
@@ -389,7 +389,7 @@ async function fixedReadGlossaryExcelFile(file) {
         jQuery('#excelGlossaryModal').modal('show');
     } catch (error) {
         console.error(error);
-        alert('Impossible de lire ce fichier Excel : ' + error.message);
+        showGlossaryToast('Impossible de lire ce fichier Excel : ' + error.message, true);
     }
 }
 
@@ -752,7 +752,7 @@ async function executeBulkGlossaryDelete() {
     if (failed.length) {
         resultMessage += '\n' + failed.length + ' suppression(s) ont échoué : ' + failed.join(', ');
     }
-    alert(resultMessage);
+    showGlossaryToast(resultMessage, failed.length > 0);
 }
 
 function setupGlossaryBulkDeleteUi() {
@@ -834,9 +834,9 @@ function bindGlossaryPageEvents() {
     window.urlGlossaireData = table.getAttribute('data-endpoint-url') || '';
 
     document.querySelectorAll('.glossary-status-alert').forEach(function(alertElement) {
-        setTimeout(function() {
-            alertElement.classList.add('hidden');
-        }, 7000);
+        var message = alertElement.textContent.replace(/\s+/g, ' ').trim();
+        showGlossaryToast(message, alertElement.classList.contains('alert-danger'));
+        alertElement.classList.add('hidden');
     });
 
     table.addEventListener('click', function(event) {
