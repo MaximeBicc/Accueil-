@@ -1,6 +1,28 @@
 var rowToDelete = null;
 var currentSortColumn = 'acronym';
 var currentSortDirection = 'asc';
+var glossaryToastTimer = null;
+
+function showGlossaryToast(message, isError) {
+    var toast = document.getElementById('glossaryToast');
+    if (!toast) return;
+
+    toast.textContent = String(message == null ? '' : message);
+    toast.classList.toggle('is-error', !!isError);
+    toast.classList.remove('is-visible');
+
+    // Relance l'animation si une nouvelle notification arrive immédiatement.
+    void toast.offsetWidth;
+    toast.classList.add('is-visible');
+
+    if (glossaryToastTimer) {
+        window.clearTimeout(glossaryToastTimer);
+    }
+
+    glossaryToastTimer = window.setTimeout(function() {
+        toast.classList.remove('is-visible');
+    }, 6000);
+}
 
 function toggleEditMode(button, isEnteringEdit) {
     var row = button.closest('.main-term-row');
@@ -205,12 +227,13 @@ async function saveRowEdition(button) {
 
             toggleEditMode(button, false);
             applyPagination();
+            showGlossaryToast('Modification enregistrée.', false);
         } else {
-            alert("Erreur serveur : " + resultat.trim());
+            showGlossaryToast("Erreur serveur : " + resultat.trim(), true);
         }
     } catch (erreur) {
         console.error(erreur);
-        alert("Impossible de joindre la page DATA : " + erreur);
+        showGlossaryToast("Impossible de joindre la page DATA : " + erreur, true);
     }
 }
 
@@ -266,13 +289,14 @@ async function executeRowDelete() {
             if (typeof applyPagination === 'function') {
                 applyPagination();
             }
+            showGlossaryToast('Terme supprimé.', false);
         } else {
-            alert("Erreur de suppression serveur : " + resultat.trim());
+            showGlossaryToast("Erreur de suppression serveur : " + resultat.trim(), true);
             jQuery('#deleteConfirmModal').modal('hide');
         }
     } catch (erreur) {
         console.error(erreur);
-        alert("Erreur réseau lors de la suppression : " + erreur);
+        showGlossaryToast("Erreur réseau lors de la suppression : " + erreur, true);
         jQuery('#deleteConfirmModal').modal('hide');
     } finally {
         deleteButton.disabled = false;
@@ -707,7 +731,7 @@ async function readGlossaryExcelFile(file) {
     try {
         await ensureSheetJSLoaded();
     } catch (error) {
-        alert('La bibliothèque Excel n\'a pas pu être chargée. Vérifiez que le wiki peut accéder à cdn.sheetjs.com.');
+        showGlossaryToast('La bibliothèque Excel n\'a pas pu être chargée. Vérifiez que le wiki peut accéder à cdn.sheetjs.com.', true);
         return;
     }
 
@@ -716,7 +740,7 @@ async function readGlossaryExcelFile(file) {
         var workbook = XLSX.read(buffer, { type: 'array' });
 
         if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
-            alert('Le fichier Excel ne contient aucune feuille lisible.');
+            showGlossaryToast('Le fichier Excel ne contient aucune feuille lisible.', true);
             return;
         }
 
@@ -729,7 +753,7 @@ async function readGlossaryExcelFile(file) {
         });
 
         if (!rawRows.length) {
-            alert('La première feuille du fichier est vide.');
+            showGlossaryToast('La première feuille du fichier est vide.', true);
             return;
         }
 
@@ -739,7 +763,7 @@ async function readGlossaryExcelFile(file) {
         excelImportRows = analyzeExcelRows(rawRows, headerInfo);
 
         if (!excelImportRows.length) {
-            alert('Aucune ligne de données n\'a été trouvée dans les trois colonnes attendues.');
+            showGlossaryToast('Aucune ligne de données n\'a été trouvée dans les trois colonnes attendues.', true);
             return;
         }
 
@@ -747,7 +771,7 @@ async function readGlossaryExcelFile(file) {
         jQuery('#excelGlossaryModal').modal('show');
     } catch (error) {
         console.error(error);
-        alert('Impossible de lire ce fichier Excel : ' + error.message);
+        showGlossaryToast('Impossible de lire ce fichier Excel : ' + error.message, true);
     }
 }
 
@@ -867,7 +891,7 @@ function updateExcelImportSelectionSummary() {
 function prepareExcelImport(mode) {
     var rows = getRowsForExcelImport(mode);
     if (!rows.length) {
-        alert('Aucune ligne ne correspond aux règles d\'import sélectionnées.');
+        showGlossaryToast('Aucune ligne ne correspond aux règles d\'import sélectionnées.', true);
         return;
     }
 
@@ -927,7 +951,7 @@ async function executeExcelImport(rows, allowAcronymDuplicates, allowLabelDuplic
         var plainResult = extractGlossaryServerText(rawResult);
 
         if (plainResult.indexOf('GLOSSAIRE_IMPORT_OK') === -1) {
-            alert('Erreur d\'import : ' + plainResult);
+            showGlossaryToast('Erreur d\'import : ' + plainResult, true);
             return;
         }
 
@@ -955,10 +979,10 @@ async function executeExcelImport(rows, allowAcronymDuplicates, allowLabelDuplic
         filterMainTableColumns();
         jQuery('#excelGlossaryModal').modal('hide');
 
-        alert('Import terminé : ' + created + ' terme(s) ajouté(s)' + (skipped ? ', ' + skipped + ' ligne(s) ignorée(s).' : '.'));
+        showGlossaryToast('Import terminé : ' + created + ' terme(s) ajouté(s)' + (skipped ? ', ' + skipped + ' ligne(s) ignorée(s).' : '.'), false);
     } catch (error) {
         console.error(error);
-        alert('Impossible de joindre la page DATA pendant l\'import : ' + error);
+        showGlossaryToast('Impossible de joindre la page DATA pendant l\'import : ' + error, true);
     } finally {
         importButton.disabled = false;
         newOnlyButton.disabled = false;
