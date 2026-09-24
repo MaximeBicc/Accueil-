@@ -564,3 +564,26 @@
         max-height: 42vh;
     }
 }
+
+
+/* =============================================================
+   7. CORRECTION OUVERTURE DES SECTIONS
+   ============================================================= */
+
+/* La classe is-open est la source de vérité. Le hidden reste uniquement
+   une aide d'accessibilité/état DOM. */
+.sidebar-section:not(.is-open) > .sidebar-section-content {
+    display: none !important;
+}
+
+.sidebar-section.is-open > .sidebar-section-content {
+    display: block;
+}
+
+.sidebar-section.is-open[data-sidebar-section="metadata"] > .sidebar-section-content {
+    display: flex;
+}
+
+.sidebar-section.is-open[data-sidebar-section="preview"] > .sidebar-section-content {
+    display: flex;
+}
