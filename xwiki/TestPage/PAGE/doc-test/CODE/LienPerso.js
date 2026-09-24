@@ -449,6 +449,7 @@ function createSpan(box) {
     }
 
     initExplorerSidebarAccordion(box);
+    initExplorerSearch(box);
     initExplorerManagement(box);
 }
 
@@ -893,6 +894,259 @@ async function confirmDirectExplorerMove(box) {
         moveHereButton.disabled = false;
         moveHereButton.textContent = "Déplacer ici";
     }
+}
+
+function normalizeExplorerSearchText(value) {
+    let text = String(value || "").toLowerCase();
+
+    if (text.normalize) {
+        text = text
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "");
+    }
+
+    return text.trim();
+}
+
+function parseExplorerSearchTags(value) {
+    const seen = {};
+
+    return String(value || "")
+        .split(/[,;\n]+/)
+        .map(function(tag) {
+            return tag.trim();
+        })
+        .filter(function(tag) {
+            if (!tag) {
+                return false;
+            }
+
+            const key = normalizeExplorerSearchText(tag);
+
+            if (seen[key]) {
+                return false;
+            }
+
+            seen[key] = true;
+            return true;
+        });
+}
+
+function populateExplorerTagFilter(box) {
+    const tagFilter = box.querySelector("#explorer-tag-filter");
+
+    if (!tagFilter) {
+        return;
+    }
+
+    const currentValue = tagFilter.value;
+    const tags = [];
+    const seen = {};
+
+    box.querySelectorAll(
+        '.explorer-row[data-type="document"]'
+    ).forEach(function(row) {
+        parseExplorerSearchTags(
+            row.getAttribute("data-tags") || ""
+        ).forEach(function(tag) {
+            const key = normalizeExplorerSearchText(tag);
+
+            if (!seen[key]) {
+                seen[key] = true;
+                tags.push(tag);
+            }
+        });
+    });
+
+    tags.sort(function(a, b) {
+        return a.localeCompare(
+            b,
+            undefined,
+            { sensitivity: "base" }
+        );
+    });
+
+    tagFilter.innerHTML = "";
+
+    const allOption = document.createElement("option");
+    allOption.value = "";
+    allOption.textContent = "Tous les mots-clés";
+    tagFilter.appendChild(allOption);
+
+    tags.forEach(function(tag) {
+        const option = document.createElement("option");
+        option.value = normalizeExplorerSearchText(tag);
+        option.textContent = tag;
+        tagFilter.appendChild(option);
+    });
+
+    if (
+        currentValue &&
+        Array.prototype.some.call(
+            tagFilter.options,
+            function(option) {
+                return option.value === currentValue;
+            }
+        )
+    ) {
+        tagFilter.value = currentValue;
+    }
+}
+
+function applyExplorerSearchFilters(box) {
+    const searchInput = box.querySelector("#explorer-search-input");
+    const typeFilter = box.querySelector("#explorer-type-filter");
+    const tagFilter = box.querySelector("#explorer-tag-filter");
+    const count = box.querySelector("#explorer-search-count");
+    const empty = box.querySelector("#explorer-search-empty");
+
+    const query = normalizeExplorerSearchText(
+        searchInput ? searchInput.value : ""
+    );
+    const selectedType = typeFilter ? typeFilter.value : "";
+    const selectedTag = tagFilter ? tagFilter.value : "";
+
+    let total = 0;
+    let visible = 0;
+
+    box.querySelectorAll(".file-explorer-list .explorer-row")
+        .forEach(function(row) {
+            total++;
+
+            const type = row.getAttribute("data-type") || "";
+            const title = normalizeExplorerSearchText(
+                row.getAttribute("data-title") || ""
+            );
+            const description = normalizeExplorerSearchText(
+                row.getAttribute("data-desc") || ""
+            );
+            const ref = normalizeExplorerSearchText(
+                row.getAttribute("data-ref") || ""
+            );
+            const tags = parseExplorerSearchTags(
+                row.getAttribute("data-tags") || ""
+            );
+            const normalizedTags = tags.map(
+                normalizeExplorerSearchText
+            );
+
+            const textMatch =
+                !query ||
+                title.indexOf(query) !== -1 ||
+                description.indexOf(query) !== -1 ||
+                ref.indexOf(query) !== -1 ||
+                normalizedTags.some(function(tag) {
+                    return tag.indexOf(query) !== -1;
+                });
+
+            const typeMatch =
+                !selectedType || type === selectedType;
+
+            const tagMatch =
+                !selectedTag ||
+                (
+                    type === "document" &&
+                    normalizedTags.indexOf(selectedTag) !== -1
+                );
+
+            const isVisible =
+                textMatch && typeMatch && tagMatch;
+
+            row.style.display = isVisible ? "" : "none";
+
+            if (isVisible) {
+                visible++;
+            } else {
+                const checkbox = row.querySelector(
+                    ".explorer-select-input"
+                );
+
+                // Évite qu'un élément masqué reste sélectionné puis soit
+                // déplacé ou supprimé sans être visible.
+                if (checkbox && checkbox.checked) {
+                    checkbox.checked = false;
+                }
+            }
+        });
+
+    if (typeFilter && tagFilter) {
+        const foldersOnly = typeFilter.value === "folder";
+
+        tagFilter.disabled = foldersOnly;
+
+        if (foldersOnly && tagFilter.value) {
+            tagFilter.value = "";
+            return applyExplorerSearchFilters(box);
+        }
+    }
+
+    if (count) {
+        count.textContent =
+            visible + " sur " + total + " élément(s)";
+    }
+
+    if (empty) {
+        empty.style.display =
+            total > 0 && visible === 0
+                ? "block"
+                : "none";
+    }
+
+    if (typeof updateExplorerSelectionState === "function") {
+        updateExplorerSelectionState(box);
+    }
+}
+
+function initExplorerSearch(box) {
+    const searchInput = box.querySelector("#explorer-search-input");
+    const typeFilter = box.querySelector("#explorer-type-filter");
+    const tagFilter = box.querySelector("#explorer-tag-filter");
+    const resetButton = box.querySelector("#explorer-search-reset");
+
+    if (!searchInput || !typeFilter || !tagFilter) {
+        return;
+    }
+
+    populateExplorerTagFilter(box);
+
+    if (!searchInput.hasAttribute("data-search-ready")) {
+        searchInput.addEventListener("input", function() {
+            applyExplorerSearchFilters(box);
+        });
+        searchInput.setAttribute("data-search-ready", "true");
+    }
+
+    if (!typeFilter.hasAttribute("data-search-ready")) {
+        typeFilter.addEventListener("change", function() {
+            applyExplorerSearchFilters(box);
+        });
+        typeFilter.setAttribute("data-search-ready", "true");
+    }
+
+    if (!tagFilter.hasAttribute("data-search-ready")) {
+        tagFilter.addEventListener("change", function() {
+            applyExplorerSearchFilters(box);
+        });
+        tagFilter.setAttribute("data-search-ready", "true");
+    }
+
+    if (
+        resetButton &&
+        !resetButton.hasAttribute("data-search-ready")
+    ) {
+        resetButton.addEventListener("click", function() {
+            searchInput.value = "";
+            typeFilter.value = "";
+            tagFilter.value = "";
+            tagFilter.disabled = false;
+            applyExplorerSearchFilters(box);
+            searchInput.focus();
+        });
+
+        resetButton.setAttribute("data-search-ready", "true");
+    }
+
+    applyExplorerSearchFilters(box);
 }
 
 function initExplorerManagement(box) {
