@@ -440,9 +440,12 @@
 
 .sidebar-body {
     padding: 14px 16px 16px;
-    gap: 8px;
     overflow: hidden;
+    flex: 1 1 auto;
     min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
 }
 
 .sidebar-section {
@@ -454,17 +457,6 @@
     background: #ffffff;
 }
 
-.sidebar-section-preview {
-    display: flex;
-    flex-direction: column;
-    flex: 1 1 auto;
-    min-height: 44px;
-}
-
-.sidebar-section-preview.is-open {
-    min-height: 230px;
-}
-
 .sidebar-section-toggle {
     width: 100%;
     min-height: 40px;
@@ -472,6 +464,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 12px;
+    box-sizing: border-box;
     padding: 9px 12px;
     border: 0;
     background: #f9fafb;
@@ -481,6 +474,7 @@
     font-weight: 600;
     text-align: left;
     cursor: pointer;
+    user-select: none;
 }
 
 .sidebar-section-toggle:hover {
@@ -507,11 +501,14 @@
 }
 
 .sidebar-section-content {
+    box-sizing: border-box;
     padding: 12px;
 }
 
-.sidebar-section-content[hidden] {
-    display: none !important;
+/* La visibilité est pilotée par LienPerso.js.
+   Aucun ancien sélecteur [open] / hidden ne doit écraser le style inline. */
+.sidebar-section:not(.is-open) > .sidebar-section-content {
+    display: none;
 }
 
 .sidebar-info-grid {
@@ -520,19 +517,29 @@
     gap: 8px;
 }
 
-.sidebar-section[data-sidebar-section="metadata"] .sidebar-section-content {
-    display: flex;
+.sidebar-section[data-sidebar-section="metadata"].is-open > .sidebar-section-content {
     flex-direction: column;
     gap: 14px;
     max-height: 46vh;
     overflow-y: auto;
 }
 
-.sidebar-preview-content {
+.sidebar-section-preview {
+    flex: 0 0 auto;
+    min-height: 40px;
+}
+
+.sidebar-section-preview.is-open {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 230px;
+}
+
+.sidebar-section-preview.is-open > .sidebar-preview-content {
     flex: 1 1 auto;
     min-height: 0;
     padding: 10px;
-    display: flex;
 }
 
 .sidebar-preview-content .preview-frame-container {
@@ -546,11 +553,6 @@
     height: 100%;
 }
 
-.sidebar-preview-collapsed .sidebar-section-preview {
-    flex: 0 0 auto;
-    min-height: 40px;
-}
-
 @media (max-width: 520px) {
     .sidebar-body {
         padding: 10px;
@@ -560,211 +562,7 @@
         min-height: 200px;
     }
 
-    .sidebar-section[data-sidebar-section="metadata"] .sidebar-section-content {
+    .sidebar-section[data-sidebar-section="metadata"].is-open > .sidebar-section-content {
         max-height: 42vh;
     }
-}
-
-
-/* =============================================================
-   7. CORRECTION OUVERTURE DES SECTIONS
-   ============================================================= */
-
-/* La classe is-open est la source de vérité. Le hidden reste uniquement
-   une aide d'accessibilité/état DOM. */
-.sidebar-section:not(.is-open) > .sidebar-section-content {
-    display: none !important;
-}
-
-.sidebar-section.is-open > .sidebar-section-content {
-    display: block;
-}
-
-.sidebar-section.is-open[data-sidebar-section="metadata"] > .sidebar-section-content {
-    display: flex;
-}
-
-.sidebar-section.is-open[data-sidebar-section="preview"] > .sidebar-section-content {
-    display: flex;
-}
-
-
-/* =============================================================
-   8. SIDEBAR PLIABLE NATIVE - SANS DEPENDANCE JAVASCRIPT
-   ============================================================= */
-
-.sidebar-section {
-    display: block;
-}
-
-.sidebar-section > summary {
-    list-style: none;
-}
-
-.sidebar-section > summary::-webkit-details-marker {
-    display: none;
-}
-
-.sidebar-section-summary {
-    width: 100%;
-    min-height: 40px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    box-sizing: border-box;
-    padding: 9px 12px;
-    border: 0;
-    background: #f9fafb;
-    color: #1f2937;
-    font: inherit;
-    font-size: 13px;
-    font-weight: 600;
-    text-align: left;
-    cursor: pointer;
-    user-select: none;
-}
-
-.sidebar-section-summary:hover {
-    background: #f3f4f6;
-}
-
-.sidebar-section[open] > .sidebar-section-summary {
-    border-bottom: 1px solid #e5e7eb;
-    background: #ffffff;
-}
-
-.sidebar-section > .sidebar-section-content,
-.sidebar-section[open] > .sidebar-section-content {
-    padding: 12px;
-}
-
-.sidebar-section:not([open]) > .sidebar-section-content {
-    display: none !important;
-}
-
-.sidebar-section[open] > .sidebar-section-content {
-    display: block !important;
-}
-
-.sidebar-section[open][data-sidebar-section="metadata"] > .sidebar-section-content {
-    display: flex !important;
-    flex-direction: column;
-    gap: 14px;
-    max-height: 46vh;
-    overflow-y: auto;
-}
-
-.sidebar-section-preview {
-    flex: 0 0 auto;
-    min-height: 40px;
-}
-
-.sidebar-section-preview[open] {
-    display: flex;
-    flex-direction: column;
-    flex: 1 1 auto;
-    min-height: 230px;
-}
-
-.sidebar-section-preview[open] > .sidebar-preview-content {
-    display: flex !important;
-    flex: 1 1 auto;
-    min-height: 0;
-    padding: 10px;
-}
-
-.sidebar-section[open] > .sidebar-section-summary .sidebar-section-chevron {
-    transform: rotate(225deg);
-}
-
-.sidebar-section:not([open]) > .sidebar-section-summary .sidebar-section-chevron {
-    transform: rotate(45deg);
-}
-
-@media (max-width: 520px) {
-    .sidebar-section-preview[open] {
-        min-height: 200px;
-    }
-
-    .sidebar-section[open][data-sidebar-section="metadata"] > .sidebar-section-content {
-        max-height: 42vh;
-    }
-}
-
-
-/* =============================================================
-   9. ACCORDEON SIDEBAR - MODE XWIKI FIABLE
-   ============================================================= */
-
-.sidebar-section {
-    display: block !important;
-}
-
-.sidebar-section-toggle {
-    width: 100%;
-    min-height: 40px;
-    display: flex !important;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    box-sizing: border-box;
-    padding: 9px 12px;
-    border: 0;
-    background: #f9fafb;
-    color: #1f2937;
-    font: inherit;
-    font-size: 13px;
-    font-weight: 600;
-    text-align: left;
-    cursor: pointer;
-    user-select: none;
-}
-
-.sidebar-section-toggle:hover {
-    background: #f3f4f6;
-}
-
-.sidebar-section.is-open > .sidebar-section-toggle {
-    border-bottom: 1px solid #e5e7eb;
-    background: #ffffff;
-}
-
-.sidebar-section:not(.is-open) > .sidebar-section-content {
-    display: none !important;
-}
-
-.sidebar-section.is-open[data-sidebar-section="information"] > .sidebar-section-content {
-    display: block;
-}
-
-.sidebar-section.is-open[data-sidebar-section="metadata"] > .sidebar-section-content {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-}
-
-.sidebar-section.is-open[data-sidebar-section="preview"] > .sidebar-section-content {
-    display: flex;
-    flex: 1 1 auto;
-    min-height: 0;
-}
-
-.sidebar-section-preview {
-    flex: 0 0 auto;
-}
-
-.sidebar-section-preview.is-open {
-    display: flex !important;
-    flex-direction: column;
-    flex: 1 1 auto;
-    min-height: 230px;
-}
-
-.sidebar-section:not(.is-open) > .sidebar-section-toggle .sidebar-section-chevron {
-    transform: rotate(45deg);
-}
-
-.sidebar-section.is-open > .sidebar-section-toggle .sidebar-section-chevron {
-    transform: rotate(225deg);
 }
