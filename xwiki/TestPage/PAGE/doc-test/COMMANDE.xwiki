@@ -746,56 +746,91 @@
         <button id="sidebar-close" class="close-btn">&times;</button>
       </div>
       <div class="sidebar-body">
-        <div class="meta-group"><strong>Créateur :</strong> <span id="sidebar-creator"></span></div>
-        <div class="meta-group"><strong>Créé le :</strong> <span id="sidebar-created"></span></div>
-        <div class="meta-group"><strong>Modifié le :</strong> <span id="sidebar-modified"></span></div>
+        <section class="sidebar-section" data-sidebar-section="information">
+          <button type="button"
+                  class="sidebar-section-toggle"
+                  aria-expanded="false">
+            <span>Informations</span>
+            <span class="sidebar-section-chevron" aria-hidden="true"></span>
+          </button>
 
-        <div class="sidebar-editable-section">
-          <label for="sidebar-desc-input">Description</label>
-          <textarea id="sidebar-desc-input"
-                    class="sidebar-desc-input"
-                    rows="4"
-                    maxlength="4000"
-                    placeholder="Ajouter une description au document"></textarea>
-        </div>
-
-        <div class="sidebar-editable-section">
-          <label for="sidebar-tag-input">Mots-clés</label>
-          <div id="sidebar-tags-list" class="sidebar-tags-list"></div>
-          <div class="sidebar-tag-entry">
-            <input id="sidebar-tag-input"
-                   class="sidebar-tag-input"
-                   type="text"
-                   maxlength="80"
-                   autocomplete="off"
-                   placeholder="Ajouter un mot-clé" />
-            <button id="sidebar-tag-add"
-                    type="button"
-                    class="sidebar-tag-add-btn">Ajouter</button>
-          </div>
-          <p class="sidebar-field-help">Entrée ou virgule pour ajouter un mot-clé.</p>
-        </div>
-
-        <div class="sidebar-metadata-actions">
-          <button id="sidebar-metadata-save"
-                  type="button"
-                  class="sidebar-metadata-save-btn">Enregistrer</button>
-          <span id="sidebar-metadata-status"
-                class="sidebar-metadata-status"
-                aria-live="polite"></span>
-        </div>
-
-        <div class="preview-frame-container">
-          <strong>Aperçu :</strong>
-          <div class="iframe-wrapper">
-            <iframe id="sidebar-iframe" src="" frameborder="0"></iframe>
-            <div class="zoom-controls">
-              <button id="btn-zoom-out" class="zoom-btn" title="Dézoomer">-</button>
-              <span id="zoom-level">80%</span>
-              <button id="btn-zoom-in" class="zoom-btn" title="Zoomer">+</button>
+          <div class="sidebar-section-content" hidden>
+            <div class="sidebar-info-grid">
+              <div class="meta-group"><strong>Créateur :</strong> <span id="sidebar-creator"></span></div>
+              <div class="meta-group"><strong>Créé le :</strong> <span id="sidebar-created"></span></div>
+              <div class="meta-group"><strong>Modifié le :</strong> <span id="sidebar-modified"></span></div>
             </div>
           </div>
-        </div>
+        </section>
+
+        <section class="sidebar-section" data-sidebar-section="metadata">
+          <button type="button"
+                  class="sidebar-section-toggle"
+                  aria-expanded="false">
+            <span>Description et mots-clés</span>
+            <span class="sidebar-section-chevron" aria-hidden="true"></span>
+          </button>
+
+          <div class="sidebar-section-content" hidden>
+            <div class="sidebar-editable-section">
+              <label for="sidebar-desc-input">Description</label>
+              <textarea id="sidebar-desc-input"
+                        class="sidebar-desc-input"
+                        rows="4"
+                        maxlength="4000"
+                        placeholder="Ajouter une description au document"></textarea>
+            </div>
+
+            <div class="sidebar-editable-section">
+              <label for="sidebar-tag-input">Mots-clés</label>
+              <div id="sidebar-tags-list" class="sidebar-tags-list"></div>
+              <div class="sidebar-tag-entry">
+                <input id="sidebar-tag-input"
+                       class="sidebar-tag-input"
+                       type="text"
+                       maxlength="80"
+                       autocomplete="off"
+                       placeholder="Ajouter un mot-clé" />
+                <button id="sidebar-tag-add"
+                        type="button"
+                        class="sidebar-tag-add-btn">Ajouter</button>
+              </div>
+              <p class="sidebar-field-help">Entrée ou virgule pour ajouter un mot-clé.</p>
+            </div>
+
+            <div class="sidebar-metadata-actions">
+              <button id="sidebar-metadata-save"
+                      type="button"
+                      class="sidebar-metadata-save-btn">Enregistrer</button>
+              <span id="sidebar-metadata-status"
+                    class="sidebar-metadata-status"
+                    aria-live="polite"></span>
+            </div>
+          </div>
+        </section>
+
+        <section class="sidebar-section sidebar-section-preview is-open"
+                 data-sidebar-section="preview">
+          <button type="button"
+                  class="sidebar-section-toggle"
+                  aria-expanded="true">
+            <span>Aperçu</span>
+            <span class="sidebar-section-chevron" aria-hidden="true"></span>
+          </button>
+
+          <div class="sidebar-section-content sidebar-preview-content">
+            <div class="preview-frame-container">
+              <div class="iframe-wrapper">
+                <iframe id="sidebar-iframe" src="" frameborder="0"></iframe>
+                <div class="zoom-controls">
+                  <button id="btn-zoom-out" class="zoom-btn" title="Dézoomer">-</button>
+                  <span id="zoom-level">80%</span>
+                  <button id="btn-zoom-in" class="zoom-btn" title="Zoomer">+</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
       <div class="sidebar-footer">
         <a id="sidebar-open-btn" href="#" class="open-doc-btn" target="_blank">Ouvrir le document</a>
