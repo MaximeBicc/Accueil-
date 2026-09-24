@@ -173,6 +173,9 @@
     cursor: pointer;
     transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
     transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .breadcrumb-copy-btn:hover,
@@ -184,26 +187,18 @@
 }
 
 .breadcrumb-copy-icon {
-    position: absolute;
-    left: 8px;
-    top: 7px;
-    width: 10px;
-    height: 11px;
-    border: 1.5px solid currentColor;
-    border-radius: 2px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    font-size: 14px;
+    line-height: 1;
+    color: currentColor;
 }
 
-.breadcrumb-copy-icon::before {
-    content: "";
-    position: absolute;
-    left: -4px;
-    top: -4px;
-    width: 10px;
-    height: 11px;
-    border: 1.5px solid currentColor;
-    border-radius: 2px;
-    background: #f9fafb;
-    z-index: -1;
+.breadcrumb-copy-icon > * {
+    margin: 0;
 }
 
 .breadcrumb-copy-success {
