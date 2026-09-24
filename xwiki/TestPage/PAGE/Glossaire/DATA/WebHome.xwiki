@@ -32,7 +32,7 @@ GLOSSAIRE_ERROR|Document introuvable
 
       #if(!$glossaireObj)
 GLOSSAIRE_ERROR|Objet glossaire introuvable
-      #elseif(!$acronymParam || !$labelParam || !$definitionParam)
+      #elseif(!$acronymParam || !$labelParam)
 GLOSSAIRE_ERROR|Données incomplètes
       #else
         ## Aucun .trim() côté Velocity sur cette instance XWiki.
@@ -164,7 +164,7 @@ GLOSSAIRE_OK|$finalRef|$finalDocName
         #set($importLabel = "$!importLabelRaw")
         #set($importDefinition = "$!importDefinitionRaw")
 
-        #if(!$importAcronymRaw || !$importLabelRaw || !$importDefinitionRaw || $importAcronym == "" || $importLabel == "" || $importDefinition == "")
+        #if(!$importAcronymRaw || !$importLabelRaw || $importAcronym == "" || $importLabel == "")
           #set($discard = $importLines.add("ROW_ERROR|$i|Données incomplètes"))
           #set($skippedCount = $skippedCount + 1)
         #elseif($importAcronym.contains('$') || $importAcronym.contains('{') || $importAcronym.contains('}') || $importAcronym.contains('/'))
