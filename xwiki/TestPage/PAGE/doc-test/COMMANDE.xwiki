@@ -11,6 +11,54 @@
     ERREUR_CSRF
 
   ## ============================================================
+  ## DESCRIPTION ET MOTS-CLES D'UN DOCUMENT
+  ## ============================================================
+  #elseif($action == "modifier metadonnees document")
+    #set($sourceRef = "$!request.getParameter('source_ref')")
+    #set($descriptionValue = "$!request.getParameter('description')")
+    #set($tagsValue = "$!request.getParameter('tags')")
+
+    #if(!$sourceRef || "$!sourceRef" == "")
+      ERREUR_SOURCE_MANQUANTE
+    #elseif(!$sourceRef.startsWith("${mainSpace}."))
+      ERREUR_SOURCE_HORS_DOCUMENTATION
+    #elseif($descriptionValue.length() > 4000)
+      ERREUR_DESCRIPTION_TROP_LONGUE
+    #elseif($tagsValue.length() > 1000)
+      ERREUR_TAGS_TROP_LONGS
+    #else
+      #set($sourceDoc = $xwiki.getDocument($sourceRef))
+
+      #if($sourceDoc.isNew())
+        ERREUR_SOURCE_INTROUVABLE
+      #elseif(!$xwiki.hasAccessLevel("edit", $xcontext.user, $sourceDoc.fullName))
+        ERREUR_DROITS
+      #else
+        #set($sourceObj = $sourceDoc.getObject($className))
+
+        #if(!$sourceObj || "$!sourceObj.getValue('type')" != "document")
+          ERREUR_ELEMENT_INVALIDE
+        #else
+          #try
+            $sourceObj.set("description", $descriptionValue)
+            $sourceObj.set("tag", $tagsValue)
+            $sourceDoc.save("Mise à jour de la description et des mots-clés")
+
+            #set($sourceDoc = $xwiki.getDocument($sourceRef))
+            #set($modifiedMetadata = $xwiki.formatDate($sourceDoc.date, 'dd/MM/yyyy HH:mm'))
+
+            <div id="metadata-result"
+                 data-modified="$escapetool.xml($modifiedMetadata)"
+                 style="display:none"></div>
+            METADONNEES_OK
+          #catch(Exception e)
+            ERREUR_METADONNEES: $e.message
+          #end
+        #end
+      #end
+    #end
+
+  ## ============================================================
   ## SUPPRESSION D'UN DOCUMENT OU D'UN DOSSIER
   ## ============================================================
   #elseif($action == "supprimer element")
@@ -653,7 +701,8 @@
             </li>
 
           #elseif($childType == "document")
-            #set($description = $metaobj.getValue('description'))
+            #set($description = "$!metaobj.getValue('description')")
+            #set($tags = "$!metaobj.getValue('tag')")
             #set($creator = $metaobj.getValue('createur'))
             #set($created = $xwiki.formatDate($childDoc.creationDate, 'dd/MM/yyyy HH:mm'))
             #set($modified = $xwiki.formatDate($childDoc.date, 'dd/MM/yyyy HH:mm'))
@@ -679,6 +728,7 @@
                     data-created="$created"
                     data-modified="$modified"
                     data-desc="$escapetool.xml($description)"
+                    data-tags="$escapetool.xml($tags)"
                     data-url="$docUrl"
                     data-url-preview="$docUrlPreview">
                 $services.icon.renderHTML('page') $escapetool.xml($childDoc.displayTitle)
@@ -699,7 +749,42 @@
         <div class="meta-group"><strong>Créateur :</strong> <span id="sidebar-creator"></span></div>
         <div class="meta-group"><strong>Créé le :</strong> <span id="sidebar-created"></span></div>
         <div class="meta-group"><strong>Modifié le :</strong> <span id="sidebar-modified"></span></div>
-        <div class="meta-group"><strong>Description :</strong><p id="sidebar-desc"></p></div>
+
+        <div class="sidebar-editable-section">
+          <label for="sidebar-desc-input">Description</label>
+          <textarea id="sidebar-desc-input"
+                    class="sidebar-desc-input"
+                    rows="4"
+                    maxlength="4000"
+                    placeholder="Ajouter une description au document"></textarea>
+        </div>
+
+        <div class="sidebar-editable-section">
+          <label for="sidebar-tag-input">Mots-clés</label>
+          <div id="sidebar-tags-list" class="sidebar-tags-list"></div>
+          <div class="sidebar-tag-entry">
+            <input id="sidebar-tag-input"
+                   class="sidebar-tag-input"
+                   type="text"
+                   maxlength="80"
+                   autocomplete="off"
+                   placeholder="Ajouter un mot-clé" />
+            <button id="sidebar-tag-add"
+                    type="button"
+                    class="sidebar-tag-add-btn">Ajouter</button>
+          </div>
+          <p class="sidebar-field-help">Entrée ou virgule pour ajouter un mot-clé.</p>
+        </div>
+
+        <div class="sidebar-metadata-actions">
+          <button id="sidebar-metadata-save"
+                  type="button"
+                  class="sidebar-metadata-save-btn">Enregistrer</button>
+          <span id="sidebar-metadata-status"
+                class="sidebar-metadata-status"
+                aria-live="polite"></span>
+        </div>
+
         <div class="preview-frame-container">
           <strong>Aperçu :</strong>
           <div class="iframe-wrapper">
