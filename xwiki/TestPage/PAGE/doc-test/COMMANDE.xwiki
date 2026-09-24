@@ -540,11 +540,36 @@
           #end
 
           #if($treeType == "root" || $treeType == "folder" || $treeType == "document")
+            #set($treeDescription = "")
+            #set($treeTags = "")
+            #set($treeCreator = "")
+            #set($treeCreated = "")
+            #set($treeModified = "")
+            #set($treeUrl = "")
+            #set($treeUrlPreview = "")
+
+            #if($treeType == "document" && $treeObj)
+              #set($treeDescription = "$!treeObj.getValue('description')")
+              #set($treeTags = "$!treeObj.getValue('tag')")
+              #set($treeCreator = "$!treeObj.getValue('createur')")
+              #set($treeCreated = $xwiki.formatDate($treeDoc.creationDate, 'dd/MM/yyyy HH:mm'))
+              #set($treeModified = $xwiki.formatDate($treeDoc.date, 'dd/MM/yyyy HH:mm'))
+              #set($treeUrl = $treeDoc.getURL('view'))
+              #set($treeUrlPreview = $treeDoc.getURL('view', 'xpage=print'))
+            #end
+
             <div class="architecture-node-data"
                  data-ref="$escapetool.xml($treeRef)"
                  data-parent-ref="$escapetool.xml($treeParentRef)"
                  data-title="$escapetool.xml($treeDoc.displayTitle)"
-                 data-type="$escapetool.xml($treeType)"></div>
+                 data-type="$escapetool.xml($treeType)"
+                 data-desc="$escapetool.xml($treeDescription)"
+                 data-tags="$escapetool.xml($treeTags)"
+                 data-creator="$escapetool.xml($treeCreator)"
+                 data-created="$escapetool.xml($treeCreated)"
+                 data-modified="$escapetool.xml($treeModified)"
+                 data-url="$escapetool.xml($treeUrl)"
+                 data-url-preview="$escapetool.xml($treeUrlPreview)"></div>
 
             #if($treeType == "root" || $treeType == "folder")
               #foreach($treeChildRef in $treeDoc.getChildren())
@@ -572,6 +597,41 @@
 
     <div id="pageData" parent-page="$escapetool.xml($parentRef)">
       <h4>$escapetool.xml($parentDoc.displayTitle)</h4>
+    </div>
+
+    <div class="explorer-search-toolbar">
+      <div class="explorer-search-field">
+        <input type="search"
+               id="explorer-search-input"
+               class="form-control"
+               placeholder="Rechercher dans ce dossier et ses sous-dossiers"
+               autocomplete="off" />
+      </div>
+
+      <select id="explorer-type-filter"
+              class="form-control explorer-filter-select"
+              aria-label="Filtrer par type">
+        <option value="">Tous</option>
+        <option value="document">Documents</option>
+        <option value="folder">Dossiers</option>
+      </select>
+
+      <select id="explorer-tag-filter"
+              class="form-control explorer-filter-select"
+              aria-label="Filtrer par mot-clé"
+              disabled>
+        <option value="">Tags</option>
+      </select>
+
+      <button type="button"
+              id="explorer-search-reset"
+              class="explorer-search-reset"
+              title="Effacer la recherche"
+              aria-label="Effacer la recherche">×</button>
+
+      <span id="explorer-search-count"
+            class="explorer-search-count"
+            aria-live="polite"></span>
     </div>
 
     <div class="explorer-management-toolbar">
@@ -671,45 +731,13 @@
          aria-live="polite"
          style="display:none;"></div>
 
-    <div class="explorer-search-toolbar">
-      <div class="explorer-search-field">
-        <input type="search"
-               id="explorer-search-input"
-               class="form-control"
-               placeholder="Rechercher par nom, description ou mot-clé"
-               autocomplete="off" />
-      </div>
-
-      <div class="explorer-search-filters">
-        <select id="explorer-type-filter"
-                class="form-control explorer-filter-select"
-                aria-label="Filtrer par type">
-          <option value="">Tous les types</option>
-          <option value="document">Documents</option>
-          <option value="folder">Dossiers</option>
-        </select>
-
-        <select id="explorer-tag-filter"
-                class="form-control explorer-filter-select"
-                aria-label="Filtrer par mot-clé">
-          <option value="">Tous les mots-clés</option>
-        </select>
-
-        <button type="button"
-                id="explorer-search-reset"
-                class="btn btn-default explorer-search-reset"
-                title="Réinitialiser les filtres">
-          Réinitialiser
-        </button>
-      </div>
-
-      <span id="explorer-search-count"
-            class="explorer-search-count"
-            aria-live="polite"></span>
-    </div>
-
     #set($children = $parentDoc.getChildren())
-    <ul class="file-explorer-list">
+
+    <ul id="explorer-search-results"
+        class="file-explorer-list explorer-search-results"
+        style="display:none;"></ul>
+
+    <ul id="explorer-current-list" class="file-explorer-list">
       #foreach($childRef in $children)
         #set($childDoc = $xwiki.getDocument($childRef))
         #set($metaobj = $childDoc.getObject($className))
