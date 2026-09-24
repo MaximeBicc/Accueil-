@@ -684,9 +684,21 @@ function ajouterDocument() {
 </div>
 
 <div class="form-group">
-    <label for="document-file-input">Documents PDF ou Word</label>
-    <input id="document-file-input" class="form-control" type="file" multiple
-        accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+    <label>Documents PDF ou Word</label>
+
+    <div class="branch-import-actions">
+        <button id="document-file-picker-btn" type="button" class="btn btn-default">
+            Parcourir des documents
+        </button>
+        <button id="document-file-clear-btn" type="button" class="btn btn-default" style="display:none;">
+            Retirer la sélection
+        </button>
+    </div>
+
+    <input id="document-file-input" type="file" multiple
+        accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        style="display:none;" />
+
     <p class="help-block">
         Après sélection, tu peux modifier séparément le nom de chaque page avant l'import.
     </p>
@@ -695,7 +707,32 @@ function ajouterDocument() {
 `;
 
     const fileInput = document.getElementById("document-file-input");
+    const pickerButton = document.getElementById("document-file-picker-btn");
+    const clearButton = document.getElementById("document-file-clear-btn");
     const emptyPageGroup = document.getElementById("document-empty-page-group");
+
+    if (pickerButton && fileInput) {
+        pickerButton.addEventListener("click", function() {
+            fileInput.click();
+        });
+    }
+
+    if (clearButton) {
+        clearButton.addEventListener("click", function() {
+            documentImportSelection = [];
+
+            if (fileInput) {
+                fileInput.value = "";
+            }
+
+            if (emptyPageGroup) {
+                emptyPageGroup.style.display = "";
+            }
+
+            clearButton.style.display = "none";
+            renderDocumentSelectionPreview();
+        });
+    }
 
     if (fileInput) {
         fileInput.addEventListener("change", function() {
@@ -712,6 +749,11 @@ function ajouterDocument() {
 
             if (emptyPageGroup) {
                 emptyPageGroup.style.display = files.length > 0 ? "none" : "";
+            }
+
+            if (clearButton) {
+                clearButton.style.display =
+                    files.length > 0 ? "inline-block" : "none";
             }
 
             renderDocumentSelectionPreview();
