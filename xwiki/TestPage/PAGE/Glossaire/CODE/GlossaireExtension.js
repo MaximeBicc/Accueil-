@@ -593,7 +593,7 @@ function analyzeExcelRows(rawRows, headerInfo) {
             acronym: acronym,
             label: label,
             definition: definition,
-            invalid: !acronym || !label || !definition,
+            invalid: !acronym || !label,
             duplicateAcronymGlossary: !!(acronymKey && existing.acronyms[acronymKey]),
             duplicateLabelGlossary: !!(labelKey && existing.labels[labelKey]),
             duplicateAcronymFile: !!(acronymKey && seenAcronyms[acronymKey]),
@@ -798,13 +798,12 @@ function renderExcelImportPreview(fileName) {
         var tr = document.createElement('tr');
         var acronymDanger = row.duplicateAcronym || !row.acronym;
         var labelDanger = row.duplicateLabel || !row.label;
-        var definitionDanger = !row.definition;
 
         tr.innerHTML =
             '<td>' + row.sourceLine + '</td>' +
             '<td' + (acronymDanger ? ' class="danger"' : '') + '></td>' +
             '<td' + (labelDanger ? ' class="danger"' : '') + '></td>' +
-            '<td' + (definitionDanger ? ' class="danger"' : '') + '></td>';
+            '<td></td>';
         tr.children[1].textContent = row.acronym;
         tr.children[2].textContent = row.label;
         tr.children[3].textContent = row.definition;
