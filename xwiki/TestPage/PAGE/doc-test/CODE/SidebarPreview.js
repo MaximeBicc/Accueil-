@@ -323,7 +323,43 @@ function initSidebarPreview(root) {
     if (!sidebar) return;
 
     // ---------------------------------------------------------
-    // 1. Redimensionnement de la sidebar
+    // 1. Sections pliables
+    // ---------------------------------------------------------
+    sidebar.querySelectorAll(".sidebar-section").forEach(function(section) {
+        const toggle = section.querySelector(":scope > .sidebar-section-toggle");
+        const content = section.querySelector(":scope > .sidebar-section-content");
+
+        if (
+            !toggle ||
+            !content ||
+            toggle.hasAttribute("data-sidebar-section-ready")
+        ) {
+            return;
+        }
+
+        toggle.addEventListener("click", function() {
+            const isOpen = section.classList.toggle("is-open");
+
+            toggle.setAttribute(
+                "aria-expanded",
+                isOpen ? "true" : "false"
+            );
+
+            content.hidden = !isOpen;
+
+            // La zone Aperçu reprend automatiquement tout l'espace
+            // vertical disponible quand les autres sections sont repliées.
+            sidebar.classList.toggle(
+                "sidebar-preview-collapsed",
+                section.getAttribute("data-sidebar-section") === "preview" && !isOpen
+            );
+        });
+
+        toggle.setAttribute("data-sidebar-section-ready", "true");
+    });
+
+    // ---------------------------------------------------------
+    // 2. Redimensionnement de la sidebar
     // ---------------------------------------------------------
     const dragHandle = sidebar.querySelector(
         "#sidebar-drag-handle"
@@ -349,7 +385,7 @@ function initSidebarPreview(root) {
     }
 
     // ---------------------------------------------------------
-    // 2. Apparition des contrôles de zoom
+    // 3. Apparition des contrôles de zoom
     // ---------------------------------------------------------
     const previewContainer = sidebar.querySelector(
         ".preview-frame-container"
@@ -394,7 +430,7 @@ function initSidebarPreview(root) {
     }
 
     // ---------------------------------------------------------
-    // 3. Edition description / mots-clés
+    // 4. Edition description / mots-clés
     // ---------------------------------------------------------
     const descriptionInput = sidebar.querySelector(
         "#sidebar-desc-input"
