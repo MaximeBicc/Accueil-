@@ -720,7 +720,7 @@
                 class="breadcrumb-copy-btn"
                 title="Copier le chemin"
                 aria-label="Copier le chemin">
-          <span class="breadcrumb-copy-icon" aria-hidden="true"></span>
+          <span class="breadcrumb-copy-icon" aria-hidden="true">$services.icon.renderHTML('copy')</span>
         </button>
       </div>
     </div>
