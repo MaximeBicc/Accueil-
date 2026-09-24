@@ -197,6 +197,74 @@ async function copyExplorerPath(pathText) {
     }
 }
 
+function initExplorerSidebarAccordion(box) {
+    const sidebar = box.querySelector("#preview-sidebar");
+
+    if (!sidebar) {
+        return;
+    }
+
+    sidebar.querySelectorAll(".sidebar-section").forEach(function(section) {
+        const button = section.querySelector(".sidebar-section-toggle");
+        const content = section.querySelector(".sidebar-section-content");
+
+        if (!button || !content) {
+            return;
+        }
+
+        // Synchronise l'état initial après chaque injection AJAX.
+        const initiallyOpen = section.classList.contains("is-open");
+        button.setAttribute(
+            "aria-expanded",
+            initiallyOpen ? "true" : "false"
+        );
+        content.style.display = initiallyOpen
+            ? (
+                section.getAttribute("data-sidebar-section") === "preview"
+                    ? "flex"
+                    : section.getAttribute("data-sidebar-section") === "metadata"
+                        ? "flex"
+                        : "block"
+            )
+            : "none";
+
+        if (button.hasAttribute("data-sidebar-accordion-ready")) {
+            return;
+        }
+
+        button.addEventListener("click", function(event) {
+            event.preventDefault();
+            event.stopPropagation();
+
+            const willOpen = !section.classList.contains("is-open");
+            section.classList.toggle("is-open", willOpen);
+            button.setAttribute(
+                "aria-expanded",
+                willOpen ? "true" : "false"
+            );
+
+            if (!willOpen) {
+                content.style.display = "none";
+                return;
+            }
+
+            const sectionName = section.getAttribute(
+                "data-sidebar-section"
+            );
+
+            content.style.display =
+                sectionName === "preview" || sectionName === "metadata"
+                    ? "flex"
+                    : "block";
+        });
+
+        button.setAttribute(
+            "data-sidebar-accordion-ready",
+            "true"
+        );
+    });
+}
+
 function createSpan(box) {
     // ---------------------------------------------------------
     // Navigation dans les dossiers
@@ -380,6 +448,7 @@ function createSpan(box) {
         copyButton.setAttribute("data-event-listener", "true");
     }
 
+    initExplorerSidebarAccordion(box);
     initExplorerManagement(box);
 }
 
