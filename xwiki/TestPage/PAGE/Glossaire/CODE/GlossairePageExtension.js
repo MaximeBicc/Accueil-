@@ -160,7 +160,7 @@ function fixedRecomputeExcelDuplicateFlags(rows) {
         var acronymKey = normalizeDuplicateKey(row.acronym);
         var labelKey = normalizeDuplicateKey(row.label);
 
-        row.invalid = !row.acronym || !row.label || !row.definition;
+        row.invalid = !row.acronym || !row.label;
         row.duplicateAcronymGlossary = !!(acronymKey && existing.acronyms[acronymKey]);
         row.duplicateLabelGlossary = !!(labelKey && existing.labels[labelKey]);
         row.duplicateAcronymFile = !!(acronymKey && seenAcronyms[acronymKey]);
@@ -274,7 +274,7 @@ function fixedRenderExcelImportPreview(fileName) {
 
         addEditableCell('acronym', row.acronym, row.duplicateAcronym || !row.acronym, false);
         addEditableCell('label', row.label, row.duplicateLabel || !row.label, false);
-        addEditableCell('definition', row.definition, !row.definition, true);
+        addEditableCell('definition', row.definition, false, true);
 
         var actionCell = document.createElement('td');
         actionCell.className = 'excel-import-action-cell';
