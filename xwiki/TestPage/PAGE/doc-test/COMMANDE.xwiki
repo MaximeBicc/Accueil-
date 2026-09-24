@@ -746,28 +746,32 @@
         <button id="sidebar-close" class="close-btn">&times;</button>
       </div>
       <div class="sidebar-body">
-        <details class="sidebar-section" data-sidebar-section="information">
-          <summary class="sidebar-section-summary">
+        <div class="sidebar-section" data-sidebar-section="information">
+          <button type="button"
+                  class="sidebar-section-toggle"
+                  aria-expanded="false">
             <span>Informations</span>
             <span class="sidebar-section-chevron" aria-hidden="true"></span>
-          </summary>
+          </button>
 
-          <div class="sidebar-section-content">
+          <div class="sidebar-section-content" style="display:none;">
             <div class="sidebar-info-grid">
               <div class="meta-group"><strong>Créateur :</strong> <span id="sidebar-creator"></span></div>
               <div class="meta-group"><strong>Créé le :</strong> <span id="sidebar-created"></span></div>
               <div class="meta-group"><strong>Modifié le :</strong> <span id="sidebar-modified"></span></div>
             </div>
           </div>
-        </details>
+        </div>
 
-        <details class="sidebar-section" data-sidebar-section="metadata">
-          <summary class="sidebar-section-summary">
+        <div class="sidebar-section" data-sidebar-section="metadata">
+          <button type="button"
+                  class="sidebar-section-toggle"
+                  aria-expanded="false">
             <span>Description et mots-clés</span>
             <span class="sidebar-section-chevron" aria-hidden="true"></span>
-          </summary>
+          </button>
 
-          <div class="sidebar-section-content">
+          <div class="sidebar-section-content" style="display:none;">
             <div class="sidebar-editable-section">
               <label for="sidebar-desc-input">Description</label>
               <textarea id="sidebar-desc-input"
@@ -803,17 +807,18 @@
                     aria-live="polite"></span>
             </div>
           </div>
-        </details>
+        </div>
 
-        <details class="sidebar-section sidebar-section-preview"
-                 data-sidebar-section="preview"
-                 open>
-          <summary class="sidebar-section-summary">
+        <div class="sidebar-section sidebar-section-preview is-open"
+             data-sidebar-section="preview">
+          <button type="button"
+                  class="sidebar-section-toggle"
+                  aria-expanded="true">
             <span>Aperçu</span>
             <span class="sidebar-section-chevron" aria-hidden="true"></span>
-          </summary>
+          </button>
 
-          <div class="sidebar-section-content sidebar-preview-content">
+          <div class="sidebar-section-content sidebar-preview-content" style="display:flex;">
             <div class="preview-frame-container">
               <div class="iframe-wrapper">
                 <iframe id="sidebar-iframe" src="" frameborder="0"></iframe>
@@ -825,7 +830,7 @@
               </div>
             </div>
           </div>
-        </details>
+        </div>
       </div>
       <div class="sidebar-footer">
         <a id="sidebar-open-btn" href="#" class="open-doc-btn" target="_blank">Ouvrir le document</a>
