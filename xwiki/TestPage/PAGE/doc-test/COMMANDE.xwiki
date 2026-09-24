@@ -671,6 +671,43 @@
          aria-live="polite"
          style="display:none;"></div>
 
+    <div class="explorer-search-toolbar">
+      <div class="explorer-search-field">
+        <input type="search"
+               id="explorer-search-input"
+               class="form-control"
+               placeholder="Rechercher par nom, description ou mot-clé"
+               autocomplete="off" />
+      </div>
+
+      <div class="explorer-search-filters">
+        <select id="explorer-type-filter"
+                class="form-control explorer-filter-select"
+                aria-label="Filtrer par type">
+          <option value="">Tous les types</option>
+          <option value="document">Documents</option>
+          <option value="folder">Dossiers</option>
+        </select>
+
+        <select id="explorer-tag-filter"
+                class="form-control explorer-filter-select"
+                aria-label="Filtrer par mot-clé">
+          <option value="">Tous les mots-clés</option>
+        </select>
+
+        <button type="button"
+                id="explorer-search-reset"
+                class="btn btn-default explorer-search-reset"
+                title="Réinitialiser les filtres">
+          Réinitialiser
+        </button>
+      </div>
+
+      <span id="explorer-search-count"
+            class="explorer-search-count"
+            aria-live="polite"></span>
+    </div>
+
     #set($children = $parentDoc.getChildren())
     <ul class="file-explorer-list">
       #foreach($childRef in $children)
@@ -684,6 +721,8 @@
             <li class="explorer-row"
                 data-ref="$escapetool.xml($childRef)"
                 data-title="$escapetool.xml($childDoc.displayTitle)"
+                data-desc=""
+                data-tags=""
                 data-type="folder">
               <label class="explorer-select-box">
                 <input type="checkbox"
@@ -712,6 +751,8 @@
             <li class="explorer-row"
                 data-ref="$escapetool.xml($childRef)"
                 data-title="$escapetool.xml($childDoc.displayTitle)"
+                data-desc="$escapetool.xml($description)"
+                data-tags="$escapetool.xml($tags)"
                 data-type="document">
               <label class="explorer-select-box">
                 <input type="checkbox"
@@ -738,6 +779,12 @@
         #end
       #end
     </ul>
+
+    <div id="explorer-search-empty"
+         class="explorer-search-empty"
+         style="display:none;">
+      Aucun élément ne correspond à la recherche.
+    </div>
 
     <div id="preview-sidebar" class="sidebar-preview">
       <div id="sidebar-drag-handle"></div>
