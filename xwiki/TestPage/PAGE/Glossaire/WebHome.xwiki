@@ -370,5 +370,11 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
     </div>
   </div>
 </div>
+
+<div id="glossaryToast"
+     class="glossary-toast"
+     role="status"
+     aria-live="polite"
+     aria-atomic="true"></div>
 {{/html}}
 {{/velocity}}
