@@ -917,38 +917,80 @@ function parseExplorerSearchTags(value) {
             return tag.trim();
         })
         .filter(function(tag) {
-            if (!tag) {
-                return false;
-            }
+            if (!tag) return false;
 
             const key = normalizeExplorerSearchText(tag);
 
-            if (seen[key]) {
-                return false;
-            }
+            if (seen[key]) return false;
 
             seen[key] = true;
             return true;
         });
 }
 
-function populateExplorerTagFilter(box) {
+function getExplorerSearchDescendants(state, rootRef) {
+    const result = [];
+    const byParent = {};
+
+    Object.keys(state.nodes).forEach(function(ref) {
+        const node = state.nodes[ref];
+
+        if (!byParent[node.parentRef]) {
+            byParent[node.parentRef] = [];
+        }
+
+        byParent[node.parentRef].push(node);
+    });
+
+    function walk(parentRef) {
+        (byParent[parentRef] || []).forEach(function(node) {
+            if (node.type === "folder" || node.type === "document") {
+                result.push(node);
+            }
+
+            if (node.type === "folder") {
+                walk(node.ref);
+            }
+        });
+    }
+
+    walk(rootRef);
+    return result;
+}
+
+function getExplorerSearchNodePath(state, node, rootRef, rootTitle) {
+    const labels = [];
+    let cursor = node.parentRef;
+    let guard = 0;
+
+    while (
+        cursor &&
+        cursor !== rootRef &&
+        state.nodes[cursor] &&
+        guard < 1000
+    ) {
+        labels.unshift(state.nodes[cursor].title);
+        cursor = state.nodes[cursor].parentRef;
+        guard++;
+    }
+
+    labels.unshift(rootTitle || "Dossier actuel");
+    return labels.join(" > ");
+}
+
+function populateExplorerTagFilterFromNodes(box, nodes) {
     const tagFilter = box.querySelector("#explorer-tag-filter");
 
-    if (!tagFilter) {
-        return;
-    }
+    if (!tagFilter) return;
 
     const currentValue = tagFilter.value;
     const tags = [];
     const seen = {};
 
-    box.querySelectorAll(
-        '.explorer-row[data-type="document"]'
-    ).forEach(function(row) {
-        parseExplorerSearchTags(
-            row.getAttribute("data-tags") || ""
-        ).forEach(function(tag) {
+    nodes.forEach(function(node) {
+        if (node.type !== "document") return;
+
+        parseExplorerSearchTags(node.tags).forEach(function(tag) {
             const key = normalizeExplorerSearchText(tag);
 
             if (!seen[key]) {
@@ -970,7 +1012,7 @@ function populateExplorerTagFilter(box) {
 
     const allOption = document.createElement("option");
     allOption.value = "";
-    allOption.textContent = "Tous les mots-clés";
+    allOption.textContent = "Tags";
     tagFilter.appendChild(allOption);
 
     tags.forEach(function(tag) {
@@ -979,6 +1021,8 @@ function populateExplorerTagFilter(box) {
         option.textContent = tag;
         tagFilter.appendChild(option);
     });
+
+    tagFilter.disabled = tags.length === 0;
 
     if (
         currentValue &&
@@ -993,107 +1037,239 @@ function populateExplorerTagFilter(box) {
     }
 }
 
-function applyExplorerSearchFilters(box) {
+function createExplorerSearchResultNode(box, state, node) {
+    const row = document.createElement("li");
+    row.className = "explorer-search-result-row";
+    row.setAttribute("data-ref", node.ref);
+    row.setAttribute("data-type", node.type);
+
+    const clickable = document.createElement("span");
+    clickable.className =
+        "explorer-search-result-item " +
+        (
+            node.type === "folder"
+                ? "folder explorer-search-folder"
+                : "document-item explorer-search-document"
+        );
+
+    const icon = document.createElement("span");
+    icon.className = "explorer-search-result-icon";
+    icon.innerHTML =
+        node.type === "folder"
+            ? state.icons.folder
+            : state.icons.document;
+
+    const text = document.createElement("span");
+    text.className = "explorer-search-result-text";
+
+    const title = document.createElement("span");
+    title.className = "explorer-search-result-title";
+    title.textContent = node.title;
+
+    const path = document.createElement("span");
+    path.className = "explorer-search-result-path";
+    path.textContent = getExplorerSearchNodePath(
+        state,
+        node,
+        state.searchRootRef,
+        state.searchRootTitle
+    );
+
+    text.appendChild(title);
+    text.appendChild(path);
+    clickable.appendChild(icon);
+    clickable.appendChild(text);
+
+    const type = document.createElement("span");
+    type.className = "explorer-search-result-type";
+    type.textContent =
+        node.type === "folder"
+            ? "Dossier"
+            : "Document";
+
+    if (node.type === "folder") {
+        clickable.setAttribute("data-full-name", node.ref);
+
+        clickable.addEventListener("click", function() {
+            LienPerso(node.ref, box);
+        });
+    } else {
+        clickable.setAttribute("data-full-name", node.ref);
+        clickable.setAttribute("data-title", node.title);
+        clickable.setAttribute("data-creator", node.creator || "");
+        clickable.setAttribute("data-created", node.created || "");
+        clickable.setAttribute("data-modified", node.modified || "");
+        clickable.setAttribute("data-desc", node.description || "");
+        clickable.setAttribute("data-tags", node.tags || "");
+        clickable.setAttribute("data-url", node.url || "");
+        clickable.setAttribute(
+            "data-url-preview",
+            node.urlPreview || ""
+        );
+    }
+
+    row.appendChild(clickable);
+    row.appendChild(type);
+    return row;
+}
+
+function renderExplorerRecursiveSearch(box) {
+    const state = box._explorerSearchState;
     const searchInput = box.querySelector("#explorer-search-input");
     const typeFilter = box.querySelector("#explorer-type-filter");
     const tagFilter = box.querySelector("#explorer-tag-filter");
     const count = box.querySelector("#explorer-search-count");
     const empty = box.querySelector("#explorer-search-empty");
+    const currentList = box.querySelector("#explorer-current-list");
+    const resultsList = box.querySelector("#explorer-search-results");
 
-    const query = normalizeExplorerSearchText(
-        searchInput ? searchInput.value : ""
-    );
-    const selectedType = typeFilter ? typeFilter.value : "";
-    const selectedTag = tagFilter ? tagFilter.value : "";
-
-    let total = 0;
-    let visible = 0;
-
-    box.querySelectorAll(".file-explorer-list .explorer-row")
-        .forEach(function(row) {
-            total++;
-
-            const type = row.getAttribute("data-type") || "";
-            const title = normalizeExplorerSearchText(
-                row.getAttribute("data-title") || ""
-            );
-            const description = normalizeExplorerSearchText(
-                row.getAttribute("data-desc") || ""
-            );
-            const ref = normalizeExplorerSearchText(
-                row.getAttribute("data-ref") || ""
-            );
-            const tags = parseExplorerSearchTags(
-                row.getAttribute("data-tags") || ""
-            );
-            const normalizedTags = tags.map(
-                normalizeExplorerSearchText
-            );
-
-            const textMatch =
-                !query ||
-                title.indexOf(query) !== -1 ||
-                description.indexOf(query) !== -1 ||
-                ref.indexOf(query) !== -1 ||
-                normalizedTags.some(function(tag) {
-                    return tag.indexOf(query) !== -1;
-                });
-
-            const typeMatch =
-                !selectedType || type === selectedType;
-
-            const tagMatch =
-                !selectedTag ||
-                (
-                    type === "document" &&
-                    normalizedTags.indexOf(selectedTag) !== -1
-                );
-
-            const isVisible =
-                textMatch && typeMatch && tagMatch;
-
-            row.style.display = isVisible ? "" : "none";
-
-            if (isVisible) {
-                visible++;
-            } else {
-                const checkbox = row.querySelector(
-                    ".explorer-select-input"
-                );
-
-                // Évite qu'un élément masqué reste sélectionné puis soit
-                // déplacé ou supprimé sans être visible.
-                if (checkbox && checkbox.checked) {
-                    checkbox.checked = false;
-                }
-            }
-        });
-
-    if (typeFilter && tagFilter) {
-        const foldersOnly = typeFilter.value === "folder";
-
-        tagFilter.disabled = foldersOnly;
-
-        if (foldersOnly && tagFilter.value) {
-            tagFilter.value = "";
-            return applyExplorerSearchFilters(box);
-        }
+    if (
+        !state ||
+        !state.loaded ||
+        !searchInput ||
+        !typeFilter ||
+        !tagFilter ||
+        !currentList ||
+        !resultsList
+    ) {
+        return;
     }
+
+    const query = normalizeExplorerSearchText(searchInput.value);
+    const selectedType = typeFilter.value;
+    const selectedTag = tagFilter.value;
+    const active = !!(query || selectedType || selectedTag);
+
+    if (!active) {
+        currentList.style.display = "";
+        resultsList.style.display = "none";
+        resultsList.innerHTML = "";
+
+        if (empty) empty.style.display = "none";
+        if (count) count.textContent = "";
+        return;
+    }
+
+    if (selectedType === "folder" && selectedTag) {
+        tagFilter.value = "";
+        return renderExplorerRecursiveSearch(box);
+    }
+
+    const matches = state.nodes.filter(function(node) {
+        const title = normalizeExplorerSearchText(node.title);
+        const description = normalizeExplorerSearchText(
+            node.description
+        );
+        const ref = normalizeExplorerSearchText(node.ref);
+        const normalizedTags = parseExplorerSearchTags(
+            node.tags
+        ).map(normalizeExplorerSearchText);
+
+        const textMatch =
+            !query ||
+            title.indexOf(query) !== -1 ||
+            description.indexOf(query) !== -1 ||
+            ref.indexOf(query) !== -1 ||
+            normalizedTags.some(function(tag) {
+                return tag.indexOf(query) !== -1;
+            });
+
+        const typeMatch =
+            !selectedType || node.type === selectedType;
+
+        const tagMatch =
+            !selectedTag ||
+            (
+                node.type === "document" &&
+                normalizedTags.indexOf(selectedTag) !== -1
+            );
+
+        return textMatch && typeMatch && tagMatch;
+    });
+
+    currentList.style.display = "none";
+    resultsList.innerHTML = "";
+
+    matches.forEach(function(node) {
+        resultsList.appendChild(
+            createExplorerSearchResultNode(
+                box,
+                state.architecture,
+                node
+            )
+        );
+    });
+
+    resultsList.style.display = "";
 
     if (count) {
         count.textContent =
-            visible + " sur " + total + " élément(s)";
+            matches.length + " résultat(s)";
     }
 
     if (empty) {
         empty.style.display =
-            total > 0 && visible === 0
+            matches.length === 0
                 ? "block"
                 : "none";
     }
+}
 
-    if (typeof updateExplorerSelectionState === "function") {
-        updateExplorerSelectionState(box);
+async function loadExplorerRecursiveSearchData(box) {
+    const currentRef = getCurrentExplorerPageRef(box);
+    const currentTitle = getCurrentExplorerPageTitle(box);
+    const tagFilter = box.querySelector("#explorer-tag-filter");
+    const count = box.querySelector("#explorer-search-count");
+
+    if (!currentRef) return;
+
+    box._explorerSearchState = {
+        loaded: false,
+        nodes: [],
+        architecture: null
+    };
+
+    if (count) {
+        count.textContent = "Chargement...";
+    }
+
+    try {
+        const architecture = await fetchArchitectureState();
+        architecture.searchRootRef = currentRef;
+        architecture.searchRootTitle = currentTitle;
+
+        const nodes = getExplorerSearchDescendants(
+            architecture,
+            currentRef
+        );
+
+        box._explorerSearchState = {
+            loaded: true,
+            nodes: nodes,
+            architecture: architecture
+        };
+
+        populateExplorerTagFilterFromNodes(box, nodes);
+
+        if (count) {
+            count.textContent = "";
+        }
+
+        renderExplorerRecursiveSearch(box);
+    } catch (error) {
+        console.error(
+            "Impossible de charger la recherche récursive :",
+            error
+        );
+
+        if (count) {
+            count.textContent =
+                "Recherche dans les sous-dossiers indisponible";
+        }
+
+        if (tagFilter) {
+            tagFilter.disabled = true;
+        }
     }
 }
 
@@ -1107,46 +1283,57 @@ function initExplorerSearch(box) {
         return;
     }
 
-    populateExplorerTagFilter(box);
-
-    if (!searchInput.hasAttribute("data-search-ready")) {
-        searchInput.addEventListener("input", function() {
-            applyExplorerSearchFilters(box);
-        });
-        searchInput.setAttribute("data-search-ready", "true");
+    function refresh() {
+        renderExplorerRecursiveSearch(box);
     }
 
-    if (!typeFilter.hasAttribute("data-search-ready")) {
-        typeFilter.addEventListener("change", function() {
-            applyExplorerSearchFilters(box);
-        });
-        typeFilter.setAttribute("data-search-ready", "true");
-    }
+    searchInput.addEventListener("input", refresh);
+    typeFilter.addEventListener("change", function() {
+        const foldersOnly = typeFilter.value === "folder";
 
-    if (!tagFilter.hasAttribute("data-search-ready")) {
-        tagFilter.addEventListener("change", function() {
-            applyExplorerSearchFilters(box);
-        });
-        tagFilter.setAttribute("data-search-ready", "true");
-    }
+        if (foldersOnly && tagFilter.value) {
+            tagFilter.value = "";
+        }
 
-    if (
-        resetButton &&
-        !resetButton.hasAttribute("data-search-ready")
-    ) {
+        tagFilter.disabled =
+            foldersOnly ||
+            (
+                box._explorerSearchState &&
+                box._explorerSearchState.loaded &&
+                !box._explorerSearchState.nodes.some(function(node) {
+                    return (
+                        node.type === "document" &&
+                        parseExplorerSearchTags(node.tags).length > 0
+                    );
+                })
+            );
+
+        refresh();
+    });
+    tagFilter.addEventListener("change", refresh);
+
+    if (resetButton) {
         resetButton.addEventListener("click", function() {
             searchInput.value = "";
             typeFilter.value = "";
             tagFilter.value = "";
-            tagFilter.disabled = false;
-            applyExplorerSearchFilters(box);
+
+            if (
+                box._explorerSearchState &&
+                box._explorerSearchState.loaded
+            ) {
+                populateExplorerTagFilterFromNodes(
+                    box,
+                    box._explorerSearchState.nodes
+                );
+            }
+
+            renderExplorerRecursiveSearch(box);
             searchInput.focus();
         });
-
-        resetButton.setAttribute("data-search-ready", "true");
     }
 
-    applyExplorerSearchFilters(box);
+    loadExplorerRecursiveSearchData(box);
 }
 
 function initExplorerManagement(box) {
@@ -1288,7 +1475,14 @@ async function fetchArchitectureState() {
             title: element.getAttribute("data-title") || ref,
             type: type,
             parentRef: parentRef,
-            originalParentRef: parentRef
+            originalParentRef: parentRef,
+            description: element.getAttribute("data-desc") || "",
+            tags: element.getAttribute("data-tags") || "",
+            creator: element.getAttribute("data-creator") || "",
+            created: element.getAttribute("data-created") || "",
+            modified: element.getAttribute("data-modified") || "",
+            url: element.getAttribute("data-url") || "",
+            urlPreview: element.getAttribute("data-url-preview") || ""
         };
 
         if (type === "root") {
