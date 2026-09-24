@@ -2,6 +2,7 @@
 {{html}}
 #set($classPath = "TestPage.PAGE.Glossaire.CODE.glossaireClass.WebHome")
 #set($dataSpace = "TestPage.PAGE.Glossaire.DATA")
+#set($dataSpaces = ['TestPage', 'PAGE', 'Glossaire', 'DATA'])
 
 ## Extensions JavaScript / CSS du module
 $xwiki.jsx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
@@ -15,29 +16,38 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
   #set($libelleInput = "$!request.libelle")
   #set($definitionInput = "$!request.definition")
 
-  ## 1. Génération du nom technique de base
-  #set($cleanName = $xwiki.cleanName($acronymeInput))
-  #set($newPageRef = "${dataSpace}.${cleanName}")
-  #set($newPage = $xwiki.getDocument($newPageRef))
-
-  ## 2. Détection de doublon à des fins d'information (sans bloquer)
-  #set($alreadyExists = false)
-  #if(!$newPage.isNew())
-    #set($alreadyExists = true)
-  #end
-
-  ## 3. Boucle de sécurité pour trouver un nom de page disponible
+  ## 1. Génération du nom technique sans cleanName ni interpolation de chemin.
+  ## Sur cette instance, cleanName peut rester littéral dans la référence.
+  #set($baseCandidateName = $acronymeInput)
+  #set($candidateName = $baseCandidateName)
   #set($counter = 1)
-  #set($basePageRef = $newPageRef)
+  #set($candidateReference = false)
+  #set($alreadyExists = false)
+
+  ## 2. Recherche d'une vraie référence XWiki disponible.
   #foreach($i in [1..100])
-    #if(!$newPage.isNew())
-      #set($newPageRef = "${basePageRef}_${counter}")
-      #set($newPage = $xwiki.getDocument($newPageRef))
-      #set($counter = $counter + 1)
-    #else
+    #set($terminalReference = $services.model.createDocumentReference('', $dataSpaces, $candidateName))
+    #set($nestedSpaces = ['TestPage', 'PAGE', 'Glossaire', 'DATA', $candidateName])
+    #set($nestedReference = $services.model.createDocumentReference('', $nestedSpaces, 'WebHome'))
+    #set($terminalDoc = $xwiki.getDocument($terminalReference))
+    #set($nestedDoc = $xwiki.getDocument($nestedReference))
+
+    #if($i == 1 && (!$terminalDoc.isNew() || !$nestedDoc.isNew()))
+      #set($alreadyExists = true)
+    #end
+
+    #if($terminalDoc.isNew() && $nestedDoc.isNew())
+      #set($candidateReference = $terminalReference)
       #break
+    #else
+      #set($suffix = "_$counter")
+      #set($candidateName = "$baseCandidateName$suffix")
+      #set($counter = $counter + 1)
     #end
   #end
+
+  ## 3. Création sur la référence typée trouvée.
+  #set($newPage = $xwiki.getDocument($candidateReference))
 
   ## 4. Création et population de l'objet
   #set($newObj = $newPage.newObject($classPath))
