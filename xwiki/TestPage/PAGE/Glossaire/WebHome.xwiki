@@ -91,14 +91,8 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
 <div class="glossary-page">
   <div class="nh-shell">
     <header class="nh-header">
-      <div class="nh-header-accent" aria-hidden="true">
-        <span class="nh-header-accent-blue"></span>
-        <span class="nh-header-accent-red"></span>
-      </div>
-      <div class="nh-header-copy">
-        <h1 class="nh-title">Glossaire</h1>
-        <p class="nh-subtitle">Retrouvez ici les acronymes, libellés et définitions du wiki.</p>
-      </div>
+      <h1 class="nh-title">Glossaire</h1>
+      <p class="nh-subtitle">Retrouvez ici les acronymes, libellés et définitions du wiki.</p>
     </header>
 
 ## --- BARRE D'ACTIONS ---
