@@ -55,15 +55,26 @@
 }
 
 .gl-header {
+    position: relative;
     max-width: 920px;
-    margin-bottom: 0;
+    margin-bottom: 30px;
+    padding-left: 21px;
+}
+
+.gl-header::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 4px;
+    bottom: 3px;
+    width: 3px;
+    border-radius: 999px;
+    background: linear-gradient(180deg, var(--gl-blue) 0 78%, var(--gl-red) 78% 100%);
 }
 
 .gl-title {
     margin: 0;
     max-width: 850px;
-    padding-left: 18px;
-    border-left: 3px solid var(--gl-blue);
     color: var(--gl-blue-deep);
     font-size: clamp(30px, 4vw, 52px);
     line-height: 1.035;
@@ -72,24 +83,11 @@
 }
 
 .gl-subtitle {
-    position: relative;
     max-width: 790px;
-    margin: 10px 0 28px;
-    padding-left: 18px;
-    border-left: 3px solid var(--gl-red);
+    margin: 15px 0 0;
     color: var(--gl-muted);
     font-size: clamp(14px, 1.35vw, 17px);
     line-height: 1.7;
-}
-
-.gl-subtitle::before {
-    content: "";
-    position: absolute;
-    left: -3px;
-    top: -10px;
-    width: 3px;
-    height: 10px;
-    background: linear-gradient(180deg, var(--gl-blue), var(--gl-red));
 }
 
 .glossary-status-alert {
