@@ -1,7 +1,305 @@
-#mainGlossaryTable.hide-type-column .col-type {
+/* ============================================================
+   Liens - habillage de page
+   Même fond et même en-tête visuel que Accueil / Contacts.
+   ============================================================ */
+
+.liens-page {
+  --li-white: #ffffff;
+  --li-surface: #ffffff;
+  --li-surface-soft: #f7f9fc;
+  --li-blue: #173f98;
+  --li-blue-deep: #0d2d73;
+  --li-red: #ef233c;
+  --li-text: #18324f;
+  --li-muted: #647890;
+  --li-line: #dbe4ef;
+
+  position: relative;
+  isolation: isolate;
+  min-height: 760px;
+  margin: -15px -15px 24px;
+  padding: clamp(26px, 4vw, 58px);
+  overflow: hidden;
+  color: var(--li-text);
+  background:
+    radial-gradient(circle at 8% 4%, rgba(23, 63, 152, .055), transparent 25%),
+    radial-gradient(circle at 96% 12%, rgba(239, 35, 60, .03), transparent 20%),
+    linear-gradient(180deg, rgba(23, 63, 152, .018), rgba(255, 255, 255, 0) 280px),
+    #ffffff;
+  font-family: Inter, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+.liens-page *,
+.liens-page *::before,
+.liens-page *::after {
+  box-sizing: border-box;
+}
+
+.liens-page::before {
+  content: "";
+  position: absolute;
+  width: 420px;
+  height: 420px;
+  left: -270px;
+  top: 130px;
+  border: 1px solid rgba(23, 63, 152, .065);
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 34px rgba(23, 63, 152, .016),
+    0 0 0 78px rgba(23, 63, 152, .010);
+  pointer-events: none;
+  z-index: -1;
+}
+
+.liens-page::after {
+  content: "";
+  position: absolute;
+  width: 170px;
+  height: 170px;
+  right: -48px;
+  top: 78px;
+  opacity: .28;
+  background: linear-gradient(145deg, rgba(23, 63, 152, .10), rgba(23, 63, 152, 0));
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  pointer-events: none;
+  z-index: -1;
+}
+
+.li-shell {
+  width: min(1460px, 100%);
+  margin: 0 auto;
+}
+
+.li-header {
+  position: relative;
+  max-width: 920px;
+  margin-bottom: 30px;
+  padding-left: 21px;
+}
+
+.li-header::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 3px;
+  width: 3px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--li-blue) 0 78%, var(--li-red) 78% 100%);
+}
+
+.li-title {
+  margin: 0;
+  max-width: 850px;
+  color: var(--li-blue-deep);
+  font-size: clamp(30px, 4vw, 52px);
+  line-height: 1.035;
+  letter-spacing: -.04em;
+  font-weight: 730;
+}
+
+.li-subtitle {
+  max-width: 790px;
+  margin: 15px 0 0;
+  color: var(--li-muted);
+  font-size: clamp(14px, 1.35vw, 17px);
+  line-height: 1.7;
+}
+
+#mainGlossaryTable.hide-type-column .col-type,
+#secondaryGlossaryTable.hide-type-column .col-type {
   display: none !important;
 }
 
-#secondaryGlossaryTable.hide-type-column .col-type {
+.glossary-toolbar {
+  margin-bottom: 15px;
+}
+
+.glossary-toolbar-left,
+.glossary-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.glossary-toolbar-right {
+  justify-content: flex-end;
+}
+
+.glossary-toolbar-button {
+  margin-left: 0;
+}
+
+.glossary-hidden-file-input,
+.is-hidden {
   display: none !important;
+}
+
+.glossary-bulk-select-cell,
+.glossary-bulk-select-header,
+.glossary-bulk-select-filter {
+  width: 36px;
+  text-align: center;
+  vertical-align: middle;
+}
+
+/* Colonne de sélection ajoutée dynamiquement dans Mes Liens.
+ * Elle reçoit explicitement la classe .liens-personal-bulk-select-column
+ * dans le JavaScript qui crée/repère les cases de suppression multiple. */
+#mainGlossaryTable .liens-personal-bulk-select-column {
+  width: 1% !important;
+  min-width: 28px !important;
+  max-width: 36px !important;
+  padding-left: 4px !important;
+  padding-right: 4px !important;
+  text-align: center !important;
+  vertical-align: middle !important;
+  white-space: nowrap !important;
+  box-sizing: border-box !important;
+}
+
+#mainGlossaryTable .liens-personal-bulk-select-column .liens-row-select,
+#mainGlossaryTable .liens-personal-bulk-select-column .liens-select-all-visible {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+}
+
+/* En mode Edit une ligne devient plus haute. Le centrage vertical natif du tableau
+ * peut être perturbé par les champs d'édition ; on centre donc la checkbox du tbody
+ * par rapport à sa cellule elle-même. */
+#mainGlossaryTable .glossary-bulk-select-cell,
+#secondaryGlossaryTable .glossary-bulk-select-cell {
+  position: relative !important;
+  text-align: center !important;
+  vertical-align: middle !important;
+}
+
+#mainGlossaryTable .glossary-bulk-select-cell .liens-row-select,
+#secondaryGlossaryTable .glossary-bulk-select-cell .liens-row-select {
+  position: absolute !important;
+  left: 50% !important;
+  top: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  float: none !important;
+  margin: 0 !important;
+}
+
+/* La checkbox d'en-tête reste centrée normalement dans sa cellule. */
+#mainGlossaryTable .glossary-bulk-select-header,
+#secondaryGlossaryTable .glossary-bulk-select-header {
+  text-align: center !important;
+  vertical-align: middle !important;
+}
+
+#mainGlossaryTable .glossary-bulk-select-header .liens-select-all-visible,
+#secondaryGlossaryTable .glossary-bulk-select-header .liens-select-all-visible {
+  display: block !important;
+  float: none !important;
+  position: static !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+}
+
+.glossary-bulk-select-filter {
+  background-color: #f9f9f9;
+}
+
+.liens-filter-layout {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.liens-filter-layout input {
+  min-width: 0;
+  flex: 1;
+}
+
+/* Le picker de créateur est initialisé pendant que la zone d'édition est cachée.
+ * Ces règles empêchent le contrôle riche XWiki/Selectize de rester à largeur 0
+ * ou de passer derrière le tableau une fois l'édition ouverte. */
+#secondaryGlossaryTable .edit-proprietaire {
+  position: relative;
+  z-index: 20;
+  min-width: 180px;
+}
+
+#secondaryGlossaryTable .edit-proprietaire .selectize-control,
+#secondaryGlossaryTable .edit-proprietaire .ts-wrapper {
+  width: 100% !important;
+  min-width: 180px;
+  pointer-events: auto !important;
+}
+
+#secondaryGlossaryTable .edit-proprietaire .selectize-input,
+#secondaryGlossaryTable .edit-proprietaire .ts-control,
+#secondaryGlossaryTable .edit-proprietaire .selectize-input input,
+#secondaryGlossaryTable .edit-proprietaire .ts-control input {
+  pointer-events: auto !important;
+}
+
+#secondaryGlossaryTable .edit-proprietaire .selectize-dropdown,
+#secondaryGlossaryTable .edit-proprietaire .ts-dropdown {
+  z-index: 1080 !important;
+}
+
+.excel-import-dialog {
+  width: 95%;
+  max-width: 1500px;
+}
+
+.excel-import-info {
+  margin-bottom: 12px;
+}
+
+.excel-import-table-wrap {
+  overflow: auto;
+  border: 1px solid #ddd;
+}
+
+.excel-import-preview-wrap {
+  max-height: 430px;
+}
+
+.excel-import-duplicates-wrap {
+  max-height: 330px;
+}
+
+.excel-import-table {
+  margin-bottom: 0;
+}
+
+.excel-line-col {
+  width: 65px;
+}
+
+.excel-action-col,
+.excel-import-action-cell {
+  width: 70px;
+  text-align: center;
+}
+
+.excel-import-options {
+  margin-top: 15px;
+  padding: 12px;
+  background: #f7f7f7;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+.excel-import-options label {
+  display: block;
+}
+
+.excel-import-options label:last-child {
+  margin-bottom: 0;
+}
+
+.excel-import-summary {
+  margin-top: 10px;
+}
+
+.excel-import-input {
+  width: 100%;
 }

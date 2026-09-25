@@ -1,73 +1,298 @@
 {{velocity}}
+#set($className = 'TestPage.PAGE.Liens.CODE.lienClass.WebHome')
+#set($dataSpace = 'TestPage.PAGE.Liens.DATA.LIENDATA')
+#set($managerGroup = 'XWiki.IVQ_Gestionnaires')
+#set($managerGroupAlt = 'XWiki.IVQ_Gestionnaire')
+#set($currentUser = $xcontext.user)
+#set($currentUserDoc = $xwiki.getDocument($currentUser))
+#set($currentUserId = $currentUserDoc.name)
+#set($managerRefs = $services.user.group.getMembers($managerGroup, true))
+#set($managerRefsAlt = $services.user.group.getMembers($managerGroupAlt, true))
+#set($currentUserIsManager = false)
+#foreach($managerRef in $managerRefs)
+  #set($managerDoc = $xwiki.getDocument($managerRef))
+  #if("$managerDoc.name" == "$currentUserId")
+    #set($currentUserIsManager = true)
+  #end
+#end
+#if(!$currentUserIsManager)
+  #foreach($managerRef in $managerRefsAlt)
+    #set($managerDoc = $xwiki.getDocument($managerRef))
+    #if("$managerDoc.name" == "$currentUserId")
+      #set($currentUserIsManager = true)
+    #end
+  #end
+#end
+
 #if ($request.getMethod() == "POST")
-  ## 1. Récupération des paramètres de la requête
   #set($action = $!request.getParameter('action'))
-  #set($targetRef = $!request.getParameter('targetRef'))
   #set($formToken = $!request.getParameter('form_token'))
 
-  ## 2. Validation de sécurité stricte (Votre modèle fonctionnel)
   #if(!$services.csrf.isTokenValid($formToken))
     {{html}}ERREUR_CSRF{{/html}}
   #else
-    #set($targetDoc = $xwiki.getDocument($targetRef))
 
-    ## --- SCRIPT DE SAUVEGARDE ---
-    #if ($action == 'save')
-      #set($className = $!request.getParameter('className'))
-      #set($acronym = $!request.getParameter('acronym'))
-      #set($label = $!request.getParameter('label'))
-      #set($definition = $!request.getParameter('definition'))
-      #set($type = $!request.getParameter('type'))
-      #set($proprietaire = $!request.getParameter('proprietaire'))
-      $targetDoc
-$className
-$acronym
-$label
-$definition
-$type
-$proprietaire
-$targetRef
-$targetDoc.isNew()
-      #set($obj = $targetDoc.getObject($className, true))
+    ## --- LISTE SECURISEE POUR LE TABLEAU DE VERIFICATION ---
+    ## On ne renvoie jamais les liens personnels des autres utilisateurs.
+    #if ($action == 'listVisible')
+      #set($statement = "select distinct doc.fullName from Document doc, doc.object($className) obj")
+      #set($query = $services.query.xwql($statement))
+      #set($documentRefs = $query.execute())
+      #foreach($fullRef in $documentRefs)
+        #set($targetDoc = $xwiki.getDocument($fullRef))
+        #set($obj = $targetDoc.getObject($className))
+        #if($obj)
+          #set($typeValue = "$!obj.getValue('type')")
+          #set($ownerValue = "$!obj.getValue('proprietaire')")
+          #if($typeValue == 'commun' || ($typeValue == 'personnel' && $ownerValue == $currentUserId))
+            #set($a = "$!obj.getValue('nom_lien')".replace('|',' '))
+            #set($l = "$!obj.getValue('lien')".replace('|',' '))
+            #set($d = "$!obj.getValue('definition')".replace('|',' '))
+            {{html}}LIEN_ROW|$fullRef|$a|$l|$d|$typeValue|$ownerValue{{/html}}
+          #end
+        #end
+      #end
+      {{html}}LIEN_LIST_OK|$currentUserId|$currentUserIsManager{{/html}}
 
-      #if ($obj)
-$obj
-        #if($acronym)
-          $obj.set('nom_lien', $acronym)
-          ##set($pageName = $services.model.resolveDocument($targetRef))
-          ##set($newPageName = $acronym)
-          ##set($job = $services.refactoring.rename($pageName, $newPageName))
-          ##$job.join()
-        #end
-        #if($label)
-          $obj.set('lien', $label)
-        #end
-        #if($type)
-          $obj.set('type', $type)
-        #end
-        #if($definition)
-          $obj.set('definition', $definition)
-        #end
-        #if($proprietaire)
-          $obj.set('proprietaire', $proprietaire)
-        #end
-        ## Sauvegarde et récupération du résultat (true/false)
-        #set($saveSuccess = $targetDoc.save("Mise à jour via API Glossaire", true))
+    ## --- SAUVEGARDE D'UNE LIGNE EXISTANTE ---
+    #elseif ($action == 'save')
+      #set($targetRef = $!request.getParameter('targetRef'))
+      #set($acronym = "$!request.getParameter('acronym')")
+      #set($label = "$!request.getParameter('label')")
+      #set($definition = "$!request.getParameter('definition')")
+      #set($requestedType = "$!request.getParameter('type')")
+      #set($requestedOwner = "$!request.getParameter('proprietaire')")
+      #set($targetDoc = $xwiki.getDocument($targetRef))
+      #set($obj = $targetDoc.getObject($className))
 
-        #if($saveSuccess == true || $saveSuccess)
-          {{html}}GLOSSAIRE_OK{{/html}}
-        #end
-      #else
+      #if(!$obj)
         {{html}}ERREUR_OBJET{{/html}}
+      #else
+        #set($oldType = "$!obj.getValue('type')")
+        #set($oldOwner = "$!obj.getValue('proprietaire')")
+
+        ## Un non-manager ne peut modifier que ses propres liens personnels.
+        #if(!$currentUserIsManager && ($oldType == 'commun' || $oldOwner != $currentUserId))
+          {{html}}ERREUR_DROITS{{/html}}
+        #elseif(!$currentUserIsManager && $requestedType == 'commun')
+          {{html}}ERREUR_DROITS_COMMUN{{/html}}
+        #else
+          #if(!$currentUserIsManager)
+            #set($requestedOwner = $currentUserId)
+          #elseif(!$requestedOwner)
+            #set($requestedOwner = $oldOwner)
+          #end
+          #if(!$requestedType)
+            #set($requestedType = $oldType)
+          #end
+
+          ## La page doit suivre LIENDATA.{auteur}.{nom}.
+          ## IMPORTANT : un changement d'auteur est un MOVE vers un autre espace,
+          ## tandis qu'un changement d'acronyme est un RENAME du document.
+          ## Les requêtes désactivent autoRedirect : aucune ancienne page fantôme
+          ## ne doit rester visible dans l'arborescence après l'opération.
+          ## On ne passe plus une DocumentReference complète à rename(), car cela
+          ## pouvait créer une page parasite au lieu de déplacer la page existante.
+          #set($cleanName = $xwiki.cleanName($acronym))
+          #if(!$cleanName)
+            #set($cleanName = $targetDoc.name)
+          #end
+
+          #set($oldSpaceName = "$dataSpace.$oldOwner")
+          #set($destinationSpaceName = "$dataSpace.$requestedOwner")
+          #set($finalName = $cleanName)
+          #set($destinationRef = "$destinationSpaceName.$finalName")
+          #set($destinationDoc = $xwiki.getDocument($destinationRef))
+          #set($counter = 1)
+
+          ## Si une autre page occupe déjà la destination finale, on suffixe le nom.
+          #foreach($i in [1..100])
+            #if(!$destinationDoc.isNew() && "$destinationDoc.documentReference" != "$targetDoc.documentReference")
+              #set($finalName = $cleanName + "_" + $counter)
+              #set($destinationRef = "$destinationSpaceName.$finalName")
+              #set($destinationDoc = $xwiki.getDocument($destinationRef))
+              #set($counter = $counter + 1)
+            #else
+              #break
+            #end
+          #end
+
+          #set($currentRef = "$targetRef")
+          #set($currentName = "$targetDoc.name")
+          #set($ownerChanged = "$requestedOwner" != "$oldOwner")
+          #set($nameChanged = "$finalName" != "$currentName")
+
+          #if($ownerChanged && $nameChanged)
+            ## On préfère renommer avant de déplacer si le nom final est libre dans
+            ## l'ancien espace. Cela évite une collision intermédiaire dans le nouvel
+            ## espace avec l'ancien nom du document.
+            #set($sourceFinalRef = "$oldSpaceName.$finalName")
+            #set($sourceFinalDoc = $xwiki.getDocument($sourceFinalRef))
+
+            #if($sourceFinalDoc.isNew())
+              #set($sourceReference = $services.model.resolveDocument($currentRef))
+              #set($renameRequest = $services.refactoring.requestFactory.createRenameRequest($sourceReference, $finalName))
+              #set($discard = $renameRequest.setAutoRedirect(false))
+              $services.refactoring.rename($renameRequest).join()
+              #set($currentRef = "$oldSpaceName.$finalName")
+
+              #set($sourceReference = $services.model.resolveDocument($currentRef))
+              #set($destinationSpaceReference = $services.model.resolveSpace($destinationSpaceName))
+              #set($moveRequest = $services.refactoring.requestFactory.createMoveRequest($sourceReference, $destinationSpaceReference))
+              #set($discard = $moveRequest.setAutoRedirect(false))
+              $services.refactoring.move($moveRequest).join()
+              #set($currentRef = "$destinationSpaceName.$finalName")
+            #else
+              ## Cas rare : le nom final existe déjà dans l'ancien espace.
+              ## On utilise un nom temporaire libre dans les deux espaces, puis move + rename.
+              #set($tempCounter = 1)
+              #set($tempName = "__LIENS_MOVE_TMP__1")
+              #foreach($j in [1..100])
+                #set($sourceTempDoc = $xwiki.getDocument("$oldSpaceName.$tempName"))
+                #set($destinationTempDoc = $xwiki.getDocument("$destinationSpaceName.$tempName"))
+                #if($sourceTempDoc.isNew() && $destinationTempDoc.isNew())
+                  #break
+                #else
+                  #set($tempCounter = $tempCounter + 1)
+                  #set($tempName = "__LIENS_MOVE_TMP__" + $tempCounter)
+                #end
+              #end
+
+              #set($sourceReference = $services.model.resolveDocument($currentRef))
+              #set($renameRequest = $services.refactoring.requestFactory.createRenameRequest($sourceReference, $tempName))
+              #set($discard = $renameRequest.setAutoRedirect(false))
+              $services.refactoring.rename($renameRequest).join()
+              #set($currentRef = "$oldSpaceName.$tempName")
+
+              #set($sourceReference = $services.model.resolveDocument($currentRef))
+              #set($destinationSpaceReference = $services.model.resolveSpace($destinationSpaceName))
+              #set($moveRequest = $services.refactoring.requestFactory.createMoveRequest($sourceReference, $destinationSpaceReference))
+              #set($discard = $moveRequest.setAutoRedirect(false))
+              $services.refactoring.move($moveRequest).join()
+              #set($currentRef = "$destinationSpaceName.$tempName")
+
+              #set($sourceReference = $services.model.resolveDocument($currentRef))
+              #set($renameRequest = $services.refactoring.requestFactory.createRenameRequest($sourceReference, $finalName))
+              #set($discard = $renameRequest.setAutoRedirect(false))
+              $services.refactoring.rename($renameRequest).join()
+              #set($currentRef = "$destinationSpaceName.$finalName")
+            #end
+
+          #elseif($ownerChanged)
+            ## Changement de créateur uniquement : on déplace le document existant.
+            #set($sourceReference = $services.model.resolveDocument($currentRef))
+            #set($destinationSpaceReference = $services.model.resolveSpace($destinationSpaceName))
+            #set($moveRequest = $services.refactoring.requestFactory.createMoveRequest($sourceReference, $destinationSpaceReference))
+            #set($discard = $moveRequest.setAutoRedirect(false))
+            $services.refactoring.move($moveRequest).join()
+            #set($currentRef = "$destinationSpaceName.$currentName")
+
+          #elseif($nameChanged)
+            ## Changement d'acronyme uniquement : on renomme dans le même espace.
+            #set($sourceReference = $services.model.resolveDocument($currentRef))
+            #set($renameRequest = $services.refactoring.requestFactory.createRenameRequest($sourceReference, $finalName))
+            #set($discard = $renameRequest.setAutoRedirect(false))
+            $services.refactoring.rename($renameRequest).join()
+            #set($currentRef = "$oldSpaceName.$finalName")
+          #end
+
+          ## On modifie l'objet APRES le move / rename afin que l'auteur stocké et
+          ## l'emplacement réel de la page restent toujours cohérents.
+          #set($finalDoc = $xwiki.getDocument($currentRef))
+          #set($finalObj = $finalDoc.getObject($className))
+          #if(!$finalObj)
+            {{html}}ERREUR_OBJET_APRES_DEPLACEMENT{{/html}}
+          #else
+            #set($discard = $finalObj.set('nom_lien', $acronym))
+            #set($discard = $finalObj.set('lien', $label))
+            #set($discard = $finalObj.set('definition', $definition))
+            #set($discard = $finalObj.set('type', $requestedType))
+            #set($discard = $finalObj.set('proprietaire', $requestedOwner))
+            #set($discard = $finalDoc.setTitle($acronym))
+            #set($discard = $finalDoc.save('Mise à jour via interface Liens', true))
+            {{html}}GLOSSAIRE_OK|$currentRef|$finalDoc.name{{/html}}
+          #end
+        #end
       #end
 
-    ## --- SCRIPT DE SUPPRESSION ---
-    #elseif ($action == 'delete')
-      #set($deleteSuccess = $targetDoc.delete())
-      #if ($deleteSuccess)
-        {{html}}GLOSSAIRE_OK{{/html}}
+    ## --- CREATION / IMPORT EXCEL ---
+    #elseif ($action == 'create')
+      #set($acronym = "$!request.getParameter('acronym')")
+      #set($label = "$!request.getParameter('label')")
+      #set($definition = "$!request.getParameter('definition')")
+      #set($requestedType = "$!request.getParameter('type')")
+      #set($requestedOwner = "$!request.getParameter('proprietaire')")
+
+      #if(!$requestedType)
+        #set($requestedType = 'personnel')
+      #end
+      #if(!$requestedOwner)
+        #set($requestedOwner = $currentUserId)
+      #end
+
+      ## Seul le nom de groupe manager compte ici, pas les permissions XWiki.
+      #if(!$currentUserIsManager && $requestedType == 'commun')
+        {{html}}ERREUR_DROITS_COMMUN{{/html}}
+      #elseif(!$currentUserIsManager && $requestedOwner != $currentUserId)
+        {{html}}ERREUR_DROITS_AUTEUR{{/html}}
       #else
-        {{html}}ERREUR_DROITS{{/html}}
+        #set($cleanName = $xwiki.cleanName($acronym))
+        #if(!$cleanName)
+          #set($cleanName = "Lien")
+        #end
+
+        ## Construction de la référence avec l'API XWiki plutôt qu'avec une chaîne
+        ## "${...}" : sur cette instance, l'interpolation pouvait laisser
+        ## littéralement ${cleanName} dans le nom de la page importée.
+        #set($ownerDataSpaces = ['TestPage', 'PAGE', 'Liens', 'DATA', 'LIENDATA', $requestedOwner])
+        #set($candidateName = $cleanName)
+        #set($counter = 1)
+        #set($candidateReference = $services.model.createDocumentReference('', $ownerDataSpaces, $candidateName))
+        #set($newPage = $xwiki.getDocument($candidateReference))
+
+        #foreach($i in [1..100])
+          #if(!$newPage.isNew())
+            #set($candidateName = $cleanName + "_" + $counter)
+            #set($candidateReference = $services.model.createDocumentReference('', $ownerDataSpaces, $candidateName))
+            #set($newPage = $xwiki.getDocument($candidateReference))
+            #set($counter = $counter + 1)
+          #else
+            #break
+          #end
+        #end
+
+        #set($newObj = $newPage.newObject($className))
+        #set($discard = $newObj.set('nom_lien', $acronym))
+        #set($discard = $newObj.set('lien', $label))
+        #set($discard = $newObj.set('definition', $definition))
+        #set($discard = $newObj.set('type', $requestedType))
+        #set($discard = $newObj.set('proprietaire', $requestedOwner))
+        #set($discard = $newPage.setTitle($acronym))
+        #set($discard = $newPage.save('Import Excel / ajout Liens', true))
+        #set($newPageRef = $newPage.getFullName())
+        {{html}}GLOSSAIRE_OK|$newPageRef|$newPage.name{{/html}}
+      #end
+
+    ## --- SUPPRESSION SIMPLE OU MULTIPLE ---
+    #elseif ($action == 'delete')
+      #set($targetRef = $!request.getParameter('targetRef'))
+      #set($targetDoc = $xwiki.getDocument($targetRef))
+      #set($obj = $targetDoc.getObject($className))
+      #if(!$obj)
+        {{html}}ERREUR_OBJET{{/html}}
+      #else
+        #set($typeValue = "$!obj.getValue('type')")
+        #set($ownerValue = "$!obj.getValue('proprietaire')")
+        #if(!$currentUserIsManager && ($typeValue == 'commun' || $ownerValue != $currentUserId))
+          {{html}}ERREUR_DROITS{{/html}}
+        #else
+          #set($deleteSuccess = $targetDoc.delete())
+          #if($deleteSuccess)
+            {{html}}GLOSSAIRE_OK{{/html}}
+          #else
+            {{html}}ERREUR_DROITS{{/html}}
+          #end
+        #end
       #end
     #else
       {{html}}ERREUR_ACTION_INCONNUE{{/html}}
@@ -75,6 +300,5 @@ $obj
   #end
 #else
   {{warning}}Cette page n'accepte que les requêtes de type POST.{{/warning}}
-  ## Fin de la condition POST
 #end
 {{/velocity}}
