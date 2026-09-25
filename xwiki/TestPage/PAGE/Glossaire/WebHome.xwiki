@@ -89,10 +89,10 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
 #end
 
 <div class="glossary-page">
-  <div class="gl-shell">
-    <header class="gl-header">
-      <h1 class="gl-title">Glossaire</h1>
-      <p class="gl-subtitle">Retrouvez ici les acronymes, libellés et définitions du wiki.</p>
+  <div class="nh-shell">
+    <header class="nh-header">
+      <h1 class="nh-title">Glossaire</h1>
+      <p class="nh-subtitle">Retrouvez ici les acronymes, libellés et définitions du wiki.</p>
     </header>
 
 ## --- BARRE D'ACTIONS ---
