@@ -1,3 +1,110 @@
+/* ============================================================
+   Liens - habillage de page
+   Même fond et même en-tête visuel que Accueil / Contacts.
+   ============================================================ */
+
+.liens-page {
+  --li-white: #ffffff;
+  --li-surface: #ffffff;
+  --li-surface-soft: #f7f9fc;
+  --li-blue: #173f98;
+  --li-blue-deep: #0d2d73;
+  --li-red: #ef233c;
+  --li-text: #18324f;
+  --li-muted: #647890;
+  --li-line: #dbe4ef;
+
+  position: relative;
+  isolation: isolate;
+  min-height: 760px;
+  margin: -15px -15px 24px;
+  padding: clamp(26px, 4vw, 58px);
+  overflow: hidden;
+  color: var(--li-text);
+  background:
+    radial-gradient(circle at 8% 4%, rgba(23, 63, 152, .055), transparent 25%),
+    radial-gradient(circle at 96% 12%, rgba(239, 35, 60, .03), transparent 20%),
+    linear-gradient(180deg, rgba(23, 63, 152, .018), rgba(255, 255, 255, 0) 280px),
+    #ffffff;
+  font-family: Inter, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+.liens-page *,
+.liens-page *::before,
+.liens-page *::after {
+  box-sizing: border-box;
+}
+
+.liens-page::before {
+  content: "";
+  position: absolute;
+  width: 420px;
+  height: 420px;
+  left: -270px;
+  top: 130px;
+  border: 1px solid rgba(23, 63, 152, .065);
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 34px rgba(23, 63, 152, .016),
+    0 0 0 78px rgba(23, 63, 152, .010);
+  pointer-events: none;
+  z-index: -1;
+}
+
+.liens-page::after {
+  content: "";
+  position: absolute;
+  width: 170px;
+  height: 170px;
+  right: -48px;
+  top: 78px;
+  opacity: .28;
+  background: linear-gradient(145deg, rgba(23, 63, 152, .10), rgba(23, 63, 152, 0));
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  pointer-events: none;
+  z-index: -1;
+}
+
+.li-shell {
+  width: min(1460px, 100%);
+  margin: 0 auto;
+}
+
+.li-header {
+  position: relative;
+  max-width: 850px;
+  margin-bottom: 24px;
+  padding-left: 21px;
+}
+
+.li-header::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 3px;
+  width: 3px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--li-blue) 0 78%, var(--li-red) 78% 100%);
+}
+
+.li-title {
+  margin: 0;
+  color: var(--li-blue-deep);
+  font-size: clamp(30px, 4vw, 50px);
+  line-height: 1.04;
+  letter-spacing: -.04em;
+  font-weight: 730;
+}
+
+.li-subtitle {
+  max-width: 760px;
+  margin: 14px 0 0;
+  color: var(--li-muted);
+  font-size: clamp(14px, 1.35vw, 17px);
+  line-height: 1.7;
+}
+
 #mainGlossaryTable.hide-type-column .col-type,
 #secondaryGlossaryTable.hide-type-column .col-type {
   display: none !important;
