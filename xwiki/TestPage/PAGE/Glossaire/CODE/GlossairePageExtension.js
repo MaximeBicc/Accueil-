@@ -831,6 +831,13 @@ function bindGlossaryPageEvents() {
     var table = document.getElementById('mainGlossaryTable');
     if (!table) return;
 
+    ['actionFeedbackModal', 'deleteConfirmModal', 'glossaryModal'].forEach(function(modalId) {
+        var modal = document.getElementById(modalId);
+        if (modal && modal.parentNode !== document.body) {
+            document.body.appendChild(modal);
+        }
+    });
+
     window.urlGlossaireData = table.getAttribute('data-endpoint-url') || '';
 
     document.querySelectorAll('.glossary-status-alert').forEach(function(alertElement) {
