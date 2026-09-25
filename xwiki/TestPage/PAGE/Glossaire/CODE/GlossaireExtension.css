@@ -72,13 +72,24 @@
 }
 
 .gl-subtitle {
+    position: relative;
     max-width: 790px;
-    margin: 0 0 28px;
+    margin: 10px 0 28px;
     padding-left: 18px;
     border-left: 3px solid var(--gl-red);
     color: var(--gl-muted);
     font-size: clamp(14px, 1.35vw, 17px);
     line-height: 1.7;
+}
+
+.gl-subtitle::before {
+    content: "";
+    position: absolute;
+    left: -3px;
+    top: -10px;
+    width: 3px;
+    height: 10px;
+    background: linear-gradient(180deg, var(--gl-blue), var(--gl-red));
 }
 
 .glossary-status-alert {
