@@ -49,19 +49,19 @@
     z-index: -1;
 }
 
-.gl-shell {
+.glossary-page .nh-shell {
     width: min(1460px, 100%);
     margin: 0 auto;
 }
 
-.gl-header {
+.glossary-page .nh-header {
     position: relative;
     max-width: 920px;
     margin-bottom: 30px;
     padding-left: 21px;
 }
 
-.gl-header::before {
+.glossary-page .nh-header::before {
     content: "";
     position: absolute;
     left: 0;
@@ -72,7 +72,7 @@
     background: linear-gradient(180deg, var(--gl-blue) 0 78%, var(--gl-red) 78% 100%);
 }
 
-.gl-title {
+.glossary-page .nh-title {
     margin: 0;
     max-width: 850px;
     color: var(--gl-blue-deep);
@@ -82,7 +82,7 @@
     font-weight: 730;
 }
 
-.gl-subtitle {
+.glossary-page .nh-subtitle {
     max-width: 790px;
     margin: 15px 0 0;
     color: var(--gl-muted);
