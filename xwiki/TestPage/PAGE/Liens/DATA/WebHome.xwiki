@@ -237,14 +237,24 @@
         {{html}}ERREUR_DROITS_AUTEUR{{/html}}
       #else
         #set($cleanName = $xwiki.cleanName($acronym))
-        #set($newPageRef = "${dataSpace}.${requestedOwner}.${cleanName}")
-        #set($newPage = $xwiki.getDocument($newPageRef))
+        #if(!$cleanName)
+          #set($cleanName = "Lien")
+        #end
+
+        ## Construction de la référence avec l'API XWiki plutôt qu'avec une chaîne
+        ## "${...}" : sur cette instance, l'interpolation pouvait laisser
+        ## littéralement ${cleanName} dans le nom de la page importée.
+        #set($ownerDataSpaces = ['TestPage', 'PAGE', 'Liens', 'DATA', 'LIENDATA', $requestedOwner])
+        #set($candidateName = $cleanName)
         #set($counter = 1)
-        #set($basePageRef = $newPageRef)
+        #set($candidateReference = $services.model.createDocumentReference('', $ownerDataSpaces, $candidateName))
+        #set($newPage = $xwiki.getDocument($candidateReference))
+
         #foreach($i in [1..100])
           #if(!$newPage.isNew())
-            #set($newPageRef = "${basePageRef}_${counter}")
-            #set($newPage = $xwiki.getDocument($newPageRef))
+            #set($candidateName = $cleanName + "_" + $counter)
+            #set($candidateReference = $services.model.createDocumentReference('', $ownerDataSpaces, $candidateName))
+            #set($newPage = $xwiki.getDocument($candidateReference))
             #set($counter = $counter + 1)
           #else
             #break
@@ -259,6 +269,7 @@
         #set($discard = $newObj.set('proprietaire', $requestedOwner))
         #set($discard = $newPage.setTitle($acronym))
         #set($discard = $newPage.save('Import Excel / ajout Liens', true))
+        #set($newPageRef = $newPage.getFullName())
         {{html}}GLOSSAIRE_OK|$newPageRef|$newPage.name{{/html}}
       #end
 
