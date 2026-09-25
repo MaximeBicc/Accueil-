@@ -1,0 +1,7 @@
+#mainGlossaryTable.hide-type-column .col-type {
+  display: none !important;
+}
+
+#secondaryGlossaryTable.hide-type-column .col-type {
+  display: none !important;
+}
