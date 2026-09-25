@@ -55,33 +55,16 @@
 }
 
 .glossary-page .nh-header {
-    display: flex;
-    align-items: stretch;
+    position: relative;
     max-width: 920px;
     margin-bottom: 30px;
-}
-
-.glossary-page .nh-header-accent {
-    width: 3px;
-    flex: 0 0 3px;
-    display: flex;
-    flex-direction: column;
-    border-radius: 999px;
-    overflow: hidden;
-}
-
-.glossary-page .nh-header-accent-blue {
-    flex: 78 1 0;
-    background: var(--gl-blue);
-}
-
-.glossary-page .nh-header-accent-red {
-    flex: 22 1 0;
-    background: var(--gl-red);
-}
-
-.glossary-page .nh-header-copy {
-    padding-left: 18px;
+    padding-left: 21px;
+    border-left: 3px solid var(--gl-blue);
+    border-image: linear-gradient(
+        180deg,
+        var(--gl-blue) 0 78%,
+        var(--gl-red) 78% 100%
+    ) 1;
 }
 
 .glossary-page .nh-title {
