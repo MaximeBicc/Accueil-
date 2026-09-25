@@ -1,5 +1,120 @@
 /* Styles du glossaire. Aucun style spécifique au module ne doit rester dans WebHome. */
 
+.glossary-page {
+    --gl-white: #ffffff;
+    --gl-surface: #ffffff;
+    --gl-surface-soft: #f7f9fc;
+    --gl-surface-blue: #f0f5fb;
+    --gl-blue: #173f98;
+    --gl-blue-deep: #0d2d73;
+    --gl-blue-light: #365db3;
+    --gl-red: #ef233c;
+    --gl-text: #18324f;
+    --gl-muted: #647890;
+    --gl-line: #dbe4ef;
+    --gl-line-strong: #becde0;
+    --gl-shadow: 0 22px 58px rgba(22, 55, 104, .10);
+    --gl-shadow-soft: 0 12px 30px rgba(22, 55, 104, .065);
+
+    position: relative;
+    isolation: isolate;
+    min-height: 760px;
+    margin: -15px -15px 24px;
+    padding: clamp(26px, 4vw, 58px);
+    overflow: hidden;
+    color: var(--gl-text);
+    background:
+        radial-gradient(circle at 8% 5%, rgba(23, 63, 152, .055), transparent 25%),
+        radial-gradient(circle at 96% 14%, rgba(239, 35, 60, .035), transparent 19%),
+        linear-gradient(180deg, rgba(23, 63, 152, .018), rgba(255, 255, 255, 0) 270px),
+        #ffffff;
+    font-family: Inter, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+.glossary-page *,
+.glossary-page *::before,
+.glossary-page *::after {
+    box-sizing: border-box;
+}
+
+.glossary-page button,
+.glossary-page input,
+.glossary-page textarea,
+.glossary-page select {
+    font: inherit;
+}
+
+.glossary-page::before {
+    content: "";
+    position: absolute;
+    width: 430px;
+    height: 430px;
+    left: -250px;
+    top: 140px;
+    border-radius: 50%;
+    border: 1px solid rgba(23, 63, 152, .07);
+    box-shadow:
+        0 0 0 34px rgba(23, 63, 152, .018),
+        0 0 0 78px rgba(23, 63, 152, .012);
+    pointer-events: none;
+    z-index: -1;
+}
+
+.glossary-page::after {
+    content: "";
+    position: absolute;
+    width: 190px;
+    height: 190px;
+    right: -58px;
+    top: 92px;
+    opacity: .32;
+    background: linear-gradient(145deg, rgba(23, 63, 152, .10), rgba(23, 63, 152, 0));
+    clip-path: polygon(50% 0, 100% 100%, 0 100%);
+    pointer-events: none;
+    z-index: -1;
+}
+
+.gl-shell {
+    width: min(1460px, 100%);
+    margin: 0 auto;
+}
+
+.gl-header {
+    position: relative;
+    max-width: 920px;
+    margin-bottom: 30px;
+    padding-left: 21px;
+}
+
+.gl-header::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 4px;
+    bottom: 3px;
+    width: 3px;
+    border-radius: 999px;
+    background: linear-gradient(180deg, var(--gl-blue) 0 78%, var(--gl-red) 78% 100%);
+}
+
+.gl-title {
+    margin: 0;
+    max-width: 850px;
+    color: var(--gl-blue-deep);
+    font-size: clamp(30px, 4vw, 52px);
+    line-height: 1.035;
+    letter-spacing: -.04em;
+    font-weight: 730;
+}
+
+.gl-subtitle {
+    max-width: 790px;
+    margin: 15px 0 0;
+    color: var(--gl-muted);
+    font-size: clamp(14px, 1.35vw, 17px);
+    line-height: 1.7;
+}
+
 .glossary-status-alert {
     display: none;
 }
