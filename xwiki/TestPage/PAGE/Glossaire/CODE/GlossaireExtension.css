@@ -55,26 +55,15 @@
 }
 
 .gl-header {
-    position: relative;
     max-width: 920px;
     margin-bottom: 30px;
-    padding-left: 21px;
-}
-
-.gl-header::before {
-    content: "";
-    position: absolute;
-    left: 0;
-    top: 4px;
-    bottom: 3px;
-    width: 3px;
-    border-radius: 999px;
-    background: linear-gradient(180deg, var(--gl-blue) 0 78%, var(--gl-red) 78% 100%);
 }
 
 .gl-title {
     margin: 0;
     max-width: 850px;
+    padding-left: 18px;
+    border-left: 3px solid var(--gl-blue);
     color: var(--gl-blue-deep);
     font-size: clamp(30px, 4vw, 52px);
     line-height: 1.035;
@@ -85,6 +74,8 @@
 .gl-subtitle {
     max-width: 790px;
     margin: 15px 0 0;
+    padding-left: 18px;
+    border-left: 3px solid var(--gl-red);
     color: var(--gl-muted);
     font-size: clamp(14px, 1.35vw, 17px);
     line-height: 1.7;
