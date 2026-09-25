@@ -103,6 +103,13 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
   #end
 #end
 
+<div class="liens-page">
+  <div class="li-shell">
+    <header class="li-header">
+      <h1 class="li-title">Bienvenue dans les liens du wiki</h1>
+      <p class="li-subtitle">Retrouvez ici vos liens personnels et les liens communs du wiki.</p>
+    </header>
+
 <button class="tablinks btn-primary" onclick="openTab(event, 'Tab1')">Mes Liens</button>
 <button class="tablinks btn-primary" onclick="openTab(event, 'Tab2')">Liens Communs</button>
 
@@ -238,7 +245,7 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
                   </div>
                   <div class="edit-buttons" style="display:none; gap: 5px;">
                     <button type="button" class="btn btn-xs btn-success" onclick="saveRowEdition(this);">
-                      $services.icon.renderHTML('check') Sauver
+                      $services.icon.renderHTML('check') Enregistrer
                     </button>
                     <button type="button" class="btn btn-xs btn-default" onclick="toggleEditMode(this, false);">
                       $services.icon.renderHTML('cross')
@@ -418,7 +425,7 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
                   </div>
                   <div class="edit-buttons" style="display:none; gap: 5px;">
                     <button type="button" class="btn btn-xs btn-success" onclick="saveRowEdition2(this);">
-                      $services.icon.renderHTML('check') Sauver
+                      $services.icon.renderHTML('check') Enregistrer
                     </button>
                     <button type="button" class="btn btn-xs btn-default" onclick="toggleEditMode2(this, false);">
                       $services.icon.renderHTML('cross')
@@ -434,6 +441,8 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
   </div>
 </div>
 
+  </div>
+</div>
 
 ## --- 4. POPUP UNIQUE POUR LES ACTIONS PERSONNALISÉES (MODALE) ---
 <div id="actionFeedbackModal" class="modal fade" tabindex="-1" role="dialog" aria-hidden="true">
