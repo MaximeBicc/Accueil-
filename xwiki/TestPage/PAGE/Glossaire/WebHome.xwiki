@@ -88,6 +88,13 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
   $request.session.removeAttribute('glossary_msg')
 #end
 
+<div class="glossary-page">
+  <div class="gl-shell">
+    <header class="gl-header">
+      <h1 class="gl-title">Glossaire</h1>
+      <p class="gl-subtitle">Retrouvez ici les acronymes, libellés et définitions du wiki.</p>
+    </header>
+
 ## --- BARRE D'ACTIONS ---
 <div class="row glossary-toolbar">
   <div id="glossaryToolbarLeft" class="col-md-6 glossary-toolbar-left">
@@ -377,6 +384,8 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
         </div>
       </form>
     </div>
+  </div>
+</div>
   </div>
 </div>
 
