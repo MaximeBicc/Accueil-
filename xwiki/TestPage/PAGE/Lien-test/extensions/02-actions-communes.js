@@ -62,6 +62,8 @@ function toggleEditMode2(button, isEnteringEdit) {
     viewElements.forEach(el => el.style.display = 'none');
     row.querySelectorAll('.edit-mode').forEach(el => el.style.display = 'block');
     row.querySelector('.edit-buttons').style.display = 'flex';
+    var ownerSelect = row.querySelector('.secondary-proprietaire-value');
+    if (ownerSelect) row.dataset.originalOwner = ownerSelect.value;
     window.setTimeout(function() { refreshCommonOwnerPicker(row); }, 0);
   } else {
     table.classList.add('hide-type-column');
@@ -71,14 +73,22 @@ function toggleEditMode2(button, isEnteringEdit) {
     if(row.querySelector('.edit-type-input')) {
       row.querySelector('.edit-type-input').value = row.querySelector('.secondary-type .view-mode').textContent.trim();
     }
+    var ownerSelect = row.querySelector('.secondary-proprietaire-value');
+    if (ownerSelect && row.dataset.originalOwner !== undefined) {
+      var picker = ownerSelect.tomselect || ownerSelect.selectize;
+      if (picker) picker.setValue(row.dataset.originalOwner, true);
+      else ownerSelect.value = row.dataset.originalOwner;
+    }
     editElements.forEach(el => el.style.display = 'none');
     row.querySelectorAll('.view-mode').forEach(el => el.style.display = 'block');
     row.querySelector('.view-buttons').style.display = 'block';
+    liensSyncTypeColumn(table);
   }
 }
 
 async function saveRowEdition2(button) {
   var row = button.closest('.secondary-term-row');
+  if (row.dataset.saving === 'true') return;
   var table = document.getElementById('secondaryGlossaryTable');
   var fullRef = row.getAttribute('data-full-ref');
   var className = table.getAttribute('data-class-path');
@@ -90,6 +100,8 @@ async function saveRowEdition2(button) {
   var proprietaire = proprietaireSelect ? proprietaireSelect.value : '';
   var type = row.querySelector('.edit-type-input').value;
 
+  row.dataset.saving = 'true';
+  button.disabled = true;
   const donnees = new FormData();
   donnees.append('action', 'save');
   donnees.append('targetRef', fullRef);
@@ -106,17 +118,15 @@ async function saveRowEdition2(button) {
       method: 'POST', body: donnees, credentials: 'same-origin',
       headers: { 'X-Requested-With': 'XMLHttpRequest' }
     });
+    if (!reponse.ok) throw new Error('HTTP ' + reponse.status);
     const resultat = await reponse.text();
 
-    if (resultat.includes('GLOSSAIRE_OK')) {
-      var line = resultat.split(/\r?\n/).find(function(x) { return x.indexOf('GLOSSAIRE_OK|') !== -1; }) || resultat;
-      line = line.replace(/<[^>]+>/g, '').trim();
-      if (line.indexOf('GLOSSAIRE_OK|') > 0) line = line.substring(line.indexOf('GLOSSAIRE_OK|'));
-      var parts = line.split('|');
+    var parts = liensResult(resultat);
+    if (parts) {
       var updatedRef = parts[1] || fullRef;
       var updatedDocName = parts[2] || row.getAttribute('data-doc-name');
 
-      row.querySelector('.secondary-acronym .view-mode').innerHTML = '<strong>' + acronym + '</strong>';
+      row.querySelector('.secondary-acronym .view-mode').textContent = acronym;
       row.querySelector('.secondary-label .view-mode').textContent = label;
       row.querySelector('.secondary-definition .view-mode').textContent = definition;
       row.querySelector('.secondary-type .view-mode').textContent = type;
@@ -127,7 +137,7 @@ async function saveRowEdition2(button) {
       row.setAttribute('data-full-ref', updatedRef);
       row.setAttribute('data-doc-name', updatedDocName);
 
-      var modalRow = document.querySelector('#popupCheckTable tr[data-full-ref="' + fullRef + '"]');
+      var modalRow = liensPopupRow(fullRef);
       if (modalRow) {
         modalRow.setAttribute('data-full-ref', updatedRef);
         var ma = modalRow.querySelector('.term-acronym');
@@ -140,13 +150,19 @@ async function saveRowEdition2(button) {
       row.querySelectorAll('.edit-mode, .edit-buttons').forEach(el => el.style.display = 'none');
       row.querySelectorAll('.view-mode').forEach(el => el.style.display = 'block');
       row.querySelector('.view-buttons').style.display = 'block';
+      liensSyncTypeColumn(table);
+      if (typeof triggerGlobalFilter === 'function') triggerGlobalFilter();
       if (typeof applyPagination2 === 'function') applyPagination2();
+      if (type === 'personnel') window.location.reload();
     } else {
       alert('Erreur serveur : ' + resultat.trim());
     }
   } catch (erreur) {
     console.error(erreur);
     alert('Impossible de joindre la page DATA : ' + erreur);
+  } finally {
+    row.dataset.saving = 'false';
+    button.disabled = false;
   }
 }
 
@@ -160,7 +176,9 @@ function openDeleteModal2(button) {
 }
 
 async function executeRowDelete2() {
-  if (!rowToDelete2) return;
+  if (!rowToDelete2 || rowToDelete2.dataset.deleting === 'true') return;
+  var deletingRow = rowToDelete2;
+  deletingRow.dataset.deleting = 'true';
   var table = document.getElementById('secondaryGlossaryTable');
   var fullRef = rowToDelete2.getAttribute('data-full-ref');
   var csrfToken = table.getAttribute('data-csrf');
@@ -174,12 +192,14 @@ async function executeRowDelete2() {
       method: 'POST', body: donnees, credentials: 'same-origin',
       headers: { 'X-Requested-With': 'XMLHttpRequest' }
     });
+    if (!reponse.ok) throw new Error('HTTP ' + reponse.status);
     const resultat = await reponse.text();
-    if (resultat.includes('GLOSSAIRE_OK')) {
+    if (liensResult(resultat)) {
       jQuery('#deleteConfirmModal2').modal('hide');
-      var modalRow = document.querySelector('#popupCheckTable tr[data-full-ref="' + fullRef + '"]');
+      var modalRow = liensPopupRow(fullRef);
       if (modalRow) modalRow.remove();
-      rowToDelete2.remove(); rowToDelete2 = null;
+      deletingRow.remove();
+      if (rowToDelete2 === deletingRow) rowToDelete2 = null;
       if (typeof applyPagination2 === 'function') applyPagination2();
     } else {
       alert('Erreur de suppression serveur : ' + resultat.trim());
@@ -189,5 +209,7 @@ async function executeRowDelete2() {
     console.error(erreur);
     alert('Erreur réseau lors de la suppression : ' + erreur);
     jQuery('#deleteConfirmModal2').modal('hide');
+  } finally {
+    deletingRow.dataset.deleting = 'false';
   }
 }

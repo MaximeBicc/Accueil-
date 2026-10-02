@@ -5,6 +5,9 @@
 
   var liensState = { userId: '', isManager: false };
   var visibleLinksCache = [];
+  var popupRefreshVersion = 0;
+  var bulkDeleting = false;
+  var excelImporting = false;
   var bulkDeleteMode = false;
   var bulkDeleteTableKind = 'personal';
   var liensSheetJSLibrary = null;
@@ -40,6 +43,7 @@
       credentials: 'same-origin',
       headers: { 'X-Requested-With': 'XMLHttpRequest' }
     });
+    if (!response.ok) throw new Error('HTTP ' + response.status);
     return response.text();
   }
 
@@ -55,32 +59,19 @@
   async function loadVisibleLinks() {
     detectManagerFromExistingPage();
     var text = await postLiens({ action: 'listVisible' });
-    var rows = [];
-    text.split(/\r?\n/).forEach(function (rawLine) {
-      var line = cleanServerLine(rawLine);
-      if (line.indexOf('LIEN_ROW|') !== -1) {
-        line = line.substring(line.indexOf('LIEN_ROW|'));
-        var p = line.split('|');
-        rows.push({
-          ref: p[1] || '', acronym: p[2] || '', label: p[3] || '', definition: p[4] || '',
-          type: p[5] || '', owner: p[6] || ''
-        });
-      } else if (line.indexOf('LIEN_LIST_OK|') !== -1) {
-        line = line.substring(line.indexOf('LIEN_LIST_OK|'));
-        var s = line.split('|');
-        liensState.userId = s[1] || liensState.userId;
-        liensState.isManager = liensState.isManager || String(s[2]).toLowerCase() === 'true';
-      }
-    });
-    visibleLinksCache = rows;
-    return rows;
+    var parsed = parseLiensVisibleResponse(text);
+    liensState = parsed.state;
+    visibleLinksCache = parsed.rows;
+    return parsed.rows;
   }
 
   async function refreshExistingPopup() {
     var tbody = document.querySelector('#popupCheckTable tbody');
     if (!tbody) return;
+    var version = ++popupRefreshVersion;
     try {
       var rows = await loadVisibleLinks();
+      if (version !== popupRefreshVersion) return;
       tbody.innerHTML = '';
       rows.sort(function (a, b) {
         return a.acronym.localeCompare(b.acronym, 'fr', { sensitivity: 'base', numeric: true });
@@ -343,6 +334,7 @@
   }
 
   async function executeBulkDelete() {
+    if (bulkDeleting) return;
     var rows = selectedBulkRows();
     if (!rows.length) return;
     var preview = rows.slice(0, 8).map(function (row) {
@@ -350,14 +342,18 @@
     }).join('\n');
     if (!window.confirm('Supprimer définitivement ' + rows.length + ' lien(s) ?\n\n' + preview)) return;
 
+    bulkDeleting = true;
     var failed = [];
     for (var i = 0; i < rows.length; i++) {
       var ref = rows[i].getAttribute('data-full-ref');
-      var result = await postLiens({ action: 'delete', targetRef: ref });
-      if (result.indexOf('GLOSSAIRE_OK') !== -1) rows[i].remove();
-      else failed.push(ref);
+      try {
+        var result = await postLiens({ action: 'delete', targetRef: ref });
+        if (liensResult(result)) rows[i].remove();
+        else failed.push(ref);
+      } catch (error) { failed.push(ref); }
     }
 
+    bulkDeleting = false;
     setBulkDeleteMode(false);
     var cfg = tableConfig(bulkDeleteTableKind);
     if (typeof window[cfg.pagination] === 'function') window[cfg.pagination]();
@@ -518,8 +514,8 @@
   }
 
   function duplicateKeys() {
-    var acronyms = {};
-    var labels = {};
+    var acronyms = Object.create(null);
+    var labels = Object.create(null);
     visibleLinksCache.forEach(function (row) {
       if (row.acronym) acronyms[normalizeHeader(row.acronym)] = true;
       if (row.label) labels[normalizeHeader(row.label)] = true;
@@ -529,8 +525,8 @@
 
   function recomputeExcelFlags() {
     var existing = duplicateKeys();
-    var seenAcronyms = {};
-    var seenLabels = {};
+    var seenAcronyms = Object.create(null);
+    var seenLabels = Object.create(null);
     excelRows.forEach(function (row) {
       var a = normalizeHeader(row.acronym);
       var l = normalizeHeader(row.label);
@@ -696,6 +692,7 @@
   }
 
   async function importExcelRows() {
+    if (excelImporting) return;
     var acceptAcronym = document.getElementById('excelLiensAcceptDuplicateAcronyms');
     var acceptLabel = document.getElementById('excelLiensAcceptDuplicateLabels');
     var allowA = !!(acceptAcronym && acceptAcronym.checked);
@@ -713,18 +710,25 @@
       return;
     }
 
+    excelImporting = true;
+    var importButton = document.getElementById('btnConfirmExcelLiensImport');
+    importButton.disabled = true;
     var success = 0;
     var errors = [];
     for (var i = 0; i < candidates.length; i++) {
       var row = candidates[i];
-      var result = await postLiens({
-        action: 'create', acronym: row.acronym, label: row.label, definition: row.definition,
-        type: row.type || 'personnel', proprietaire: row.author || liensState.userId
-      });
-      if (result.indexOf('GLOSSAIRE_OK') !== -1) success++;
-      else errors.push('Ligne ' + row.sourceLine + ' : ' + cleanServerLine(result));
+      try {
+        var result = await postLiens({
+          action: 'create', acronym: row.acronym, label: row.label, definition: row.definition,
+          type: row.type || 'personnel', proprietaire: row.author || liensState.userId
+        });
+        if (liensResult(result)) success++;
+        else errors.push('Ligne ' + row.sourceLine + ' : ' + cleanServerLine(result));
+      } catch (error) { errors.push('Ligne ' + row.sourceLine + ' : ' + error.message); }
     }
 
+    excelImporting = false;
+    importButton.disabled = false;
     jQuery('#excelLiensModal').modal('hide');
     await refreshExistingPopup();
     alert(success + ' élément(s) ajouté(s).' + (errors.length ? '\n' + errors.length + ' erreur(s).' : ''));
@@ -800,7 +804,10 @@
     });
   }
 
-  document.addEventListener('DOMContentLoaded', async function () {
+  async function initialize() {
+    var table = document.getElementById('mainGlossaryTable');
+    if (!table || table.dataset.adaptationReady === 'true') return;
+    table.dataset.adaptationReady = 'true';
     setupToolbar();
     createExcelUi();
     installSortButtons('mainGlossaryTable', 'main-term-row', 'personal', ['acronym', 'label', 'definition', 'type']);
@@ -809,8 +816,14 @@
     ensureBulkCells('common');
     installTabWatcher();
     detectManagerFromExistingPage();
+    liensState.userId = table.getAttribute('data-current-user') || '';
+    applyManagerUi();
+    setBulkDeleteMode(false);
+    if (window.jQuery) window.jQuery('#glossaryModal').on('shown.bs.modal.liensRows', refreshExistingPopup);
     try { await refreshExistingPopup(); } catch (e) { console.error(e); }
     applyManagerUi();
     setBulkDeleteMode(false);
-  });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initialize, { once: true });
+  else initialize();
 })();
