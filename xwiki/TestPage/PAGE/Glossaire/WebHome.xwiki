@@ -1,5 +1,5 @@
 {{velocity}}
-{{html}}
+{{html clean="false"}}
 #set($classPath = "TestPage.PAGE.Glossaire.CODE.glossaireClass.WebHome")
 #set($dataSpace = "TestPage.PAGE.Glossaire.DATA")
 #set($dataSpaces = ['TestPage', 'PAGE', 'Glossaire', 'DATA'])
@@ -10,63 +10,83 @@ $xwiki.jsx.use("TestPage.PAGE.Glossaire.CODE.GlossairePageExtension")
 $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
 
 #set($createAction = $request.getParameter("action"))
-#if("$!createAction" == "checkAndCreate" && $request.acronyme && $request.libelle)
-  ## Aucun .trim() côté Velocity sur cette instance XWiki.
-  #set($acronymeInput = "$!request.acronyme")
-  #set($libelleInput = "$!request.libelle")
-  #set($definitionInput = "$!request.definition")
-
-  ## 1. Génération du nom technique sans cleanName ni interpolation de chemin.
-  ## Sur cette instance, cleanName peut rester littéral dans la référence.
-  #set($baseCandidateName = $acronymeInput)
-  #set($candidateName = $baseCandidateName)
-  #set($counter = 1)
-  #set($candidateReference = false)
-  #set($alreadyExists = false)
-
-  ## 2. Recherche d'une vraie référence XWiki disponible.
-  #foreach($i in [1..100])
-    #set($terminalReference = $services.model.createDocumentReference('', $dataSpaces, $candidateName))
-    #set($nestedSpaces = ['TestPage', 'PAGE', 'Glossaire', 'DATA', $candidateName])
-    #set($nestedReference = $services.model.createDocumentReference('', $nestedSpaces, 'WebHome'))
-    #set($terminalDoc = $xwiki.getDocument($terminalReference))
-    #set($nestedDoc = $xwiki.getDocument($nestedReference))
-
-    #if($i == 1 && (!$terminalDoc.isNew() || !$nestedDoc.isNew()))
-      #set($alreadyExists = true)
-    #end
-
-    #if($terminalDoc.isNew() && $nestedDoc.isNew())
-      #set($candidateReference = $terminalReference)
-      #break
-    #else
-      #set($suffix = "_$counter")
-      #set($candidateName = "$baseCandidateName$suffix")
-      #set($counter = $counter + 1)
-    #end
-  #end
-
-  ## 3. Création sur la référence typée trouvée.
-  #set($newPage = $xwiki.getDocument($candidateReference))
-
-  ## 4. Création et population de l'objet
-  #set($newObj = $newPage.newObject($classPath))
-  #set($discard = $newObj.set("acronyme", $acronymeInput))
-  #set($discard = $newObj.set("libelle", $libelleInput))
-  #set($discard = $newObj.set("definition", $definitionInput))
-  #set($discard = $newPage.setTitle($acronymeInput))
-  #set($discard = $newPage.save("Ajout via interface Glossaire", true))
-
-  ## 5. Notification après redirection
-  #if($alreadyExists)
-    $request.session.setAttribute('glossary_status', 'warning')
+#if("$!createAction" == "checkAndCreate")
+  #set($createError = "")
+  #if($request.getMethod() != "POST")
+    #set($createError = "Cette action nécessite une requête POST.")
+  #elseif(!$services.csrf.isTokenValid($request.getParameter('form_token')))
+    #set($createError = "Jeton CSRF invalide ou absent.")
+  #elseif(!$request.acronyme || !$request.libelle || $request.acronyme.matches('\s*') || $request.libelle.matches('\s*'))
+    #set($createError = "L'acronyme et le libellé sont obligatoires.")
+  #elseif($request.acronyme.contains('$') || $request.acronyme.contains('{') || $request.acronyme.contains('}') || $request.acronyme.contains('/'))
+    #set($createError = "Nom technique d'acronyme invalide.")
   #else
-    $request.session.setAttribute('glossary_status', 'success')
-  #end
-  $request.session.setAttribute('glossary_msg', $acronymeInput)
+    ## Aucun .trim() côté Velocity sur cette instance XWiki.
+    #set($acronymeInput = "$!request.acronyme")
+    #set($libelleInput = "$!request.libelle")
+    #set($definitionInput = "$!request.definition")
 
-  $response.sendRedirect($doc.getURL())
-  #stop
+    ## 1. Génération du nom technique sans cleanName ni interpolation de chemin.
+    ## Sur cette instance, cleanName peut rester littéral dans la référence.
+    #set($baseCandidateName = $acronymeInput)
+    #set($candidateName = $baseCandidateName)
+    #set($counter = 1)
+    #set($candidateReference = false)
+    #set($alreadyExists = false)
+
+    ## 2. Recherche d'une vraie référence XWiki disponible.
+    #foreach($i in [1..100])
+      #set($terminalReference = $services.model.createDocumentReference('', $dataSpaces, $candidateName))
+      #set($nestedSpaces = ['TestPage', 'PAGE', 'Glossaire', 'DATA', $candidateName])
+      #set($nestedReference = $services.model.createDocumentReference('', $nestedSpaces, 'WebHome'))
+      #set($terminalDoc = $xwiki.getDocument($terminalReference))
+      #set($nestedDoc = $xwiki.getDocument($nestedReference))
+
+      #if($i == 1 && (!$terminalDoc.isNew() || !$nestedDoc.isNew()))
+        #set($alreadyExists = true)
+      #end
+
+      #if($terminalDoc.isNew() && $nestedDoc.isNew())
+        #set($candidateReference = $terminalReference)
+        #break
+      #else
+        #set($suffix = "_$counter")
+        #set($candidateName = "$baseCandidateName$suffix")
+        #set($counter = $counter + 1)
+      #end
+    #end
+
+    #if(!$candidateReference)
+      #set($createError = "Impossible de trouver un nom de page disponible.")
+    #elseif(!$xwiki.hasAccessLevel('edit', $xcontext.user, $services.model.serialize($candidateReference)))
+      #set($createError = "Droits de création insuffisants.")
+    #else
+      ## 3. Création sur la référence typée trouvée.
+      #set($newPage = $xwiki.getDocument($candidateReference))
+
+      ## 4. Création et population de l'objet
+      #set($newObj = $newPage.newObject($classPath))
+      #set($discard = $newObj.set("acronyme", $acronymeInput))
+      #set($discard = $newObj.set("libelle", $libelleInput))
+      #set($discard = $newObj.set("definition", $definitionInput))
+      #set($discard = $newPage.setTitle($acronymeInput))
+      #set($discard = $newPage.save("Ajout via interface Glossaire", true))
+
+      ## 5. Notification après redirection
+      #if($alreadyExists)
+        $request.session.setAttribute('glossary_status', 'warning')
+      #else
+        $request.session.setAttribute('glossary_status', 'success')
+      #end
+      $request.session.setAttribute('glossary_msg', $acronymeInput)
+
+      $response.sendRedirect($doc.getURL())
+      #stop
+    #end
+  #end
+  #if($createError != "")
+    <div class="alert alert-danger glossary-status-alert">$escapetool.xml($createError)</div>
+  #end
 #end
 
 ## --- NOTIFICATIONS POST-REDIRECTION ---
@@ -76,11 +96,11 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
 
   #if($status == 'success')
     <div class="alert alert-success glossary-status-alert">
-      Le terme <strong>$msg</strong> a été ajouté au glossaire.
+      Le terme <strong>$escapetool.xml($msg)</strong> a été ajouté au glossaire.
     </div>
   #elseif($status == 'warning')
     <div class="alert alert-warning glossary-status-alert">
-      L'acronyme <strong>$msg</strong> existe déjà. Une nouvelle fiche a été créée.
+      L'acronyme <strong>$escapetool.xml($msg)</strong> existe déjà. Une nouvelle fiche a été créée.
     </div>
   #end
 
@@ -217,8 +237,9 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
     <tbody>
       #set($allDocNames = $xwiki.getSpaceDocsName($dataSpace))
       #foreach($docName in $allDocNames)
-        #set($fullRef = "${dataSpace}.${docName}")
-        #set($tDoc = $xwiki.getDocument($fullRef))
+        #set($termReference = $services.model.createDocumentReference('', $dataSpaces, $docName))
+        #set($fullRef = $services.model.serialize($termReference, 'local'))
+        #set($tDoc = $xwiki.getDocument($termReference))
         #set($tObj = $tDoc.getObject($classPath))
         #if($tObj)
           #set($acronymeValue = $!tObj.getValue('acronyme'))
@@ -226,20 +247,20 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
           #set($definitionValue = $!tObj.getValue('definition'))
 
           <tr class="main-term-row"
-              data-acronym="$!acronymeValue.toUpperCase()"
-              data-doc-name="$!docName"
-              data-full-ref="$!fullRef">
+              data-acronym="$escapetool.xml($!acronymeValue.toUpperCase())"
+              data-doc-name="$escapetool.xml($!docName)"
+              data-full-ref="$escapetool.xml($!fullRef)">
             <td class="main-acronym">
-              <span class="view-mode"><strong>$!acronymeValue</strong></span>
-              <input type="text" class="form-control edit-mode edit-acronym glossary-edit-field" value="$!acronymeValue">
+              <span class="view-mode"><strong>$escapetool.xml($!acronymeValue)</strong></span>
+              <input type="text" class="form-control edit-mode edit-acronym glossary-edit-field" value="$escapetool.xml($!acronymeValue)">
             </td>
             <td class="main-label">
-              <span class="view-mode">$!libelleValue</span>
-              <input type="text" class="form-control edit-mode edit-label glossary-edit-field" value="$!libelleValue">
+              <span class="view-mode">$escapetool.xml($!libelleValue)</span>
+              <input type="text" class="form-control edit-mode edit-label glossary-edit-field" value="$escapetool.xml($!libelleValue)">
             </td>
             <td class="main-definition">
-              <span class="view-mode">$!definitionValue</span>
-              <textarea class="form-control edit-mode edit-definition glossary-edit-field" rows="2">$!definitionValue</textarea>
+              <span class="view-mode">$escapetool.xml($!definitionValue)</span>
+              <textarea class="form-control edit-mode edit-definition glossary-edit-field" rows="2">$escapetool.xml($!definitionValue)</textarea>
             </td>
             <td>
               <div class="view-buttons">
@@ -310,6 +331,7 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
 
       <form method="post" action="">
         <input type="hidden" name="action" value="checkAndCreate">
+        <input type="hidden" name="form_token" value="$services.csrf.getToken()">
 
         <div class="modal-body">
           <div class="row">
@@ -361,13 +383,14 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
                   </thead>
                   <tbody>
                     #foreach($docName in $allDocNames)
-                      #set($fullRef = "${dataSpace}.${docName}")
-                      #set($tDoc = $xwiki.getDocument($fullRef))
+                      #set($termReference = $services.model.createDocumentReference('', $dataSpaces, $docName))
+                      #set($fullRef = $services.model.serialize($termReference, 'local'))
+                      #set($tDoc = $xwiki.getDocument($termReference))
                       #set($tObj = $tDoc.getObject($classPath))
                       #if($tObj)
-                        <tr class="term-row" data-full-ref="$!fullRef">
-                          <td class="term-acronym">$!tObj.getValue('acronyme')</td>
-                          <td class="term-label">$!tObj.getValue('libelle')</td>
+                        <tr class="term-row" data-full-ref="$escapetool.xml($!fullRef)">
+                          <td class="term-acronym">$escapetool.xml($!tObj.getValue('acronyme'))</td>
+                          <td class="term-label">$escapetool.xml($!tObj.getValue('libelle'))</td>
                         </tr>
                       #end
                     #end

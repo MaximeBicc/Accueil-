@@ -156,9 +156,29 @@ function sortPopupTableAlphabetically() {
     });
 }
 
+// Références transmises en URL-encoding pour préserver |, guillemets et antislashs.
+function decodeGlossaryReference(value) {
+    return decodeURIComponent(value.replace(/\+/g, ' '));
+}
+
+function getGlossaryResultLine(responseText, code) {
+    return responseText.split(/\r?\n/).map(function(line) {
+        return line.trim();
+    }).find(function(line) {
+        return line === code || line.indexOf(code + '|') === 0;
+    }) || '';
+}
+
+function findGlossaryPopupRow(fullRef) {
+    return Array.from(document.querySelectorAll('#popupCheckTable tbody .term-row')).find(function(row) {
+        return row.getAttribute('data-full-ref') === fullRef;
+    });
+}
+
 // 1. ENVOI DU POST POUR SAUVEGARDE (VIA FETCH)
 async function saveRowEdition(button) {
     var row = button.closest('.main-term-row');
+    if (row.dataset.saving === 'true') return;
     var table = document.getElementById('mainGlossaryTable');
 
     var fullRef = row.getAttribute('data-full-ref');
@@ -168,6 +188,15 @@ async function saveRowEdition(button) {
     var newAcronym = row.querySelector('.edit-acronym').value.trim();
     var newLabel = row.querySelector('.edit-label').value.trim();
     var newDefinition = row.querySelector('.edit-definition').value.trim();
+
+    if (!newAcronym || !newLabel) {
+        showGlossaryToast("L'acronyme et le libellé sont obligatoires.", true);
+        return;
+    }
+
+    row.dataset.saving = 'true';
+    var editButtons = row.querySelectorAll('.edit-buttons button');
+    editButtons.forEach(function(editButton) { editButton.disabled = true; });
 
     const donnees = new FormData();
     donnees.append("action", "save");
@@ -188,14 +217,11 @@ async function saveRowEdition(button) {
 
         const resultat = await reponse.text();
 
-        if (resultat.includes("GLOSSAIRE_OK")) {
-            // La page DATA renvoie : GLOSSAIRE_OK|nouvelleReference|nouveauNomDocument
-            var ligneResultat = resultat.split(/\r?\n/).find(function(line) {
-                return line.indexOf('GLOSSAIRE_OK') !== -1;
-            }) || resultat.trim();
-            var resultatParts = ligneResultat.trim().split('|');
-            var updatedFullRef = resultatParts.length > 1 && resultatParts[1] ? resultatParts[1].trim() : fullRef;
-            var updatedDocName = resultatParts.length > 2 && resultatParts[2] ? resultatParts[2].trim() : row.getAttribute('data-doc-name');
+        var ligneResultat = getGlossaryResultLine(resultat, 'GLOSSAIRE_OK');
+        var resultatParts = ligneResultat.split('|');
+        if (reponse.ok && resultatParts.length === 3 && resultatParts[1] && resultatParts[2]) {
+            var updatedFullRef = decodeGlossaryReference(resultatParts[1]);
+            var updatedDocName = decodeGlossaryReference(resultatParts[2]);
 
             // Mise à jour du tableau principal
             row.querySelector('.main-acronym .view-mode strong').textContent = newAcronym;
@@ -206,7 +232,7 @@ async function saveRowEdition(button) {
             row.setAttribute('data-doc-name', updatedDocName);
 
             // Mise à jour du tableau de la modal et de sa référence après renommage XWiki.
-            var modalRow = document.querySelector('#popupCheckTable tr[data-full-ref="' + fullRef + '"]');
+            var modalRow = findGlossaryPopupRow(fullRef);
             if (modalRow) {
                 var modalAcronymCell = modalRow.querySelector('.term-acronym');
                 var modalLabelCell = modalRow.querySelector('.term-label');
@@ -226,7 +252,7 @@ async function saveRowEdition(button) {
             }
 
             toggleEditMode(button, false);
-            applyPagination();
+            filterMainTableColumns(false);
             showGlossaryToast('Modification enregistrée.', false);
         } else {
             showGlossaryToast("Erreur serveur : " + resultat.trim(), true);
@@ -234,6 +260,9 @@ async function saveRowEdition(button) {
     } catch (erreur) {
         console.error(erreur);
         showGlossaryToast("Impossible de joindre la page DATA : " + erreur, true);
+    } finally {
+        delete row.dataset.saving;
+        editButtons.forEach(function(editButton) { editButton.disabled = false; });
     }
 }
 
@@ -250,10 +279,11 @@ function openDeleteModal(button) {
 
 // 2. ENVOI DU POST POUR SUPPRESSION (VIA FETCH)
 async function executeRowDelete() {
-    if (!rowToDelete) return;
+    if (!rowToDelete || document.getElementById('btnConfirmDelete').disabled) return;
 
     var table = document.getElementById('mainGlossaryTable');
-    var fullRef = rowToDelete.getAttribute('data-full-ref');
+    var deletingRow = rowToDelete;
+    var fullRef = deletingRow.getAttribute('data-full-ref');
     var csrfToken = table.getAttribute('data-csrf');
 
     const donnees = new FormData();
@@ -274,17 +304,17 @@ async function executeRowDelete() {
 
         const resultat = await reponse.text();
 
-        if (resultat.includes("GLOSSAIRE_OK")) {
+        if (reponse.ok && getGlossaryResultLine(resultat, 'GLOSSAIRE_OK') === 'GLOSSAIRE_OK') {
             jQuery('#deleteConfirmModal').modal('hide');
 
             // Suppression dans le tableau de la modal
-            var modalRow = document.querySelector('#popupCheckTable tr[data-full-ref="' + fullRef + '"]');
+            var modalRow = findGlossaryPopupRow(fullRef);
             if (modalRow) {
                 modalRow.remove();
             }
 
-            rowToDelete.remove();
-            rowToDelete = null;
+            deletingRow.remove();
+            if (rowToDelete === deletingRow) rowToDelete = null;
 
             if (typeof applyPagination === 'function') {
                 applyPagination();
@@ -315,7 +345,7 @@ document.addEventListener("DOMContentLoaded", function() {
 });
 
 // 1. MODIFICATION : Filtrage croisé par colonne en temps réel (Logique ET)
-function filterMainTableColumns() {
+function filterMainTableColumns(resetPage) {
     var acronymVal = document.getElementById('filterAcronym').value.toUpperCase();
     var labelVal = document.getElementById('filterLabel').value.toUpperCase();
     var definitionVal = document.getElementById('filterDefinition').value.toUpperCase();
@@ -323,9 +353,9 @@ function filterMainTableColumns() {
     var rows = document.querySelectorAll('#mainGlossaryTable tbody .main-term-row');
 
     rows.forEach(function(row) {
-        var acronymCell = row.querySelector('.main-acronym');
-        var labelCell = row.querySelector('.main-label');
-        var definitionCell = row.querySelector('.main-definition');
+        var acronymCell = row.querySelector('.main-acronym .view-mode');
+        var labelCell = row.querySelector('.main-label .view-mode');
+        var definitionCell = row.querySelector('.main-definition .view-mode');
 
         if (acronymCell && labelCell && definitionCell) {
             var acronymText = (acronymCell.textContent || acronymCell.innerText).toUpperCase();
@@ -346,7 +376,7 @@ function filterMainTableColumns() {
     });
 
     // Reset à la première page après un filtrage et application de la pagination visuelle
-    currentPage = 1;
+    if (resetPage !== false) currentPage = 1;
     applyPagination();
 }
 
@@ -550,8 +580,8 @@ function detectExcelHeader(firstRow) {
 }
 
 function getExistingGlossaryKeys() {
-    var acronymKeys = {};
-    var labelKeys = {};
+    var acronymKeys = Object.create(null);
+    var labelKeys = Object.create(null);
 
     document.querySelectorAll('#mainGlossaryTable tbody .main-term-row').forEach(function(row) {
         var acronymCell = row.querySelector('.main-acronym .view-mode');
@@ -571,8 +601,8 @@ function getExistingGlossaryKeys() {
 
 function analyzeExcelRows(rawRows, headerInfo) {
     var existing = getExistingGlossaryKeys();
-    var seenAcronyms = {};
-    var seenLabels = {};
+    var seenAcronyms = Object.create(null);
+    var seenLabels = Object.create(null);
     var startIndex = headerInfo.detected ? 1 : 0;
     var result = [];
 
@@ -949,7 +979,7 @@ async function executeExcelImport(rows, allowAcronymDuplicates, allowLabelDuplic
         var rawResult = await response.text();
         var plainResult = extractGlossaryServerText(rawResult);
 
-        if (plainResult.indexOf('GLOSSAIRE_IMPORT_OK') === -1) {
+        if (!response.ok || !getGlossaryResultLine(plainResult, 'GLOSSAIRE_IMPORT_OK')) {
             showGlossaryToast('Erreur d\'import : ' + plainResult, true);
             return;
         }
@@ -962,8 +992,8 @@ async function executeExcelImport(rows, allowAcronymDuplicates, allowLabelDuplic
             if (line.indexOf('ROW_OK|') === 0) {
                 var parts = line.split('|');
                 var rowIndex = parseInt(parts[1], 10);
-                var fullRef = parts[2] || '';
-                var docName = parts[3] || '';
+                var fullRef = decodeGlossaryReference(parts[2] || '');
+                var docName = decodeGlossaryReference(parts[3] || '');
                 if (!isNaN(rowIndex) && rows[rowIndex]) {
                     appendImportedGlossaryRow(rows[rowIndex], fullRef, docName);
                     created++;

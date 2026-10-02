@@ -1,4 +1,5 @@
-{{velocity}}
+{{velocity output="false"}}
+#set($resultLine = "")
 #set($classPath = "TestPage.PAGE.Glossaire.CODE.glossaireClass.WebHome")
 #set($dataSpace = "TestPage.PAGE.Glossaire.DATA")
 #set($dataSpaces = ['TestPage', 'PAGE', 'Glossaire', 'DATA'])
@@ -8,22 +9,30 @@
 #set($action = "$!actionParam")
 
 #if($action != "save" && $action != "delete" && $action != "import")
-GLOSSAIRE_READY
+#set($resultLine = "GLOSSAIRE_READY")
 #else
   #set($csrfToken = $request.getParameter("form_token"))
 
-  #if(!$csrfToken || !$services.csrf.isTokenValid($csrfToken))
-GLOSSAIRE_ERROR|Jeton CSRF invalide ou absent
+  #if($request.getMethod() != "POST")
+#set($resultLine = "GLOSSAIRE_ERROR|Cette action nécessite une requête POST")
+  #elseif(!$csrfToken || !$services.csrf.isTokenValid($csrfToken))
+#set($resultLine = "GLOSSAIRE_ERROR|Jeton CSRF invalide ou absent")
 
   ## ========================================================================
   ## MODIFICATION D'UNE LIGNE
   ## ========================================================================
   #elseif($action == "save")
     #set($targetRef = "$!request.getParameter('targetRef')")
-    #set($targetDoc = $xwiki.getDocument($targetRef))
+    #set($targetReference = $services.model.resolveDocument($targetRef))
+    #set($dataRootReference = $services.model.createDocumentReference('', $dataSpaces, 'WebHome'))
+    #set($targetDoc = $xwiki.getDocument($targetReference))
 
-    #if($targetDoc.isNew())
-GLOSSAIRE_ERROR|Document introuvable
+    #if(!$targetRef || !$targetReference.getParent().equals($dataRootReference.getParent()) || !$targetDoc.getObject($classPath))
+#set($resultLine = "GLOSSAIRE_ERROR|La référence ne correspond pas à une fiche du glossaire")
+    #elseif($targetDoc.isNew())
+#set($resultLine = "GLOSSAIRE_ERROR|Document introuvable")
+    #elseif(!$xwiki.hasAccessLevel('edit', $xcontext.user, $targetDoc.fullName))
+#set($resultLine = "GLOSSAIRE_ERROR|Droits de modification insuffisants")
     #else
       #set($glossaireObj = $targetDoc.getObject($classPath))
       #set($acronymParam = $request.getParameter("acronym"))
@@ -31,9 +40,9 @@ GLOSSAIRE_ERROR|Document introuvable
       #set($definitionParam = $request.getParameter("definition"))
 
       #if(!$glossaireObj)
-GLOSSAIRE_ERROR|Objet glossaire introuvable
+#set($resultLine = "GLOSSAIRE_ERROR|Objet glossaire introuvable")
       #elseif(!$acronymParam || !$labelParam)
-GLOSSAIRE_ERROR|Données incomplètes
+#set($resultLine = "GLOSSAIRE_ERROR|Données incomplètes")
       #else
         ## Aucun .trim() côté Velocity sur cette instance XWiki.
         #set($oldAcronym = "$!glossaireObj.getValue('acronyme')")
@@ -41,8 +50,8 @@ GLOSSAIRE_ERROR|Données incomplètes
         #set($newLabel = "$!labelParam")
         #set($newDefinition = "$!definitionParam")
 
-        #if($newAcronym == "")
-GLOSSAIRE_ERROR|L'acronyme ne peut pas être vide
+        #if($newAcronym == "" || $newAcronym.matches('\s*') || $newLabel.matches('\s*'))
+#set($resultLine = "GLOSSAIRE_ERROR|L'acronyme et le libellé ne peuvent pas être vides")
         #else
           #set($workingDoc = $targetDoc)
           #set($workingObj = $glossaireObj)
@@ -51,10 +60,12 @@ GLOSSAIRE_ERROR|L'acronyme ne peut pas être vide
           #if($newAcronym != $oldAcronym)
             #set($baseCandidateName = $newAcronym)
 
-            #if(!$baseCandidateName || $baseCandidateName == "" || $baseCandidateName.contains('$') || $baseCandidateName.contains('{') || $baseCandidateName.contains('}') || $baseCandidateName.contains('/'))
+            #if(!$xwiki.hasAccessLevel('delete', $xcontext.user, $targetDoc.fullName))
+              #set($renameError = "Droits de renommage insuffisants")
+            #elseif(!$baseCandidateName || $baseCandidateName == "" || $baseCandidateName.contains('$') || $baseCandidateName.contains('{') || $baseCandidateName.contains('}') || $baseCandidateName.contains('/'))
               #set($renameError = "Nom technique d'acronyme invalide")
             #else
-              #set($sourceReference = $services.model.resolveDocument($targetRef))
+              #set($sourceReference = $targetReference)
               #set($candidateName = $baseCandidateName)
               #set($counter = 1)
               #set($nameAvailable = false)
@@ -83,7 +94,15 @@ GLOSSAIRE_ERROR|L'acronyme ne peut pas être vide
               #if(!$nameAvailable || !$candidateReference)
                 #set($renameError = "Impossible de trouver un nom de page disponible")
               #elseif(!$candidateReference.equals($sourceReference))
-                #set($renameJob = $services.refactoring.rename($sourceReference, $candidateReference))
+                ## Un renommage AJAX ne doit ni conserver l'ancienne page,
+                ## ni attendre une réponse interactive à une question du job.
+                #set($renameRequest = $services.refactoring.requestFactory.createRenameRequest($sourceReference, $candidateReference))
+                #set($discard = $renameRequest.setAutoRedirect(false))
+                #set($discard = $renameRequest.setDeep(false))
+                #set($discard = $renameRequest.setInteractive(false))
+                #set($discard = $renameRequest.setUpdateLinks(true))
+                #set($discard = $renameRequest.setUpdateParentField(true))
+                #set($renameJob = $services.refactoring.rename($renameRequest))
 
                 #if(!$renameJob)
                   #set($renameError = "Le service XWiki de renommage n'a pas pu démarrer")
@@ -95,7 +114,10 @@ GLOSSAIRE_ERROR|L'acronyme ne peut pas être vide
                     #set($renamedDoc = $xwiki.getDocument($nestedCandidateReference))
                   #end
 
-                  #if($renamedDoc.isNew())
+                  #set($oldDocAfterRename = $xwiki.getDocument($sourceReference))
+                  #if(!$oldDocAfterRename.isNew())
+                    #set($renameError = "L'ancienne page existe encore après renommage")
+                  #elseif($renamedDoc.isNew())
                     #set($renameError = "Le document renommé est introuvable à sa destination")
                   #else
                     #set($renamedObj = $renamedDoc.getObject($classPath))
@@ -112,7 +134,7 @@ GLOSSAIRE_ERROR|L'acronyme ne peut pas être vide
           #end
 
           #if($renameError != "")
-GLOSSAIRE_ERROR|$renameError
+#set($resultLine = "GLOSSAIRE_ERROR|$renameError")
           #else
             #set($discard = $workingObj.set("acronyme", $newAcronym))
             #set($discard = $workingObj.set("libelle", $newLabel))
@@ -123,9 +145,9 @@ GLOSSAIRE_ERROR|$renameError
             #set($finalDocName = $workingDoc.getName())
 
             #if(!$finalRef || $finalRef.contains('$') || $finalRef.contains('{') || $finalRef.contains('}'))
-GLOSSAIRE_ERROR|Référence XWiki finale invalide
+#set($resultLine = "GLOSSAIRE_ERROR|Référence XWiki finale invalide")
             #else
-GLOSSAIRE_OK|$finalRef|$finalDocName
+#set($resultLine = "GLOSSAIRE_OK|$escapetool.url($finalRef)|$escapetool.url($finalDocName)")
             #end
           #end
         #end
@@ -164,7 +186,7 @@ GLOSSAIRE_OK|$finalRef|$finalDocName
         #set($importLabel = "$!importLabelRaw")
         #set($importDefinition = "$!importDefinitionRaw")
 
-        #if(!$importAcronymRaw || !$importLabelRaw || $importAcronym == "" || $importLabel == "")
+        #if(!$importAcronymRaw || !$importLabelRaw || $importAcronym == "" || $importLabel == "" || $importAcronym.matches('\s*') || $importLabel.matches('\s*'))
           #set($discard = $importLines.add("ROW_ERROR|$i|Données incomplètes"))
           #set($skippedCount = $skippedCount + 1)
         #elseif($importAcronym.contains('$') || $importAcronym.contains('{') || $importAcronym.contains('}') || $importAcronym.contains('/'))
@@ -176,7 +198,7 @@ GLOSSAIRE_OK|$finalRef|$finalDocName
           #set($existingDocNames = $xwiki.getSpaceDocsName($dataSpace))
 
           #foreach($existingDocName in $existingDocNames)
-            #set($existingRef = "${dataSpace}.${existingDocName}")
+            #set($existingRef = $services.model.createDocumentReference('', $dataSpaces, $existingDocName))
             #set($existingDoc = $xwiki.getDocument($existingRef))
             #set($existingObj = $existingDoc.getObject($classPath))
 
@@ -231,6 +253,9 @@ GLOSSAIRE_OK|$finalRef|$finalDocName
             #if(!$candidateReference)
               #set($discard = $importLines.add("ROW_ERROR|$i|Impossible de trouver un nom de page disponible"))
               #set($skippedCount = $skippedCount + 1)
+            #elseif(!$xwiki.hasAccessLevel('edit', $xcontext.user, $services.model.serialize($candidateReference)))
+              #set($discard = $importLines.add("ROW_ERROR|$i|Droits de création insuffisants"))
+              #set($skippedCount = $skippedCount + 1)
             #else
               #set($newDoc = $xwiki.getDocument($candidateReference))
               #set($newObj = $newDoc.newObject($classPath))
@@ -242,7 +267,7 @@ GLOSSAIRE_OK|$finalRef|$finalDocName
 
               #set($finalImportRef = $newDoc.getFullName())
               #set($finalImportName = $newDoc.getName())
-              #set($discard = $importLines.add("ROW_OK|$i|$finalImportRef|$finalImportName"))
+              #set($discard = $importLines.add("ROW_OK|$i|$escapetool.url($finalImportRef)|$escapetool.url($finalImportName)"))
               #set($createdCount = $createdCount + 1)
             #end
           #end
@@ -272,16 +297,40 @@ GLOSSAIRE_OK|$finalRef|$finalDocName
   ## ========================================================================
   #elseif($action == "delete")
     #set($targetRef = "$!request.getParameter('targetRef')")
-    #set($targetDoc = $xwiki.getDocument($targetRef))
+    #set($targetReference = $services.model.resolveDocument($targetRef))
+    #set($dataRootReference = $services.model.createDocumentReference('', $dataSpaces, 'WebHome'))
+    #set($targetDoc = $xwiki.getDocument($targetReference))
 
-    #if($targetDoc.isNew())
-GLOSSAIRE_ERROR|Document introuvable
+    #if(!$targetRef || !$targetReference.getParent().equals($dataRootReference.getParent()) || !$targetDoc.getObject($classPath))
+#set($resultLine = "GLOSSAIRE_ERROR|La référence ne correspond pas à une fiche du glossaire")
+    #elseif($targetDoc.isNew())
+#set($resultLine = "GLOSSAIRE_ERROR|Document introuvable")
+    #elseif(!$xwiki.hasAccessLevel('delete', $xcontext.user, $targetDoc.fullName))
+#set($resultLine = "GLOSSAIRE_ERROR|Droits de suppression insuffisants")
     #else
-      #set($sourceReference = $services.model.resolveDocument($targetRef))
-      #set($deleteJob = $services.refactoring.delete($sourceReference))
-      #set($discard = $deleteJob.join())
-GLOSSAIRE_OK
+      #set($deleteRequest = $services.refactoring.requestFactory.createDeleteRequest([$targetReference]))
+      #set($discard = $deleteRequest.setDeep(false))
+      #set($discard = $deleteRequest.setInteractive(false))
+      #set($deleteJob = $services.refactoring.delete($deleteRequest))
+      #if(!$deleteJob)
+#set($resultLine = "GLOSSAIRE_ERROR|Le service XWiki de suppression n'a pas pu démarrer")
+      #else
+        #set($discard = $deleteJob.join())
+        #set($deletedDoc = $xwiki.getDocument($targetReference))
+        #if(!$deletedDoc.isNew())
+#set($resultLine = "GLOSSAIRE_ERROR|La page existe encore après la tentative de suppression")
+        #else
+#set($resultLine = "GLOSSAIRE_OK")
+        #end
+      #end
     #end
   #end
+#end
+## Toutes les réponses simples utilisent le même protocole texte que l'import.
+#if($resultLine != "")
+  #set($discard = $response.setContentType("text/plain; charset=UTF-8"))
+  $response.writer.println($resultLine)
+  $response.writer.flush()
+  $xcontext.setFinished(true)
 #end
 {{/velocity}}
