@@ -1,7 +1,5 @@
-// Corrections ciblées sur l'adaptation Glossaire -> Liens.
-// 1) conserve TOUS les marqueurs LIEN_ROW même si XWiki les concatène sur une seule ligne ;
-// 2) recharge la liste de vérification avec communs + personnels du user courant ;
-// 3) réactive le sélecteur XWiki/Selectize du créateur dans l'onglet commun ;
+// Ajustements de mise en page et du sélecteur de créateur.
+// Réactive le sélecteur XWiki/Selectize du créateur dans l'onglet commun ;
 // 4) ajuste en JavaScript les proportions du tableau Mes Liens quand la suppression multiple est active ;
 // 5) impose la même largeur de colonne de sélection dans Mes Liens et Liens Communs.
 (function () {
@@ -9,134 +7,6 @@
 
   var personalBulkLayoutSnapshot = null;
   var bulkSelectWidth = 54;
-
-  function getCsrf() {
-    var table = document.getElementById('mainGlossaryTable') || document.getElementById('secondaryGlossaryTable');
-    return table ? table.getAttribute('data-csrf') : '';
-  }
-
-  function normalizeListVisibleText(text) {
-    return String(text || '')
-      .replace(/LIEN_ROW\|/g, '\nLIEN_ROW|')
-      .replace(/LIEN_LIST_OK\|/g, '\nLIEN_LIST_OK|');
-  }
-
-  // Le code de 06-glossaire-adaptation découpe la réponse par lignes.
-  // XWiki peut concaténer les sorties Velocity ; on normalise donc uniquement
-  // les réponses listVisible avant qu'elles ne soient consommées par ce code.
-  if (window.fetch && !window.__liensListVisibleFetchPatched) {
-    window.__liensListVisibleFetchPatched = true;
-    var nativeFetch = window.fetch.bind(window);
-
-    window.fetch = function (input, init) {
-      return nativeFetch(input, init).then(function (response) {
-        var isListVisible = false;
-        try {
-          isListVisible = !!(init && init.body && typeof init.body.get === 'function' && init.body.get('action') === 'listVisible');
-        } catch (e) {}
-
-        if (!isListVisible) return response;
-
-        return response.text().then(function (text) {
-          var headers = new Headers(response.headers || {});
-          return new Response(normalizeListVisibleText(text), {
-            status: response.status,
-            statusText: response.statusText,
-            headers: headers
-          });
-        });
-      });
-    };
-  }
-
-  function parseVisibleLinks(text) {
-    var plain = String(text || '').replace(/<[^>]+>/g, '');
-    var state = { userId: '', isManager: false };
-    var stateIndex = plain.indexOf('LIEN_LIST_OK|');
-
-    if (stateIndex >= 0) {
-      var statePart = plain.substring(stateIndex + 'LIEN_LIST_OK|'.length);
-      var stateFields = statePart.split('|');
-      state.userId = String(stateFields[0] || '').replace(/[\r\n].*$/, '').replace(/^\s+|\s+$/g, '');
-      state.isManager = String(stateFields[1] || '').toLowerCase().indexOf('true') === 0;
-    }
-
-    var rows = [];
-    var chunks = plain.split('LIEN_ROW|');
-    for (var i = 1; i < chunks.length; i++) {
-      var chunk = chunks[i];
-      var nextState = chunk.indexOf('LIEN_LIST_OK|');
-      if (nextState >= 0) chunk = chunk.substring(0, nextState);
-
-      var fields = chunk.split('|');
-      if (fields.length < 6) continue;
-
-      var row = {
-        ref: String(fields[0] || '').replace(/^\s+|\s+$/g, ''),
-        acronym: String(fields[1] || '').replace(/^\s+|\s+$/g, ''),
-        label: String(fields[2] || '').replace(/^\s+|\s+$/g, ''),
-        definition: String(fields[3] || '').replace(/^\s+|\s+$/g, ''),
-        type: String(fields[4] || '').replace(/^\s+|\s+$/g, ''),
-        owner: String(fields[5] || '').replace(/[\r\n].*$/, '').replace(/^\s+|\s+$/g, '')
-      };
-
-      // Défense supplémentaire côté navigateur : jamais de personnel d'un autre user.
-      if (row.type === 'commun' || (row.type === 'personnel' && row.owner === state.userId)) {
-        rows.push(row);
-      }
-    }
-
-    return { state: state, rows: rows };
-  }
-
-  async function refreshPopupWithAllVisibleLinks() {
-    var tbody = document.querySelector('#popupCheckTable tbody');
-    if (!tbody || typeof urlLienData === 'undefined') return;
-
-    var data = new FormData();
-    data.append('action', 'listVisible');
-    data.append('form_token', getCsrf());
-
-    try {
-      var response = await window.fetch(urlLienData + '?xpage=plain', {
-        method: 'POST',
-        body: data,
-        credentials: 'same-origin',
-        headers: { 'X-Requested-With': 'XMLHttpRequest' }
-      });
-      var parsed = parseVisibleLinks(await response.text());
-
-      parsed.rows.sort(function (a, b) {
-        return a.acronym.localeCompare(b.acronym, 'fr', { sensitivity: 'base', numeric: true });
-      });
-
-      tbody.innerHTML = '';
-      parsed.rows.forEach(function (item) {
-        var tr = document.createElement('tr');
-        tr.className = 'term-row';
-        tr.setAttribute('data-full-ref', item.ref);
-
-        var acronym = document.createElement('td');
-        acronym.className = 'term-acronym';
-        acronym.textContent = item.acronym;
-
-        var label = document.createElement('td');
-        label.className = 'term-label';
-        label.textContent = item.label;
-
-        tr.appendChild(acronym);
-        tr.appendChild(label);
-        tbody.appendChild(tr);
-      });
-
-      // Le filtrage reste géré par le script historique 04-popup-filtre.js.
-      // Après avoir reconstruit les lignes, on lui demande simplement de réappliquer
-      // la valeur courante des deux champs.
-      if (typeof window.triggerGlobalFilter === 'function') window.triggerGlobalFilter();
-    } catch (error) {
-      console.error('Impossible de recharger tous les liens visibles dans la modale', error);
-    }
-  }
 
   function repairCreatorPicker(row) {
     if (!row) return;
@@ -379,7 +249,8 @@
       var selectionObserver = new MutationObserver(function () {
         window.setTimeout(applyPersonalBulkLayout, 0);
       });
-      selectionObserver.observe(selectionHeader, { attributes: true, attributeFilter: ['class', 'style'] });
+      // Le recalcul écrit les styles : les observer créerait une boucle de mutations.
+      selectionObserver.observe(selectionHeader, { attributes: true, attributeFilter: ['class'] });
     }
 
     if (window.MutationObserver) {
@@ -420,17 +291,12 @@
     };
   }
 
-  function installModalRefresh() {
-    if (!window.jQuery) return;
-    window.jQuery('#glossaryModal').off('shown.bs.modal.liensAllRows').on('shown.bs.modal.liensAllRows', function () {
-      refreshPopupWithAllVisibleLinks();
-    });
-  }
-
-  document.addEventListener('DOMContentLoaded', function () {
-    installModalRefresh();
-    // Corrige aussi le contenu initial, sans attendre la première ouverture.
-    window.setTimeout(refreshPopupWithAllVisibleLinks, 0);
+  function initialize() {
+    var table = document.getElementById('mainGlossaryTable');
+    if (!table || table.dataset.layoutReady === 'true') return;
+    table.dataset.layoutReady = 'true';
     window.setTimeout(installPersonalBulkLayoutWatcher, 0);
-  });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initialize, { once: true });
+  else initialize();
 })();

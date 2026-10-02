@@ -77,7 +77,7 @@
   padding-left: 21px;
 }
 
-.li-header::before {
+.liens-page .li-header-accent {
   content: "";
   position: absolute;
   left: 0;
@@ -85,7 +85,9 @@
   bottom: 3px;
   width: 3px;
   border-radius: 999px;
-  background: linear-gradient(180deg, var(--li-blue) 0 78%, var(--li-red) 78% 100%);
+  background: linear-gradient(180deg, #173f98 0 78%, #ef233c 78% 100%);
+  display: block;
+  pointer-events: none;
 }
 
 .li-title {
@@ -302,4 +304,20 @@
 
 .excel-import-input {
   width: 100%;
+}
+
+/* Même empilement que les modales Bootstrap de XWiki. */
+#glossaryModal, #deleteConfirmModal, #deleteConfirmModal2,
+#actionFeedbackModal, #excelLiensModal, #excelExampleLiensModal {
+  z-index: 1050;
+}
+.liens-page .pagination-container { flex-wrap: wrap; gap: 12px; }
+.liens-page .glossary-toolbar-left, .liens-page .glossary-toolbar-right { flex-wrap: wrap; }
+.liens-page .filter-row input { width: 100%; }
+
+@media (max-width: 767px) {
+  /* Garder les champs utilisables ; le conteneur permet le défilement horizontal. */
+  .liens-page .liens-filter-layout input { min-width: 90px; }
+  .liens-page #mainGlossaryTable { min-width: 700px; }
+  .liens-page #secondaryGlossaryTable { min-width: 840px; }
 }

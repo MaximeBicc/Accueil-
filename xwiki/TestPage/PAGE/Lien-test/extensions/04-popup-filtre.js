@@ -42,3 +42,37 @@ function triggerGlobalFilter() {
     }
   });
 }
+
+// Le protocole encode chaque champ : les retours à la ligne, | et balises sont conservés.
+function parseLiensVisibleResponse(text) {
+  var plain = String(text || '').replace(/<[^>]+>/g, '');
+  var chunks = plain.split(/LIEN_ROW\||LIEN_LIST_OK\|/);
+  var markers = plain.match(/LIEN_ROW\||LIEN_LIST_OK\|/g) || [];
+  var state = null;
+  var rows = [];
+  markers.forEach(function (marker, index) {
+    var fields = chunks[index + 1].trim().split('|').map(function (field) {
+      return decodeURIComponent(field.replace(/\+/g, ' '));
+    });
+    if (marker === 'LIEN_LIST_OK|') state = { userId: fields[0], isManager: fields[1] === 'true' };
+    else if (fields.length >= 6) rows.push({ ref: fields[0], acronym: fields[1], label: fields[2], definition: fields[3], type: fields[4], owner: fields[5] });
+  });
+  if (!state) throw new Error('Réponse listVisible invalide');
+  return { state: state, rows: rows.filter(function (row) {
+    return row.type === 'commun' || (row.type === 'personnel' && row.owner === state.userId);
+  }) };
+}
+(function () {
+  function initialize() {
+    ['liensNomInputField', 'liensInputField'].forEach(function (id) {
+      var input = document.getElementById(id);
+      if (!input || input.dataset.filterReady === 'true') return;
+      input.dataset.filterReady = 'true';
+      input.removeAttribute('oninput');
+      input.addEventListener('input', triggerGlobalFilter);
+    });
+    triggerGlobalFilter();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initialize, { once: true });
+  else initialize();
+})();
