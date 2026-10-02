@@ -153,8 +153,8 @@ function fixedDetectExcelHeader(firstRow) {
 
 function fixedRecomputeExcelDuplicateFlags(rows) {
     var existing = getExistingGlossaryKeys();
-    var seenAcronyms = {};
-    var seenLabels = {};
+    var seenAcronyms = Object.create(null);
+    var seenLabels = Object.create(null);
 
     rows.forEach(function(row) {
         var acronymKey = normalizeDuplicateKey(row.acronym);
@@ -728,7 +728,7 @@ async function executeBulkGlossaryDelete() {
             });
             var result = await response.text();
 
-            if (result.indexOf('GLOSSAIRE_OK') !== -1) {
+            if (response.ok && getGlossaryResultLine(result, 'GLOSSAIRE_OK') === 'GLOSSAIRE_OK') {
                 removeGlossaryPopupRowByReference(fullRef);
                 row.remove();
                 deletedCount++;

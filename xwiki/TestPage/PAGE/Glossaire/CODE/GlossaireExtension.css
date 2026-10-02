@@ -59,12 +59,17 @@
     max-width: 920px;
     margin-bottom: 30px;
     padding-left: 21px;
-    border-left: 3px solid var(--gl-blue);
-    border-image: linear-gradient(
-        180deg,
-        var(--gl-blue) 0 78%,
-        var(--gl-red) 78% 100%
-    ) 1;
+}
+
+.glossary-page .nh-header::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 4px;
+    bottom: 3px;
+    width: 3px;
+    border-radius: 999px;
+    background: linear-gradient(180deg, var(--gl-blue) 0 78%, var(--gl-red) 78% 100%);
 }
 
 .glossary-page .nh-title {

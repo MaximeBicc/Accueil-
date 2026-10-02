@@ -1,10 +1,17 @@
+const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-const code = fs.readFileSync(
+const rawCode = fs.readFileSync(
   path.join(__dirname, '..', 'xwiki', 'extensions', 'javascript', 'Accueil-Tracking.js'),
   'utf8'
+);
+
+// La JSX est parsée par Velocity dans XWiki : simuler son URL calculée.
+const code = rawCode.replace(
+  '$escapetool.javascript($xwiki.getURL("InfoWiki.CODE.TrackView.WebHome", "get"))',
+  '/xwiki/bin/get/InfoWiki/CODE/TrackView/WebHome'
 );
 
 class Storage {
@@ -23,7 +30,9 @@ function makeContext(options) {
     wiki = 'infowiki',
     user = 'XWiki.Maxime',
     trackedResponse = 'tracked',
-    withAccueil = false
+    withAccueil = false,
+    action = 'view',
+    embedded = false
   } = options;
 
   const chip = {
@@ -73,7 +82,7 @@ function makeContext(options) {
   };
 
   const XWiki = {
-    contextaction: 'view',
+    contextaction: action,
     EntityType: { DOCUMENT: 'DOCUMENT' },
     Model: {
       serialize(reference) {
@@ -93,6 +102,19 @@ function makeContext(options) {
     form_token: 'token123'
   };
 
+  const requests = [];
+  class MockXMLHttpRequest {
+    open(method, url) { this.method = method; this.url = url; }
+    setRequestHeader() {}
+    send(body) {
+      requests.push({ method: this.method, url: this.url, body: new URLSearchParams(body) });
+      this.status = 200;
+      this.responseText = trackedResponse;
+      this.readyState = 4;
+      this.onreadystatechange();
+    }
+  }
+
   const windowObject = {
     localStorage: sharedStorage,
     location: { href, pathname },
@@ -101,14 +123,11 @@ function makeContext(options) {
     URLSearchParams,
     setTimeout() {},
     require(dependencies, success) { success(meta); },
-    fetch() {
-      return Promise.resolve({
-        ok: true,
-        status: 200,
-        text: () => Promise.resolve(trackedResponse)
-      });
-    }
+
   };
+
+  windowObject.self = windowObject;
+  windowObject.top = embedded ? {} : windowObject;
 
   const context = {
     window: windowObject,
@@ -117,12 +136,13 @@ function makeContext(options) {
     URL,
     URLSearchParams,
     console,
-    Promise
+    Promise,
+    XMLHttpRequest: MockXMLHttpRequest
   };
 
   vm.createContext(context);
   vm.runInContext(code, context);
-  return { chip, recentHost };
+  return { chip, recentHost, requests };
 }
 
 async function flushPromises() {
@@ -132,19 +152,34 @@ async function flushPromises() {
 }
 
 (async function run() {
-  makeContext({
+  const documentation = makeContext({
     href: 'https://wiki.test/xwiki/bin/view/TestPage/PAGE/Doc/Page1/',
     pathname: '/xwiki/bin/view/TestPage/PAGE/Doc/Page1/',
     documentName: 'TestPage.PAGE.Doc.Page1'
   });
   await flushPromises();
 
-  const probes = JSON.parse(sharedStorage.getItem('infowiki.trackingProbe.v5'));
-  if (!probes.some((entry) => entry.phase === 'script-evaluated' && entry.pathname.indexOf('/TestPage/PAGE/Doc/') !== -1)) {
-    throw new Error('The global JSX probe was not written on a documentation page.');
-  }
-  if (!probes.some((entry) => entry.phase === 'tracked' && entry.document.indexOf('TestPage.PAGE.Doc.Page1') !== -1)) {
-    throw new Error('The document was not tracked.');
+  const status = JSON.parse(sharedStorage.getItem('infowiki.trackingStatus.v5.4.infowiki'));
+  assert.equal(status.status, 'tracked');
+  assert.equal(documentation.requests.length, 1);
+  assert.equal(documentation.requests[0].url, '/xwiki/bin/get/InfoWiki/CODE/TrackView/WebHome');
+  assert.equal(documentation.requests[0].body.get('countView'), '1');
+
+  const revisit = makeContext({
+    href: 'https://wiki.test/xwiki/bin/view/TestPage/PAGE/Doc/Page1/',
+    pathname: '/xwiki/bin/view/TestPage/PAGE/Doc/Page1/',
+    documentName: 'TestPage.PAGE.Doc.Page1'
+  });
+  assert.equal(revisit.requests[0].body.get('countView'), '0');
+
+  for (const options of [{ action: 'get' }, { embedded: true }]) {
+    const preview = makeContext({
+      href: 'https://wiki.test/xwiki/bin/view/TestPage/PAGE/Doc/Page2/',
+      pathname: '/xwiki/bin/view/TestPage/PAGE/Doc/Page2/',
+      documentName: 'TestPage.PAGE.Doc.Page2',
+      ...options
+    });
+    assert.equal(preview.requests.length, 0);
   }
 
   const home = makeContext({
@@ -163,7 +198,8 @@ async function flushPromises() {
     throw new Error('The recent-documents panel did not contain Page1.');
   }
 
-  console.log('PASS: tracking syntax, global JSX probe, server response, and recent-documents rendering.');
+  assert.equal(home.requests.length, 0);
+  console.log('PASS: suivi des documents, limitation des vues répétées, exclusion des prévisualisations et historique récent.');
 }()).catch((error) => {
   console.error(error);
   process.exitCode = 1;
