@@ -19,6 +19,12 @@ function fields(request) {
   for (const match of body.matchAll(re)) values[match[1]] = match[2];
   return values;
 }
+function modalAboveBackdrop(id) {
+  const content = document.querySelector('#' + id + ' .modal-content');
+  if (!content) return false;
+  const rect = content.getBoundingClientRect();
+  return content.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + 20));
+}
 const encode = value => encodeURIComponent(value);
 const row = values => 'LIEN_ROW|' + values.map(encode).join('|');
 const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe pair', 'Définition 0', 'personnel', 'Test']) +
@@ -57,7 +63,7 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
           const prefix = '<!doctype html><html><head><meta charset="utf-8"><style>' + readAsset('bootstrap.css') + css + '</style>' +
             '<script>' + readAsset('jquery.js') + '</script><script>' + readAsset('bootstrap.js') + '</script>';
           const source = scripts.map(name => '<script>' + fs.readFileSync(path.join(root, name), 'utf8') + '</script>').join('');
-          return route.fulfill({ contentType: 'text/html', body: prefix + (late ? '' : source) + '</head><body>' + body + '</body></html>' });
+          return route.fulfill({ contentType: 'text/html', body: prefix + (late ? '' : source) + '</head><body><div id="xwikicontent" style="position:relative;isolation:isolate;z-index:0">' + body + '</div></body></html>' });
         }
         return route.fulfill({ status: 404, body: '' });
       });
@@ -71,6 +77,16 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
     const state = await setup();
     const { page } = state;
     const visible = id => page.locator(`#${id} tbody > tr`).evaluateAll(rows => rows.filter(row => row.style.display !== 'none').length);
+    // Conteneur XWiki isolé : vérifier l'ordre réel des couches pour chaque popup.
+    for (const id of ['actionFeedbackModal', 'deleteConfirmModal', 'deleteConfirmModal2', 'glossaryModal', 'excelExampleLiensModal', 'excelLiensModal']) {
+      await page.evaluate(id => jQuery('#' + id).modal('show'), id);
+      await page.waitForFunction(modalAboveBackdrop, id);
+      check(await page.locator('#' + id).evaluate(el => el.parentNode === document.body), true, 'popup sous body ' + id);
+      check(await page.evaluate(modalAboveBackdrop, id), true, 'popup au-dessus du fond noir ' + id);
+      await page.evaluate(id => jQuery('#' + id).modal('hide'), id);
+      await page.waitForFunction(id => getComputedStyle(document.getElementById(id)).display === 'none' && !document.querySelector('.modal-backdrop'), id);
+    }
+
     // Vérifier les dimensions avant le premier clic et après inversion du tri.
     for (const [tab, table] of [[1, 'mainGlossaryTable'], [2, 'secondaryGlossaryTable']]) {
       await page.click(`.tablinks:nth-of-type(${tab})`);
@@ -80,11 +96,22 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
         return { width: rect.width, height: rect.height, fontSize: getComputedStyle(el).fontSize };
       };
       const initial = await button.evaluate(measure);
-      check(initial.width >= 56 && initial.height >= 26, true, 'taille initiale du tri ' + table);
-      check((await button.textContent()).trim(), 'A → Z', 'libellé initial du tri ' + table);
+      const reference = await page.evaluate(tableId => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'btn btn-default btn-xs sort-column-btn';
+        button.innerHTML = '<span class="sort-label">A ' + document.getElementById(tableId).getAttribute('data-icon-right') + ' Z</span>';
+        document.querySelector('.liens-page').appendChild(button);
+        const rect = button.getBoundingClientRect();
+        const result = { width: rect.width, height: rect.height, fontSize: getComputedStyle(button).fontSize };
+        button.remove();
+        return result;
+      }, table);
+      check(initial, reference, 'dimensions identiques au bouton Glossaire ' + table);
+      check(await button.locator('.sort-label').evaluate((el, tableId) => el.innerHTML === 'A ' + document.getElementById(tableId).getAttribute('data-icon-right') + ' Z', table), true, 'icône XWiki identique au Glossaire ' + table);
       await button.click();
       check(await button.evaluate(measure), initial, 'dimensions stables après clic ' + table);
-      check((await button.textContent()).trim(), 'Z → A', 'libellé inversé du tri ' + table);
+      check(await button.locator('.sort-label').evaluate((el, tableId) => el.innerHTML === 'Z ' + document.getElementById(tableId).getAttribute('data-icon-right') + ' A', table), true, 'icône XWiki conservée après inversion ' + table);
       await button.click();
     }
     check(await page.locator('.liens-sort-btn[data-column="type"], .col-type .liens-sort-btn').count(), 0, 'aucun tri dans Type');
@@ -196,7 +223,9 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
     check(await page.locator('#popupCheckTable .term-row:visible').count(), 1, 'filtre de la popup');
     await page.fill('#liensInputField', 'Libellé C00');
     check(await page.locator('#popupCheckTable .term-row:visible').count(), 2, 'filtre OU de la popup');
-    check(await page.locator('#glossaryModal').evaluate(el => Number(getComputedStyle(el).zIndex) > Number(getComputedStyle(document.querySelector('.modal-backdrop')).zIndex)), true, 'modale au-dessus du backdrop');
+    check(await page.locator('#glossaryModal').evaluate(el => el.parentNode === document.body), true, 'popup hors du contexte XWiki');
+    await page.waitForFunction(modalAboveBackdrop, 'glossaryModal');
+    check(await page.evaluate(modalAboveBackdrop, 'glossaryModal'), true, 'popup au-dessus du fond noir par hit-test');
     await page.click('#glossaryModal button[data-dismiss="modal"]');
     await page.waitForSelector('#glossaryModal.in', { state: 'hidden' });
     // Lecture et import d'un vrai fichier XLSX.

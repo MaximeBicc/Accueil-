@@ -139,6 +139,7 @@
     if (!table) return;
 
     var state = liensSortState[tableKind] || { column: 'acronym', direction: 'asc' };
+    var arrow = getLiensXWikiIcon('right');
 
     table.querySelectorAll('.liens-sort-btn').forEach(function (button) {
       var column = button.getAttribute('data-column');
@@ -151,7 +152,9 @@
       button.classList.toggle('active', isActive);
 
       if (label) {
-        label.textContent = direction === 'desc' ? 'Z → A' : 'A → Z';
+        label.innerHTML = direction === 'desc'
+          ? 'Z ' + arrow + ' A'
+          : 'A ' + arrow + ' Z';
       }
     });
   }
@@ -181,7 +184,7 @@
 
       var button = document.createElement('button');
       button.type = 'button';
-      button.className = 'btn btn-default btn-xs liens-sort-btn';
+      button.className = 'btn btn-default btn-xs sort-column-btn liens-sort-btn';
       button.setAttribute('data-column', column);
       button.setAttribute('data-sort-active', 'false');
       button.setAttribute('data-sort-direction', 'asc');
@@ -189,7 +192,7 @@
 
       var label = document.createElement('span');
       label.className = 'sort-label';
-      label.textContent = 'A → Z';
+      label.innerHTML = 'A ' + getLiensXWikiIcon('right') + ' Z';
       button.appendChild(label);
 
       button.addEventListener('click', function () {
@@ -806,6 +809,11 @@
     var table = document.getElementById('mainGlossaryTable');
     if (!table || table.dataset.adaptationReady === 'true') return;
     table.dataset.adaptationReady = 'true';
+    // Comme dans le Glossaire : sortir les modales du contexte d'empilement XWiki.
+    ['actionFeedbackModal', 'deleteConfirmModal', 'deleteConfirmModal2', 'glossaryModal'].forEach(function (modalId) {
+      var modal = document.getElementById(modalId);
+      if (modal && modal.parentNode !== document.body) document.body.appendChild(modal);
+    });
     setupToolbar();
     createExcelUi();
     installSortButtons('mainGlossaryTable', 'main-term-row', 'personal', ['acronym', 'label', 'definition']);

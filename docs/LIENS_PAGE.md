@@ -23,13 +23,13 @@ La réponse DATA est désormais du texte brut avec des champs encodés par `esca
 - Les onglets, filtres et paginations sont initialisés quand le DOM est disponible, y compris si les extensions arrivent après `DOMContentLoaded`. Les filtres et commandes de pagination sont aussi raccordés par JavaScript.
 - Les filtres lisent uniquement les textes affichés. Ils se combinent par ET dans chaque tableau. Le filtre Acronyme / Libellé de la fenêtre de création conserve sa logique OU.
 - « Tout afficher » respecte les filtres. Le changement de taille revient à la première page, les flèches respectent les limites et une suppression recalcule le nombre de pages. Tri, modification et pagination réappliquent les filtres actifs.
-- Les boutons A → Z sont remplis avant leur insertion et conservent leurs dimensions dès le chargement, sans dépendre du rendu des icônes. Le tri est disponible sur Acronyme, Libellé, Définition et, pour les communs, Créateur ; aucun bouton de tri n’est ajouté dans Type.
+- Les boutons A → Z utilisent les mêmes classes Bootstrap et la même icône XWiki `right` que le Glossaire. Le libellé avec son icône est rempli avant insertion et le bouton ne se comprime pas dans la cellule, sans modifier sa taille native. Le tri est disponible sur Acronyme, Libellé, Définition et, pour les communs, Créateur ; aucun bouton de tri n’est ajouté dans Type.
 - La fenêtre de vérification charge une seule liste et préserve les caractères spéciaux, les retours à la ligne et les références contenant `|`. Elle ne montre que les communs et les personnels de l'utilisateur courant, dès le rendu initial.
 - Les enregistrements traitent les acronymes comme du texte. Les doubles enregistrements sont bloqués ; une erreur HTTP conserve la ligne. Annuler une modification restaure aussi le créateur. Le type reste visible si une autre ligne est encore en édition, et un changement Personnel / Commun recharge le bon onglet.
 - Les déplacements utilisent une seule requête XWiki de renommage vers la référence finale, sans redirection. Un succès exige que la destination et son objet existent et que l'ancienne page ait disparu. La suppression ne retire la ligne qu'après confirmation que la page a été supprimée.
 - La création manuelle vérifie POST, CSRF, champs, type, groupe gestionnaire, droits et disponibilité du nom. Le serveur protège également les actions DATA. Les groupes gestionnaires au singulier et au pluriel sont reconnus de la même manière dans la page et dans DATA.
 - La suppression multiple et l'import gèrent les erreurs réseau et les doubles clics. Les mots `constructor` et `toString` ne sont plus considérés comme des doublons Excel. Le recalcul des largeurs n'observe plus ses propres écritures de styles.
-- Les modales restent au-dessus du fond Bootstrap. Les identifiants dupliqués ont été retirés. Sur mobile, le défilement horizontal des tableaux conserve des champs de filtre utilisables.
+- Les modales sont déplacées directement sous `document.body`, comme celles du Glossaire, pour sortir du contexte d’empilement du contenu XWiki et rester au-dessus du fond Bootstrap. Leurs couches suivent le thème Bootstrap, sans forcer une autre valeur de z-index. Les identifiants dupliqués ont été retirés. Sur mobile, le défilement horizontal des tableaux conserve des champs de filtre utilisables.
 
 ## Tests
 
@@ -42,7 +42,7 @@ node tests/Liens.browser.test.js /tmp/liens-rendered.html /chemin/vers/assets
 
 Le navigateur utilise `/usr/bin/chromium` par défaut ; `CHROMIUM_PATH` permet de choisir un autre exécutable. Playwright doit être accessible à Node.js.
 
-Résultat : **27 vérifications Velocity et 53 vérifications Chromium réussies**, avec vérification de syntaxe des sept extensions JavaScript. Le test serveur exécute les templates réels avec une API XWiki simulée. Le navigateur utilise le HTML produit, les extensions du dépôt et un endpoint DATA simulé. Il couvre les deux paginations, filtres, tri, affichage ordinateur/mobile, éditions, erreurs HTTP, suppressions, chargement tardif, lecture/import d'un vrai fichier XLSX et fonctions réservées aux gestionnaires.
+Résultat : **27 vérifications Velocity et 66 vérifications Chromium réussies**, avec vérification de syntaxe des sept extensions JavaScript. Le test serveur exécute les templates réels avec une API XWiki simulée. Le navigateur utilise le HTML produit, les extensions du dépôt et un endpoint DATA simulé. Il vérifie aussi le rendu du tri par rapport au bouton du Glossaire et la présence des six fenêtres au-dessus du fond noir dans un conteneur XWiki isolé. Il couvre les deux paginations, filtres, tri, affichage ordinateur/mobile, éditions, erreurs HTTP, suppressions, chargement tardif, lecture/import d'un vrai fichier XLSX et fonctions réservées aux gestionnaires.
 
 ## Vérifier après installation dans XWiki
 

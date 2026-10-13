@@ -218,22 +218,9 @@
   flex: 1;
 }
 
-/* Taille stable dès l'insertion, même dans une cellule étroite ou un onglet caché. */
-.liens-page .liens-sort-btn {
-  display: inline-flex;
+/* Conserver le bouton Bootstrap du Glossaire sans le comprimer dans les filtres. */
+.liens-filter-layout .liens-sort-btn {
   flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  min-width: 56px;
-  min-height: 26px;
-  padding: 3px 6px;
-  font-size: 12px;
-  line-height: 18px;
-  white-space: nowrap;
-}
-
-.liens-page .liens-sort-btn .sort-label {
-  font: inherit;
   white-space: nowrap;
 }
 
@@ -325,11 +312,6 @@
   width: 100%;
 }
 
-/* Même empilement que les modales Bootstrap de XWiki. */
-#glossaryModal, #deleteConfirmModal, #deleteConfirmModal2,
-#actionFeedbackModal, #excelLiensModal, #excelExampleLiensModal {
-  z-index: 1050;
-}
 .liens-page .pagination-container { flex-wrap: wrap; gap: 12px; }
 .liens-page .glossary-toolbar-left, .liens-page .glossary-toolbar-right { flex-wrap: wrap; }
 .liens-page .filter-row input { width: 100%; }
