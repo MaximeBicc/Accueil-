@@ -71,6 +71,24 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
     const state = await setup();
     const { page } = state;
     const visible = id => page.locator(`#${id} tbody > tr`).evaluateAll(rows => rows.filter(row => row.style.display !== 'none').length);
+    // Vérifier les dimensions avant le premier clic et après inversion du tri.
+    for (const [tab, table] of [[1, 'mainGlossaryTable'], [2, 'secondaryGlossaryTable']]) {
+      await page.click(`.tablinks:nth-of-type(${tab})`);
+      const button = page.locator(`#${table} .liens-sort-btn[data-column="acronym"]`);
+      const measure = el => {
+        const rect = el.getBoundingClientRect();
+        return { width: rect.width, height: rect.height, fontSize: getComputedStyle(el).fontSize };
+      };
+      const initial = await button.evaluate(measure);
+      check(initial.width >= 56 && initial.height >= 26, true, 'taille initiale du tri ' + table);
+      check((await button.textContent()).trim(), 'A → Z', 'libellé initial du tri ' + table);
+      await button.click();
+      check(await button.evaluate(measure), initial, 'dimensions stables après clic ' + table);
+      check((await button.textContent()).trim(), 'Z → A', 'libellé inversé du tri ' + table);
+      await button.click();
+    }
+    check(await page.locator('.liens-sort-btn[data-column="type"], .col-type .liens-sort-btn').count(), 0, 'aucun tri dans Type');
+    await page.click('.tablinks:nth-of-type(1)');
     check(await visible('mainGlossaryTable'), 10, 'pagination initiale personnelle');
     check(await visible('secondaryGlossaryTable'), 10, 'pagination initiale commune');
     await page.click('#btnNextPage1');
@@ -169,6 +187,7 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
       toggleEditMode(buttons[0], true); toggleEditMode(buttons[1], true); toggleEditMode(buttons[0], false);
     });
     check(await page.locator('#mainGlossaryTable').evaluate(el => el.classList.contains('hide-type-column')), false, 'type visible pour les éditions restantes');
+    check(await page.locator('.col-type .liens-sort-btn').count(), 0, 'aucun tri dans Type pendant édition');
     await page.evaluate(() => document.querySelectorAll('#mainGlossaryTable .view-buttons button:first-child').forEach(button => toggleEditMode(button, false)));
     // Bootstrap réel : contenu des modales au-dessus du fond et filtre OU.
     await page.click('button[data-target="#glossaryModal"]');
@@ -221,6 +240,7 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
     await late.page.close();
     const nonManager = await setup(false, false);
     await nonManager.page.click('.tablinks:nth-of-type(2)');
+    await nonManager.page.locator('#btnBulkDeleteModeLiens').waitFor({ state: 'hidden' });
     check(await nonManager.page.locator('#btnBulkDeleteModeLiens').isVisible(), false, 'suppression commune masquée pour non-manager');
     check(await nonManager.page.locator('#secondaryGlossaryTable .view-buttons button:visible').count(), 0, 'actions communes masquées pour non-manager');
     check(nonManager.errors, [], 'aucune exception non-manager');

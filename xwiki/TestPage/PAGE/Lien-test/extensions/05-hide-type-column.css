@@ -218,6 +218,25 @@
   flex: 1;
 }
 
+/* Taille stable dès l'insertion, même dans une cellule étroite ou un onglet caché. */
+.liens-page .liens-sort-btn {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  min-width: 56px;
+  min-height: 26px;
+  padding: 3px 6px;
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.liens-page .liens-sort-btn .sort-label {
+  font: inherit;
+  white-space: nowrap;
+}
+
 /* Le picker de créateur est initialisé pendant que la zone d'édition est cachée.
  * Ces règles empêchent le contrôle riche XWiki/Selectize de rester à largeur 0
  * ou de passer derrière le tableau une fois l'édition ouverte. */

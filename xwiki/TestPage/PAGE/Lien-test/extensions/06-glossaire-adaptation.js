@@ -139,7 +139,6 @@
     if (!table) return;
 
     var state = liensSortState[tableKind] || { column: 'acronym', direction: 'asc' };
-    var arrow = getLiensXWikiIcon('right');
 
     table.querySelectorAll('.liens-sort-btn').forEach(function (button) {
       var column = button.getAttribute('data-column');
@@ -152,9 +151,7 @@
       button.classList.toggle('active', isActive);
 
       if (label) {
-        label.innerHTML = direction === 'desc'
-          ? 'Z ' + arrow + ' A'
-          : 'A ' + arrow + ' Z';
+        label.textContent = direction === 'desc' ? 'Z → A' : 'A → Z';
       }
     });
   }
@@ -192,6 +189,7 @@
 
       var label = document.createElement('span');
       label.className = 'sort-label';
+      label.textContent = 'A → Z';
       button.appendChild(label);
 
       button.addEventListener('click', function () {
@@ -810,8 +808,8 @@
     table.dataset.adaptationReady = 'true';
     setupToolbar();
     createExcelUi();
-    installSortButtons('mainGlossaryTable', 'main-term-row', 'personal', ['acronym', 'label', 'definition', 'type']);
-    installSortButtons('secondaryGlossaryTable', 'secondary-term-row', 'common', ['acronym', 'label', 'definition', 'author', 'type']);
+    installSortButtons('mainGlossaryTable', 'main-term-row', 'personal', ['acronym', 'label', 'definition']);
+    installSortButtons('secondaryGlossaryTable', 'secondary-term-row', 'common', ['acronym', 'label', 'definition', 'author']);
     ensureBulkCells('personal');
     ensureBulkCells('common');
     installTabWatcher();
