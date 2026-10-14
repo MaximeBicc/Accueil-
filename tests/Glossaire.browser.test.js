@@ -8,6 +8,7 @@ const htmlFile = process.argv[2];
 if (!htmlFile) throw new Error('Indiquer le HTML généré par GlossaireVelocityTest.');
 const root = path.join(__dirname, '..');
 const glossary = path.join(root, 'xwiki/TestPage/PAGE/Glossaire/CODE');
+const commandUrl = 'https://wiki.test/bin/view/TestPage/PAGE/Glossaire/COMMANDE';
 let checks = 0;
 function check(actual, expected, label) { assert.deepEqual(actual, expected, label); checks++; }
 
@@ -26,12 +27,12 @@ function check(actual, expected, label) { assert.deepEqual(actual, expected, lab
     await page.addStyleTag({ path: path.join(glossary, 'GlossaireExtension.css') });
     await page.evaluate(() => {
       window.jQuery = () => ({ modal() {} });
-      document.querySelector('#mainGlossaryTable').setAttribute('data-endpoint-url', '/data');
       document.body.insertAdjacentHTML('beforeend', '<div class="naval-home"><header class="nh-header"><h1 class="nh-title">Glossaire</h1><p class="nh-subtitle">Retrouvez ici les acronymes, libellés et définitions du wiki.</p></header></div>');
     });
     await page.addScriptTag({ path: path.join(glossary, 'GlossaireExtension.js') });
     await page.addScriptTag({ path: path.join(glossary, 'GlossairePageExtension.js') });
     await page.evaluate(() => document.dispatchEvent(new Event('DOMContentLoaded')));
+    check(await page.locator('#mainGlossaryTable').getAttribute('data-endpoint-url'), commandUrl, 'route COMMANDE fournie par le vrai template');
     const styles = await page.evaluate(() => {
       const read = selector => {
         const header = document.querySelector(selector);
@@ -51,9 +52,11 @@ function check(actual, expected, label) { assert.deepEqual(actual, expected, lab
       document.querySelectorAll('.main-term-row, .term-row').forEach(row => row.remove());
       appendImportedGlossaryRow({ acronym: 'API', label: 'Interface', definition: 'Ancien texte' }, 'TestPage.PAGE.Glossaire.DATA.API', 'API');
       window.requests = [];
+      window.requestUrls = [];
       window.nextReply = { ok: true, text: 'GLOSSAIRE_OK' };
       window.fetch = async (url, options) => {
         requests.push(Object.fromEntries(options.body));
+        requestUrls.push(url);
         const reply = nextReply;
         return { ok: reply.ok, text: async () => reply.text };
       };
@@ -119,6 +122,7 @@ function check(actual, expected, label) { assert.deepEqual(actual, expected, lab
       const count = requests.length;
       window.fetch = async (url, options) => {
         requests.push(Object.fromEntries(options.body));
+        requestUrls.push(url);
         await new Promise(resolve => { release = resolve; });
         return { ok: true, text: async () => 'GLOSSAIRE_OK|' + encodeURIComponent(row.dataset.fullRef) + '|API' };
       };
@@ -132,6 +136,7 @@ function check(actual, expected, label) { assert.deepEqual(actual, expected, lab
     await page.evaluate(async () => {
       window.fetch = async (url, options) => {
         requests.push(Object.fromEntries(options.body));
+        requestUrls.push(url);
         return { ok: true, text: async () => 'ROW_OK|0|TestPage.PAGE.Glossaire.DATA.X%5C.Y%7C%22|X.Y%7C%22\nGLOSSAIRE_IMPORT_OK|1|0|1' };
       };
       await executeExcelImport([{ acronym: 'X.Y|"', label: 'Importé', definition: 'Texte' }], false, false);
@@ -141,10 +146,11 @@ function check(actual, expected, label) { assert.deepEqual(actual, expected, lab
       const rows = Array.from(document.querySelectorAll('.main-term-row'));
       rows.forEach(row => row.querySelector('.glossary-row-select').checked = true);
       window.confirm = () => true;
-      window.fetch = async (url, options) => ({
-        ok: true,
-        text: async () => options.body.get('targetRef').includes('X\\.Y') ? 'GLOSSAIRE_ERROR|échec' : 'GLOSSAIRE_OK'
-      });
+      window.fetch = async (url, options) => {
+        requests.push(Object.fromEntries(options.body));
+        requestUrls.push(url);
+        return { ok: true, text: async () => options.body.get('targetRef').includes('X\\.Y') ? 'GLOSSAIRE_ERROR|échec' : 'GLOSSAIRE_OK' };
+      };
       await executeBulkGlossaryDelete();
       return [document.querySelectorAll('.main-term-row').length, document.querySelectorAll('.term-row').length, document.querySelector('.main-term-row').dataset.docName];
     });
@@ -162,6 +168,11 @@ function check(actual, expected, label) { assert.deepEqual(actual, expected, lab
       applyPagination();
     });
     check(await page.locator('#pageIndicator').innerText(), 'Page 1 / 1', 'pagination ajustée après suppression de la dernière ligne');
+    check(await page.evaluate(() => requestUrls.every(url => {
+      const endpoint = new URL(url);
+      return endpoint.origin + endpoint.pathname === document.querySelector('#mainGlossaryTable').getAttribute('data-endpoint-url') && endpoint.searchParams.getAll('xpage').join(',') === 'plain';
+    })), true, 'modification, suppression et import utilisent uniquement COMMANDE en rendu brut');
+    check(await page.evaluate(() => Array.from(new Set(requests.map(request => request.action))).sort()), ['delete', 'import', 'save'], 'les trois commandes de gestion passent par le même service');
     check(errors, [], 'aucune erreur JavaScript dans le navigateur');
     console.log(checks + ' vérifications navigateur réussies.');
   } finally { await browser.close(); }

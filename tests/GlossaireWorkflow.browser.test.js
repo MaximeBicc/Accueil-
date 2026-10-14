@@ -7,6 +7,7 @@ const fixtureDirectory = process.argv[2];
 if (!fixtureDirectory) throw new Error('Indiquer le dossier des fixtures produites par GlossaireVelocityTest.');
 const root = path.join(__dirname, '..');
 const codeDirectory = path.join(root, 'xwiki/TestPage/PAGE/Glossaire/CODE');
+const commandUrl = 'https://wiki.test/bin/view/TestPage/PAGE/Glossaire/COMMANDE';
 let checks = 0;
 function check(value, expected, label) { assert.deepEqual(value, expected, label); checks++; }
 
@@ -34,9 +35,8 @@ function check(value, expected, label) { assert.deepEqual(value, expected, label
         const current = reply;
         return { ok: current.ok, text: async () => current.text };
       };
-      document.querySelector('#mainGlossaryTable').setAttribute('data-workflow-url', '/workflow');
     });
-    for (const name of ['GlossaireExtension.js', 'GlossairePageExtension.js', 'GlossaireWorkflow.js']) {
+    for (const name of ['GlossaireExtension.js', 'GlossairePageExtension.js']) {
       await page.addScriptTag({ path: path.join(codeDirectory, name) });
     }
     await page.evaluate(() => document.dispatchEvent(new Event('DOMContentLoaded')));
@@ -44,6 +44,8 @@ function check(value, expected, label) { assert.deepEqual(value, expected, label
   }
   try {
     const reader = await openFixture('reader');
+    check(await reader.locator('#mainGlossaryTable').getAttribute('data-endpoint-url'), commandUrl, 'route COMMANDE fournie par le vrai template');
+    check(await reader.locator('#mainGlossaryTable').getAttribute('data-workflow-url'), null, 'aucun service Workflow séparé demandé');
     check(await reader.locator('#mainGlossaryTable thead tr').first().locator('th').count(), 3, 'hors groupe : aucune colonne Actions');
     check(await reader.locator('.js-edit-row,.js-delete-row,#btnImportExcelGlossary,#btnBulkDeleteModeGlossary,#btnReviewGlossaryProposals').count(), 0, 'hors groupe : aucune commande de gestion');
     check(await reader.locator('#glossaryOwnProposals').innerText().then(text => text.includes('Refusée')), true, 'le proposant voit son refus');
@@ -96,7 +98,7 @@ function check(value, expected, label) { assert.deepEqual(value, expected, label
     const stale = await reviewer.evaluate(async () => {
       reply = { ok: true, text: 'GLOSSAIRE_ERROR|' + encodeURIComponent('Cette proposition a changé ; rechargez la liste') };
       await reviewGlossaryProposal(document.querySelector('.glossary-proposal-card'), 'approve');
-      return document.querySelector('.glossary-proposal-feedback').textContent;
+      return document.querySelector('.glossary-proposal-card .glossary-proposal-feedback').textContent;
     });
     check(stale.includes('rechargez'), true, 'version obsolète signalée');
     check(await reviewer.locator('#glossaryProposalCount').innerText(), '2', 'compteur conservé après échec');
@@ -136,6 +138,48 @@ function check(value, expected, label) { assert.deepEqual(value, expected, label
     check(await reviewer.locator('#glossaryProposalCount').innerText(), '0', 'compteur mis à zéro');
     check(await reviewer.locator('#glossaryProposalsEmpty').isVisible(), false, 'modale fermée par défaut');
     check(await reviewer.locator('#glossaryProposalsEmpty').getAttribute('class').then(value => value.includes('is-hidden')), false, 'état vide prêt à être affiché');
+    const rowsBeforeCreate = await reviewer.locator('.main-term-row').count();
+    const creationEventHandled = await reviewer.evaluate(async () => {
+      window.fetch = async (url, options) => {
+        requests.push({ url, values: Object.fromEntries(options.body) });
+        return { ok: true, text: async () => 'GLOSSAIRE_OK|' + encodeURIComponent('TestPage.PAGE.Glossaire.DATA.DIRECT\\.API') + '|' + encodeURIComponent('DIRECT.API') };
+      };
+      const form = document.querySelector('#glossaryCreateForm');
+      form.querySelector('[name="acronyme"]').value = 'DIRECT.API';
+      form.querySelector('[name="libelle"]').value = 'Ajout direct validateur';
+      form.querySelector('[name="definition"]').value = 'Sans passage par les propositions';
+      const event = new Event('submit', { bubbles: true, cancelable: true });
+      form.dispatchEvent(event);
+      await new Promise(resolve => setTimeout(resolve, 0));
+      return event.defaultPrevented;
+    });
+    check(creationEventHandled, true, 'formulaire validateur lié à l’extension JavaScript de page existante');
+    check(await reviewer.evaluate(() => [requests.at(-1).values.action, requests.at(-1).values.acronym, requests.at(-1).values.label, requests.at(-1).values.form_token]),
+      ['create', 'DIRECT.API', 'Ajout direct validateur', 'test-token'], 'validateur : création directe par COMMANDE avec les paramètres anglais');
+    check(await reviewer.locator('.main-term-row').count(), rowsBeforeCreate + 1, 'ajout direct publié immédiatement dans le tableau');
+    check(await reviewer.locator('.main-term-row[data-doc-name="DIRECT.API"]').getAttribute('data-full-ref'), 'TestPage.PAGE.Glossaire.DATA.DIRECT\\.API', 'référence canonique de création conservée');
+    check(await reviewer.locator('#popupCheckTable .term-row').evaluateAll(rows => rows.filter(row => row.getAttribute('data-full-ref') === 'TestPage.PAGE.Glossaire.DATA.DIRECT\\.API').length), 1, 'ajout direct synchronisé dans les deux tableaux');
+    check(await reviewer.locator('#glossaryProposalCount').innerText(), '0', 'ajout direct sans proposition en attente');
+    await reviewer.evaluate(async () => {
+      window.fetch = async (url, options) => {
+        requests.push({ url, values: Object.fromEntries(options.body) });
+        return { ok: true, text: async () => 'GLOSSAIRE_OK' };
+      };
+      const form = document.querySelector('#glossaryCreateForm');
+      form.querySelector('[name="acronyme"]').value = 'RÉESSAYER';
+      form.querySelector('[name="libelle"]').value = 'Saisie conservée';
+      await submitGlossaryProposal({ preventDefault() {}, currentTarget: form });
+    });
+    check(await reviewer.locator('.main-term-row').count(), rowsBeforeCreate + 1, 'réponse de création incomplète sans ligne supplémentaire');
+    check(await reviewer.locator('#glossaryCreateForm [name="libelle"]').inputValue(), 'Saisie conservée', 'échec création : saisie conservée');
+    check(await reviewer.locator('#glossaryCreateForm [type="submit"]').isDisabled(), false, 'échec création : bouton réactivé');
+    for (const [profile, page] of [['contributeur', reader], ['validateur', reviewer]]) {
+      check(await page.evaluate(expected => requests.every(request => {
+        const endpoint = new URL(request.url);
+        return endpoint.origin + endpoint.pathname === expected && endpoint.searchParams.getAll('xpage').join(',') === 'plain';
+      }), commandUrl), true, profile + ' : toutes les requêtes ciblent COMMANDE en rendu brut');
+    }
+    check(await reviewer.evaluate(() => Array.from(new Set(requests.map(request => request.values.action))).sort()), ['approve', 'create', 'reject'], 'création et décisions partagent le point d’entrée COMMANDE');
     await reviewer.screenshot({ path: path.join(fixtureDirectory, 'glossaire-validateur.png'), fullPage: true });
 
     const guest = await openFixture('guest');

@@ -176,6 +176,26 @@ function getGlossaryResultLine(responseText, code) {
     }) || '';
 }
 
+// Toutes les modifications passent par la page COMMANDE, DATA reste le stockage.
+function getGlossaryCommandeUrl() {
+    var table = document.getElementById('mainGlossaryTable');
+    var url = window.urlGlossaireCommande || (table && table.getAttribute('data-endpoint-url'));
+    if (!url) throw new Error('Le service du glossaire est indisponible. Rechargez la page.');
+    var endpoint = new URL(url, window.location.href);
+    endpoint.searchParams.set('xpage', 'plain');
+    return endpoint.toString();
+}
+
+function getGlossaryErrorMessage(responseText, fallback) {
+    var line = getGlossaryResultLine(responseText, 'GLOSSAIRE_ERROR');
+    if (!line) return fallback;
+    try {
+        return decodeGlossaryReference(line.split('|')[1] || '') || fallback;
+    } catch (error) {
+        return fallback;
+    }
+}
+
 function findGlossaryPopupRow(fullRef) {
     return Array.from(document.querySelectorAll('#popupCheckTable tbody .term-row')).find(function(row) {
         return row.getAttribute('data-full-ref') === fullRef;
@@ -216,7 +236,7 @@ async function saveRowEdition(button) {
     donnees.append("form_token", csrfToken);
 
     try {
-        const reponse = await fetch(urlGlossaireData + "?xpage=plain", {
+        const reponse = await fetch(getGlossaryCommandeUrl(), {
             method: "POST",
             body: donnees,
             credentials: "same-origin",
@@ -263,11 +283,11 @@ async function saveRowEdition(button) {
             filterMainTableColumns(false);
             showGlossaryToast('Modification enregistrée.', false);
         } else {
-            showGlossaryToast("Erreur serveur : " + resultat.trim(), true);
+            showGlossaryToast(getGlossaryErrorMessage(resultat, 'La modification a échoué.'), true);
         }
     } catch (erreur) {
         console.error(erreur);
-        showGlossaryToast("Impossible de joindre la page DATA : " + erreur, true);
+        showGlossaryToast("Impossible de joindre le service du glossaire : " + erreur, true);
     } finally {
         delete row.dataset.saving;
         editButtons.forEach(function(editButton) { editButton.disabled = false; });
@@ -305,7 +325,7 @@ async function executeRowDelete() {
     deleteButton.disabled = true;
 
     try {
-        const reponse = await fetch(urlGlossaireData + "?xpage=plain", {
+        const reponse = await fetch(getGlossaryCommandeUrl(), {
             method: "POST",
             body: donnees,
             credentials: "same-origin",
@@ -331,7 +351,7 @@ async function executeRowDelete() {
             }
             showGlossaryToast('Terme supprimé.', false);
         } else {
-            showGlossaryToast("Erreur de suppression serveur : " + resultat.trim(), true);
+            showGlossaryToast(getGlossaryErrorMessage(resultat, 'La suppression a échoué.'), true);
             jQuery('#deleteConfirmModal').modal('hide');
         }
     } catch (erreur) {
@@ -981,7 +1001,7 @@ async function executeExcelImport(rows, allowAcronymDuplicates, allowLabelDuplic
     newOnlyButton.disabled = true;
 
     try {
-        var response = await fetch(urlGlossaireData + '?xpage=plain', {
+        var response = await fetch(getGlossaryCommandeUrl(), {
             method: 'POST',
             body: donnees,
             credentials: 'same-origin',
@@ -991,7 +1011,7 @@ async function executeExcelImport(rows, allowAcronymDuplicates, allowLabelDuplic
         var plainResult = extractGlossaryServerText(rawResult);
 
         if (!response.ok || !getGlossaryResultLine(plainResult, 'GLOSSAIRE_IMPORT_OK')) {
-            showGlossaryToast('Erreur d\'import : ' + plainResult, true);
+            showGlossaryToast(getGlossaryErrorMessage(plainResult, 'L’import a échoué.'), true);
             return;
         }
 
@@ -1022,7 +1042,7 @@ async function executeExcelImport(rows, allowAcronymDuplicates, allowLabelDuplic
         showGlossaryToast('Import terminé : ' + created + ' terme(s) ajouté(s)' + (skipped ? ', ' + skipped + ' ligne(s) ignorée(s).' : '.'), false);
     } catch (error) {
         console.error(error);
-        showGlossaryToast('Impossible de joindre la page DATA pendant l\'import : ' + error, true);
+        showGlossaryToast('Impossible de joindre le service du glossaire pendant l\'import : ' + error, true);
     } finally {
         importButton.disabled = false;
         newOnlyButton.disabled = false;

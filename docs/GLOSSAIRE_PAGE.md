@@ -9,14 +9,17 @@ Le circuit de proposition, le groupe de validation et ses droits sont décrits d
 | Fichier du dépôt, sous `xwiki/TestPage/PAGE/Glossaire/` | Destination XWiki |
 | --- | --- |
 | `WebHome.xwiki` | Contenu de `TestPage.PAGE.Glossaire.WebHome`, syntaxe XWiki 2.1 |
-| `DATA/WebHome.xwiki` | Contenu de `TestPage.PAGE.Glossaire.DATA.WebHome`, syntaxe XWiki 2.1 |
+| `DATA/WebHome.xwiki` | Page conteneur de `TestPage.PAGE.Glossaire.DATA.WebHome` ; stockage des fiches |
+| `COMMANDE.xwiki` | Contenu de `TestPage.PAGE.Glossaire.COMMANDE`, syntaxe XWiki 2.1 ; tous les traitements |
 | `CODE/GlossaireExtension.css` | StyleSheet Extension de `TestPage.PAGE.Glossaire.CODE.GlossaireExtension` |
 | `CODE/GlossaireExtension.js` | JavaScript Extension de `TestPage.PAGE.Glossaire.CODE.GlossaireExtension` |
 | `CODE/GlossairePageExtension.js` | JavaScript Extension de `TestPage.PAGE.Glossaire.CODE.GlossairePageExtension` |
 
 Conserver la classe `TestPage.PAGE.Glossaire.CODE.glossaireClass.WebHome` et ses champs `acronyme`, `libelle`, `definition`. La page charge explicitement ses extensions. Si les extensions JavaScript sont parsées par Velocity, conserver ce réglage.
 
-Le serveur renvoie maintenant du texte brut et encode les références avec `escapetool.url`. Les extensions JavaScript décodent ces références : installer les fichiers serveur et client ensemble, puis recharger le navigateur sans cache.
+La page COMMANDE reçoit les demandes d’ajout, modification, suppression, import, proposition et décision. La page d’affichage et la page DATA ne traitent plus de mutations. Les deux extensions JavaScript existantes suffisent.
+
+COMMANDE renvoie du texte brut et encode les références avec `escapetool.url`. Les extensions JavaScript décodent ces références : installer les fichiers serveur et client ensemble, puis recharger le navigateur sans cache.
 
 ## Corrections
 
@@ -50,7 +53,7 @@ Le test Velocity exécute les templates du dépôt avec une API XWiki simulée :
 
 Le test d'accueil a été adapté à la version actuelle du suivi (`v5.4`, XMLHttpRequest). Il vérifie le suivi, la limitation des comptages répétés, l'exclusion des prévisualisations et l'affichage de l'historique récent.
 
-Résultat de la validation : **74 vérifications Velocity, 17 vérifications navigateur historiques, 28 vérifications navigateur du circuit de validation et test d'accueil réussis** ; les **17 fichiers JavaScript** de `xwiki/` et `preview/` passent la vérification de syntaxe. Les captures du navigateur sont enregistrées à côté du HTML généré.
+Résultat de la validation : **103 vérifications Velocity, 20 vérifications navigateur historiques, 42 vérifications navigateur du circuit de validation et test d'accueil réussis** ; les **16 fichiers JavaScript** de `xwiki/` et `preview/` passent la vérification de syntaxe. Les captures du navigateur sont enregistrées à côté du HTML généré.
 
 Ces tests ne remplacent pas un essai sur l'instance XWiki, notamment pour ses droits et extensions installées.
 

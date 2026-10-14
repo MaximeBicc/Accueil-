@@ -49,109 +49,7 @@
 ## Extensions JavaScript / CSS du module
 $xwiki.jsx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
 $xwiki.jsx.use("TestPage.PAGE.Glossaire.CODE.GlossairePageExtension")
-$xwiki.jsx.use("TestPage.PAGE.Glossaire.CODE.GlossaireWorkflow.WebHome")
 $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
-
-#set($createAction = $request.getParameter("action"))
-#if("$!createAction" == "checkAndCreate")
-  #set($createError = "")
-  #if(!$canManage)
-    #set($createError = "Vous devez appartenir au groupe des validateurs pour ajouter directement un acronyme. Utilisez le formulaire de proposition.")
-  #elseif($request.getMethod() != "POST")
-    #set($createError = "Cette action nécessite une requête POST.")
-  #elseif(!$services.csrf.isTokenValid($request.getParameter('form_token')))
-    #set($createError = "Jeton CSRF invalide ou absent.")
-  #elseif(!$request.acronyme || !$request.libelle || $request.acronyme.matches('\s*') || $request.libelle.matches('\s*'))
-    #set($createError = "L'acronyme et le libellé sont obligatoires.")
-  #elseif($request.acronyme.contains('$') || $request.acronyme.contains('{') || $request.acronyme.contains('}') || $request.acronyme.contains('/'))
-    #set($createError = "Nom technique d'acronyme invalide.")
-  #else
-    ## Aucun .trim() côté Velocity sur cette instance XWiki.
-    #set($acronymeInput = "$!request.acronyme")
-    #set($libelleInput = "$!request.libelle")
-    #set($definitionInput = "$!request.definition")
-
-    ## 1. Génération du nom technique sans cleanName ni interpolation de chemin.
-    ## Sur cette instance, cleanName peut rester littéral dans la référence.
-    #set($baseCandidateName = $acronymeInput)
-    #set($candidateName = $baseCandidateName)
-    #set($counter = 1)
-    #set($candidateReference = false)
-    #set($alreadyExists = false)
-
-    ## 2. Recherche d'une vraie référence XWiki disponible.
-    #foreach($i in [1..100])
-      #set($terminalReference = $services.model.createDocumentReference('', $dataSpaces, $candidateName))
-      #set($nestedSpaces = ['TestPage', 'PAGE', 'Glossaire', 'DATA', $candidateName])
-      #set($nestedReference = $services.model.createDocumentReference('', $nestedSpaces, 'WebHome'))
-      #set($terminalDoc = $xwiki.getDocument($terminalReference))
-      #set($nestedDoc = $xwiki.getDocument($nestedReference))
-
-      #if($i == 1 && (!$terminalDoc.isNew() || !$nestedDoc.isNew()))
-        #set($alreadyExists = true)
-      #end
-
-      #if($terminalDoc.isNew() && $nestedDoc.isNew())
-        #set($candidateReference = $terminalReference)
-        #break
-      #else
-        #set($suffix = "_$counter")
-        #set($candidateName = "$baseCandidateName$suffix")
-        #set($counter = $counter + 1)
-      #end
-    #end
-
-    #if(!$candidateReference)
-      #set($createError = "Impossible de trouver un nom de page disponible.")
-    #elseif(!$xwiki.hasAccessLevel('edit', $xcontext.user, $services.model.serialize($candidateReference)))
-      #set($createError = "Droits de création insuffisants.")
-    #else
-      ## 3. Création sur la référence typée trouvée.
-      #set($newPage = $xwiki.getDocument($candidateReference))
-
-      ## 4. Création et population de l'objet
-      #set($newObj = $newPage.newObject($classPath))
-      #set($discard = $newObj.set("acronyme", $acronymeInput))
-      #set($discard = $newObj.set("libelle", $libelleInput))
-      #set($discard = $newObj.set("definition", $definitionInput))
-      #set($discard = $newPage.setTitle($acronymeInput))
-      #set($discard = $newPage.save("Ajout via interface Glossaire", true))
-
-      ## 5. Notification après redirection
-      #if($alreadyExists)
-        $request.session.setAttribute('glossary_status', 'warning')
-      #else
-        $request.session.setAttribute('glossary_status', 'success')
-      #end
-      $request.session.setAttribute('glossary_msg', $acronymeInput)
-
-      $response.sendRedirect($doc.getURL())
-      #stop
-    #end
-  #end
-  #if($createError != "")
-    <div class="alert alert-danger glossary-status-alert">$escapetool.xml($createError)</div>
-  #end
-#end
-
-## --- NOTIFICATIONS POST-REDIRECTION ---
-#set($status = $request.session.getAttribute('glossary_status'))
-#if($status)
-  #set($msg = $request.session.getAttribute('glossary_msg'))
-
-  #if($status == 'success')
-    <div class="alert alert-success glossary-status-alert">
-      Le terme <strong>$escapetool.xml($msg)</strong> a été ajouté au glossaire.
-    </div>
-  #elseif($status == 'warning')
-    <div class="alert alert-warning glossary-status-alert">
-      L'acronyme <strong>$escapetool.xml($msg)</strong> existe déjà. Une nouvelle fiche a été créée.
-    </div>
-  #end
-
-  $request.session.removeAttribute('glossary_status')
-  $request.session.removeAttribute('glossary_msg')
-#end
 
 <div class="glossary-page">
   <div class="nh-shell">
@@ -227,8 +125,7 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
   </div>
 </div>
 
-#set($urlGlossaireData = $xwiki.getURL("TestPage.PAGE.Glossaire.DATA.WebHome", "view"))
-#set($urlGlossaireWorkflow = $xwiki.getURL("TestPage.PAGE.Glossaire.CODE.GlossaireWorkflow.WebHome", "view"))
+#set($urlGlossaireCommande = $xwiki.getURL("TestPage.PAGE.Glossaire.COMMANDE", "view"))
 
 ## --- TABLEAU PRINCIPAL ---
 <div class="table-responsive">
@@ -237,9 +134,8 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
          data-csrf="$services.csrf.getToken()"
          data-can-manage="$canManage"
          data-can-propose="$canPropose"
-         data-workflow-url="$escapetool.xml($!urlGlossaireWorkflow)"
          data-class-path="$classPath"
-         data-endpoint-url="$!urlGlossaireData"
+         data-endpoint-url="$escapetool.xml($!urlGlossaireCommande)"
          data-icon-right="$escapetool.xml($services.icon.renderHTML('right'))"
          data-icon-pencil="$escapetool.xml($services.icon.renderHTML('pencil'))"
          data-icon-trash="$escapetool.xml($services.icon.renderHTML('trash'))"
@@ -405,10 +301,13 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
         <h4 class="modal-title" id="glossaryModalLabel">#if($canManage)Ajouter un terme#else Proposer un acronyme#end</h4>
       </div>
 
-      <form id="glossaryCreateForm" method="post" action="">
+      <form id="glossaryCreateForm" method="post" action="$escapetool.xml($!urlGlossaireCommande)">
         #if($canManage)
-        <input type="hidden" name="action" value="checkAndCreate">
+        <input type="hidden" name="action" value="create">
+        #else
+        <input type="hidden" name="action" value="propose">
         #end
+        <input type="hidden" name="xpage" value="plain">
         <input type="hidden" name="form_token" value="$services.csrf.getToken()">
 
         <div class="modal-body">
