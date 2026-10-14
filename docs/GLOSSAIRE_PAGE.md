@@ -2,6 +2,8 @@
 
 Les fichiers du dépôt sont à copier dans les pages et extensions XWiki correspondantes. Une modification sur GitHub ne met pas automatiquement à jour le wiki.
 
+Le circuit de proposition, le groupe de validation et ses droits sont décrits dans [GLOSSAIRE_VALIDATION.md](GLOSSAIRE_VALIDATION.md).
+
 ## Fichiers à mettre à jour ensemble
 
 | Fichier du dépôt, sous `xwiki/TestPage/PAGE/Glossaire/` | Destination XWiki |
@@ -35,19 +37,20 @@ Dans XWiki, vérifier chaque ancienne page avant de la supprimer : une redirecti
 
 ## Tests automatisés
 
-Prérequis : Node.js, Playwright avec Chromium, Java 17 ou supérieur, et les JAR Velocity Engine 2.3, Commons Lang 3.17.0 et SLF4J API 1.7.36 dans un répertoire de test.
+Prérequis : Node.js, Playwright avec Chromium, Java 17 ou supérieur, et les JAR Velocity Engine 2.3, Commons Lang 3.11 et SLF4J API 1.7.30 dans un répertoire de test.
 
 ```sh
 node tests/Accueil-Tracking.test.js
 java -cp '/chemin/vers/jars/*' tests/GlossaireVelocityTest.java /tmp/glossaire-rendered.html
 node tests/Glossaire.browser.test.js /tmp/glossaire-rendered.html
+node tests/GlossaireWorkflow.browser.test.js /tmp
 ```
 
 Le test Velocity exécute les templates du dépôt avec une API XWiki simulée : renommage suivi de suppression, collisions, échecs de jobs, droits, CSRF, créations invalides, saturation des noms, échappement HTML et import avec doublons. Le test navigateur utilise ce HTML et les véritables extensions : barre sur ordinateur/mobile, mise à jour des références, filtres, erreurs HTTP, double enregistrement, import, suppression multiple et pagination.
 
 Le test d'accueil a été adapté à la version actuelle du suivi (`v5.4`, XMLHttpRequest). Il vérifie le suivi, la limitation des comptages répétés, l'exclusion des prévisualisations et l'affichage de l'historique récent.
 
-Résultat de la validation : **21 vérifications Velocity, 17 vérifications navigateur et test d'accueil réussis** ; les **16 fichiers JavaScript** de `xwiki/` et `preview/` passent la vérification de syntaxe. Les captures du navigateur sont enregistrées à côté du HTML généré.
+Résultat de la validation : **74 vérifications Velocity, 17 vérifications navigateur historiques, 28 vérifications navigateur du circuit de validation et test d'accueil réussis** ; les **17 fichiers JavaScript** de `xwiki/` et `preview/` passent la vérification de syntaxe. Les captures du navigateur sont enregistrées à côté du HTML généré.
 
 Ces tests ne remplacent pas un essai sur l'instance XWiki, notamment pour ses droits et extensions installées.
 

@@ -334,6 +334,7 @@ function fixedRenderExcelImportPreview(fileName) {
 }
 
 async function fixedReadGlossaryExcelFile(file) {
+    if (!canManageGlossary()) return;
     var xlsxLibrary;
 
     try {
@@ -394,7 +395,7 @@ async function fixedReadGlossaryExcelFile(file) {
 }
 
 function createExcelImportUi() {
-    if (document.getElementById('excelGlossaryModal')) return;
+    if (document.getElementById('excelExampleGlossaryModal')) return;
 
     var eyeIcon = getGlossaryXWikiIcon('eye');
     var downloadIcon = getGlossaryXWikiIcon('download');
@@ -405,11 +406,11 @@ function createExcelImportUi() {
         toolbarRight.innerHTML =
             '<button type="button" id="btnExcelExampleGlossary" class="btn btn-default">' +
                 eyeIcon + ' Voir un exemple Excel' +
-            '</button>' +
+            '</button>' + (canManageGlossary() ?
             '<input type="file" id="excelGlossaryFileInput" accept=".xlsx,.xls,.xlsm,.xlsb" class="glossary-hidden-file-input">' +
             '<button type="button" id="btnImportExcelGlossary" class="btn btn-default">' +
                 downloadIcon + ' Importer un Excel' +
-            '</button>';
+            '</button>' : '');
     }
 
     var exampleModal = document.createElement('div');
@@ -446,6 +447,14 @@ function createExcelImportUi() {
           '</div>' +
         '</div>';
     document.body.appendChild(exampleModal.firstChild);
+
+    var exampleButton = document.getElementById('btnExcelExampleGlossary');
+    if (exampleButton) {
+        exampleButton.addEventListener('click', function() {
+            jQuery('#excelExampleGlossaryModal').modal('show');
+        });
+    }
+    if (!canManageGlossary()) return;
 
     var modal = document.createElement('div');
     modal.innerHTML =
@@ -496,13 +505,6 @@ function createExcelImportUi() {
 
     document.body.appendChild(modal.firstChild);
 
-    var exampleButton = document.getElementById('btnExcelExampleGlossary');
-    if (exampleButton) {
-        exampleButton.addEventListener('click', function() {
-            jQuery('#excelExampleGlossaryModal').modal('show');
-        });
-    }
-
     var importButton = document.getElementById('btnImportExcelGlossary');
     var fileInput = document.getElementById('excelGlossaryFileInput');
     if (importButton && fileInput) {
@@ -527,8 +529,13 @@ function createExcelImportUi() {
 }
 
 function appendImportedGlossaryRow(data, fullRef, docName) {
+    if (!canManageGlossary()) return;
     var tbody = document.querySelector('#mainGlossaryTable tbody');
     if (!tbody) return;
+    var alreadyDisplayed = Array.from(tbody.querySelectorAll('.main-term-row')).some(function(row) {
+        return row.getAttribute('data-full-ref') === fullRef;
+    });
+    if (alreadyDisplayed) return;
 
     var tr = document.createElement('tr');
     tr.className = 'main-term-row';
@@ -577,6 +584,7 @@ function appendImportedGlossaryRow(data, fullRef, docName) {
 }
 
 function ensureGlossaryBulkSelectCell(row) {
+    if (!canManageGlossary()) return;
     if (!row || row.querySelector('.glossary-row-select')) return;
 
     var cell = document.createElement('td');
@@ -637,6 +645,7 @@ function toggleSelectVisibleGlossaryRows(masterCheckbox) {
 }
 
 function setGlossaryBulkDeleteMode(enabled) {
+    if (!canManageGlossary()) return;
     glossaryBulkDeleteMode = !!enabled;
     var table = document.getElementById('mainGlossaryTable');
     var modeButton = document.getElementById('btnBulkDeleteModeGlossary');
@@ -682,6 +691,7 @@ function removeGlossaryPopupRowByReference(fullRef) {
 }
 
 async function executeBulkGlossaryDelete() {
+    if (!canManageGlossary()) return;
     var selectedRows = getSelectedGlossaryRows();
     if (!selectedRows.length) return;
 
@@ -756,6 +766,7 @@ async function executeBulkGlossaryDelete() {
 }
 
 function setupGlossaryBulkDeleteUi() {
+    if (!canManageGlossary()) return;
     var table = document.getElementById('mainGlossaryTable');
     if (!table || document.getElementById('btnBulkDeleteModeGlossary')) return;
 
@@ -850,6 +861,12 @@ function bindGlossaryPageEvents() {
         var button = event.target.closest('button');
         if (!button) return;
 
+        if (button.classList.contains('sort-column-btn')) {
+            toggleColumnSort(button.getAttribute('data-column'), button);
+            return;
+        }
+        if (!canManageGlossary()) return;
+
         if (button.classList.contains('js-edit-row')) {
             toggleEditMode(button, true);
         } else if (button.classList.contains('js-delete-row')) {
@@ -858,8 +875,6 @@ function bindGlossaryPageEvents() {
             saveRowEdition(button);
         } else if (button.classList.contains('js-cancel-row')) {
             toggleEditMode(button, false);
-        } else if (button.classList.contains('sort-column-btn')) {
-            toggleColumnSort(button.getAttribute('data-column'), button);
         }
     });
 

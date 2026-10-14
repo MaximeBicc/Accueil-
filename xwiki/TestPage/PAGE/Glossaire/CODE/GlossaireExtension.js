@@ -24,7 +24,14 @@ function showGlossaryToast(message, isError) {
     }, 6000);
 }
 
+// Le serveur reste la source d'autorisation ; ce contrôle protège aussi l'interface.
+function canManageGlossary() {
+    var table = document.getElementById('mainGlossaryTable');
+    return !!table && table.getAttribute('data-can-manage') === 'true';
+}
+
 function toggleEditMode(button, isEnteringEdit) {
+    if (!canManageGlossary()) return;
     var row = button.closest('.main-term-row');
     var viewElements = row.querySelectorAll('.view-mode, .view-buttons');
     var editElements = row.querySelectorAll('.edit-mode, .edit-buttons');
@@ -177,6 +184,7 @@ function findGlossaryPopupRow(fullRef) {
 
 // 1. ENVOI DU POST POUR SAUVEGARDE (VIA FETCH)
 async function saveRowEdition(button) {
+    if (!canManageGlossary()) return;
     var row = button.closest('.main-term-row');
     if (row.dataset.saving === 'true') return;
     var table = document.getElementById('mainGlossaryTable');
@@ -267,6 +275,7 @@ async function saveRowEdition(button) {
 }
 
 function openDeleteModal(button) {
+    if (!canManageGlossary()) return;
     rowToDelete = button.closest('.main-term-row');
     var acronymText = rowToDelete.querySelector('.main-acronym .view-mode').textContent.trim();
     var labelText = rowToDelete.querySelector('.main-label .view-mode').textContent.trim();
@@ -279,6 +288,7 @@ function openDeleteModal(button) {
 
 // 2. ENVOI DU POST POUR SUPPRESSION (VIA FETCH)
 async function executeRowDelete() {
+    if (!canManageGlossary()) return;
     if (!rowToDelete || document.getElementById('btnConfirmDelete').disabled) return;
 
     var table = document.getElementById('mainGlossaryTable');
@@ -948,6 +958,7 @@ function extractGlossaryServerText(responseText) {
 }
 
 async function executeExcelImport(rows, allowAcronymDuplicates, allowLabelDuplicates) {
+    if (!canManageGlossary()) return;
     var table = document.getElementById('mainGlossaryTable');
     var csrfToken = table.getAttribute('data-csrf');
     var importButton = document.getElementById('btnExcelImportWithOptions');

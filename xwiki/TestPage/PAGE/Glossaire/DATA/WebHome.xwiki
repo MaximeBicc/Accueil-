@@ -4,6 +4,24 @@
 #set($dataSpace = "TestPage.PAGE.Glossaire.DATA")
 #set($dataSpaces = ['TestPage', 'PAGE', 'Glossaire', 'DATA'])
 
+## L'appartenance au groupe est contrôlée pour CHAQUE mutation, même si la
+## requête ne provient pas des boutons de l'interface. Aucun rôle implicite.
+#set($reviewGroup = 'XWiki.GlossaireValidateurs')
+#set($configuration = $xwiki.getDocument('TestPage.PAGE.Glossaire.CODE.Configuration.WebHome'))
+#set($configurationObject = $configuration.getObject('TestPage.PAGE.Glossaire.CODE.glossaireConfigurationClass.WebHome'))
+#if($configurationObject)
+  #set($configuredReviewGroup = "$!configurationObject.getValue('reviewGroup')")
+  #if($configuredReviewGroup != '' && !$configuredReviewGroup.matches('\s*'))
+    #set($reviewGroup = $configuredReviewGroup)
+  #end
+#end
+#set($canReview = false)
+#set($currentUserReference = $xcontext.userReference)
+#if($currentUserReference && $currentUserReference.name != 'XWikiGuest')
+  #set($reviewGroupReference = $services.model.resolveDocument($reviewGroup))
+  #set($canReview = $services.user.group.getGroups($currentUserReference, $reviewGroupReference.wikiReference, true).contains($reviewGroupReference))
+#end
+
 ## Lire explicitement le paramètre POST "action".
 #set($actionParam = $request.getParameter("action"))
 #set($action = "$!actionParam")
@@ -17,6 +35,8 @@
 #set($resultLine = "GLOSSAIRE_ERROR|Cette action nécessite une requête POST")
   #elseif(!$csrfToken || !$services.csrf.isTokenValid($csrfToken))
 #set($resultLine = "GLOSSAIRE_ERROR|Jeton CSRF invalide ou absent")
+  #elseif(!$canReview)
+#set($resultLine = "GLOSSAIRE_ERROR|Seuls les membres du groupe de validation peuvent modifier le glossaire")
 
   ## ========================================================================
   ## MODIFICATION D'UNE LIGNE
@@ -52,6 +72,8 @@
 
         #if($newAcronym == "" || $newAcronym.matches('\s*') || $newLabel.matches('\s*'))
 #set($resultLine = "GLOSSAIRE_ERROR|L'acronyme et le libellé ne peuvent pas être vides")
+        #elseif($newAcronym.length() > 255 || $newLabel.length() > 255)
+#set($resultLine = "GLOSSAIRE_ERROR|L'acronyme et le libellé sont limités à 255 caractères")
         #else
           #set($workingDoc = $targetDoc)
           #set($workingObj = $glossaireObj)
@@ -188,6 +210,9 @@
 
         #if(!$importAcronymRaw || !$importLabelRaw || $importAcronym == "" || $importLabel == "" || $importAcronym.matches('\s*') || $importLabel.matches('\s*'))
           #set($discard = $importLines.add("ROW_ERROR|$i|Données incomplètes"))
+          #set($skippedCount = $skippedCount + 1)
+        #elseif($importAcronym.length() > 255 || $importLabel.length() > 255)
+          #set($discard = $importLines.add("ROW_ERROR|$i|L'acronyme et le libellé sont limités à 255 caractères"))
           #set($skippedCount = $skippedCount + 1)
         #elseif($importAcronym.contains('$') || $importAcronym.contains('{') || $importAcronym.contains('}') || $importAcronym.contains('/'))
           #set($discard = $importLines.add("ROW_ERROR|$i|Nom technique d'acronyme invalide"))

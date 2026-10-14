@@ -1,0 +1,197 @@
+{{velocity output="false"}}
+## À installer dans CODE.GlossaireWorkflow.WebHome, avec un auteur de confiance.
+## Seule la file de propositions est écrite au nom de cet auteur. La publication
+## dans DATA exige les droits du validateur connecté ET son groupe de validation.
+#set($resultLine = '')
+#set($errorMessage = '')
+#set($classPath = 'TestPage.PAGE.Glossaire.CODE.glossaireClass.WebHome')
+#set($proposalClassPath = 'TestPage.PAGE.Glossaire.CODE.glossairePropositionClass.WebHome')
+#set($proposalSpace = 'TestPage.PAGE.Glossaire.PROPOSITIONS')
+#set($proposalSpaces = ['TestPage', 'PAGE', 'Glossaire', 'PROPOSITIONS'])
+#set($dataSpaces = ['TestPage', 'PAGE', 'Glossaire', 'DATA'])
+#set($reviewGroup = 'XWiki.GlossaireValidateurs')
+#set($configuration = $xwiki.getDocument('TestPage.PAGE.Glossaire.CODE.Configuration.WebHome'))
+#set($configurationObject = $configuration.getObject('TestPage.PAGE.Glossaire.CODE.glossaireConfigurationClass.WebHome'))
+#if($configurationObject)
+  #set($configuredReviewGroup = "$!configurationObject.getValue('reviewGroup')")
+  #if($configuredReviewGroup != '' && !$configuredReviewGroup.matches('\s*'))
+    #set($reviewGroup = $configuredReviewGroup)
+  #end
+#end
+#set($currentUserReference = $xcontext.userReference)
+#set($isAuthenticated = $currentUserReference && $currentUserReference.name != 'XWikiGuest')
+#set($canReview = false)
+#if($isAuthenticated)
+  #set($reviewGroupReference = $services.model.resolveDocument($reviewGroup))
+  #set($canReview = $services.user.group.getGroups($currentUserReference, $reviewGroupReference.wikiReference, true).contains($reviewGroupReference))
+#end
+
+## Validation commune aux propositions et à leur éventuelle correction.
+## Les noms techniques sont indépendants du texte saisi, et restent stables.
+#macro(validateGlossaireProposal)
+  #if($acronym == '' || $label == '' || $acronym.matches('\s*') || $label.matches('\s*'))
+    #set($errorMessage = "L'acronyme et le libellé ne peuvent pas être vides")
+  #elseif($acronym.length() > 255 || $label.length() > 255)
+    #set($errorMessage = "L'acronyme et le libellé sont limités à 255 caractères")
+  #elseif($acronym.contains('$') || $acronym.contains('{') || $acronym.contains('}') || $acronym.contains('/'))
+    #set($errorMessage = "L'acronyme contient un caractère incompatible avec le renommage des fiches")
+  #end
+#end
+
+#set($action = "$!request.getParameter('action')")
+#set($csrfToken = $request.getParameter('form_token'))
+#if($action != 'propose' && $action != 'approve' && $action != 'reject')
+  #set($resultLine = 'GLOSSAIRE_READY')
+#elseif($request.getMethod() != 'POST')
+  #set($errorMessage = 'Cette action nécessite une requête POST')
+#elseif(!$csrfToken || !$services.csrf.isTokenValid($csrfToken))
+  #set($errorMessage = 'Jeton CSRF invalide ou absent')
+#elseif(!$isAuthenticated)
+  #set($errorMessage = 'Connectez-vous pour proposer un acronyme')
+#elseif($action != 'propose' && !$canReview)
+  #set($errorMessage = 'Seuls les membres du groupe de validation peuvent traiter les propositions')
+#else
+  #set($currentUser = $services.model.serialize($currentUserReference))
+  #set($acronym = "$!request.getParameter('acronym')")
+  #set($label = "$!request.getParameter('label')")
+  #set($definition = "$!request.getParameter('definition')")
+  #set($comment = "$!request.getParameter('comment')")
+
+  #if($action == 'propose')
+    #validateGlossaireProposal()
+    #if($errorMessage == '')
+      #set($proposalName = $xwiki.getUniquePageName($proposalSpace))
+      #set($proposalReference = $services.model.createDocumentReference('', $proposalSpaces, $proposalName))
+      #set($proposalDoc = $xwiki.getDocumentAsAuthor($proposalReference))
+      #if(!$proposalDoc)
+        #set($errorMessage = "La file de propositions n'est pas accessible à l'auteur du service")
+      #elseif(!$proposalDoc.isNew())
+        #set($errorMessage = 'Ce nom de proposition est déjà utilisé ; réessayez')
+      #else
+        #set($proposalObject = $proposalDoc.newObject($proposalClassPath))
+        #if(!$proposalObject)
+          #set($errorMessage = "La classe des propositions n'est pas installée")
+        #else
+          #set($discard = $proposalObject.set('acronyme', $acronym))
+          #set($discard = $proposalObject.set('libelle', $label))
+          #set($discard = $proposalObject.set('definition', $definition))
+          #set($discard = $proposalObject.set('author', $currentUser))
+          #set($discard = $proposalObject.set('submittedAt', $datetool.date))
+          #set($discard = $proposalObject.set('status', 'pending'))
+          #set($discard = $proposalObject.set('reviewComment', ''))
+          #set($discard = $proposalObject.set('reviewer', ''))
+          #set($discard = $proposalObject.set('publishedRef', ''))
+          #set($discard = $proposalDoc.setTitle($acronym))
+          #set($discard = $proposalDoc.saveAsAuthor('Proposition via interface Glossaire', true))
+          #set($proposalRef = $proposalDoc.getFullName())
+          #set($resultLine = "GLOSSAIRE_PROPOSED|$escapetool.url($proposalRef)")
+        #end
+      #end
+    #end
+  #else
+    ## Ne jamais lire au nom de l'auteur une référence arbitraire fournie par
+    ## le client : elle doit désigner une fiche immédiate de PROPOSITIONS.
+    #set($targetRef = "$!request.getParameter('targetRef')")
+    #set($expectedVersion = "$!request.getParameter('expectedVersion')")
+    #set($proposalRootReference = $services.model.createDocumentReference('', $proposalSpaces, 'WebHome'))
+    #set($proposalReference = $services.model.resolveDocument($targetRef))
+    #if($targetRef == '' || !$proposalReference.getParent().equals($proposalRootReference.getParent()) || $proposalReference.name == 'WebHome' || !$proposalReference.name.matches('[A-Za-z0-9_]+'))
+      #set($errorMessage = 'La référence ne correspond pas à une proposition du glossaire')
+    #else
+      #set($proposalDoc = $xwiki.getDocumentAsAuthor($proposalReference))
+      #if(!$proposalDoc || $proposalDoc.isNew())
+        #set($errorMessage = 'Proposition introuvable ou inaccessible au service')
+      #else
+        #set($proposalObject = $proposalDoc.getObject($proposalClassPath))
+        #if(!$proposalObject)
+          #set($errorMessage = 'Cette page ne contient pas de proposition du glossaire')
+        #else
+          #set($status = "$!proposalObject.getValue('status')")
+          #if($status != 'pending')
+            #set($errorMessage = 'Cette proposition a déjà été traitée ; rechargez la liste')
+          #elseif($expectedVersion == '' || $expectedVersion != "$!proposalDoc.version")
+            #set($errorMessage = 'Cette proposition a changé ; rechargez la liste avant de la traiter')
+          #elseif($action == 'reject' && ($comment == '' || $comment.matches('\s*')))
+            #set($errorMessage = 'Indiquez un motif pour refuser la proposition')
+          #else
+            #set($proposalRef = $proposalDoc.getFullName())
+            #set($publishedName = "Proposition_$proposalDoc.name")
+            #set($publishedReference = $services.model.createDocumentReference('', $dataSpaces, $publishedName))
+            ## L'identifiant provient du serveur et ne contient que des lettres,
+            ## chiffres ou soulignés ; aucune saisie n'est exécutée en XWiki.
+            #set($publicationMarker = "{{html}}<!-- glossary-proposal:$proposalDoc.name -->{{/html}}")
+            #set($publishedDoc = $xwiki.getDocument($publishedReference))
+            #set($publishedObject = false)
+            #if(!$publishedDoc.isNew())
+              #set($publishedObject = $publishedDoc.getObject($classPath))
+            #end
+            #set($isOwnPublication = !$publishedDoc.isNew() && $publishedObject && $publishedDoc.content == $publicationMarker)
+
+            #if($action == 'reject')
+              ## Une publication réussie suivie d'un échec de sauvegarde de la
+              ## file se récupère par Valider ; Refuser ne doit pas la masquer.
+              #if($isOwnPublication)
+                #set($errorMessage = 'Cette proposition est déjà publiée ; validez-la pour terminer son traitement')
+              #else
+                #set($discard = $proposalObject.set('status', 'rejected'))
+                #set($discard = $proposalObject.set('reviewComment', $comment))
+                #set($discard = $proposalObject.set('reviewer', $currentUser))
+                #set($discard = $proposalObject.set('reviewedAt', $datetool.date))
+                #set($discard = $proposalDoc.saveAsAuthor('Refus de proposition via interface Glossaire', true))
+                #set($resultLine = 'GLOSSAIRE_REJECTED')
+              #end
+            #else
+              #validateGlossaireProposal()
+              #if($errorMessage == '' && !$publishedDoc.isNew() && !$isOwnPublication)
+                #set($errorMessage = 'La page de destination existe déjà et ne correspond pas à cette proposition')
+              #elseif($errorMessage == '' && !$xwiki.hasAccessLevel('edit', $xcontext.user, $services.model.serialize($publishedReference)))
+                #set($errorMessage = 'Droits de publication insuffisants dans le glossaire')
+              #elseif($errorMessage == '')
+                #if(!$isOwnPublication)
+                  #set($publishedObject = $publishedDoc.newObject($classPath))
+                  #if(!$publishedObject)
+                    #set($errorMessage = "La classe du glossaire n'est pas installée")
+                  #else
+                    #set($discard = $publishedObject.set('acronyme', $acronym))
+                    #set($discard = $publishedObject.set('libelle', $label))
+                    #set($discard = $publishedObject.set('definition', $definition))
+                    #set($discard = $publishedDoc.setTitle($acronym))
+                    #set($discard = $publishedDoc.setContent($publicationMarker))
+                    #set($discard = $publishedDoc.save('Validation de proposition via interface Glossaire', true))
+                  #end
+                #end
+                #if($errorMessage == '')
+                  ## La destination est stable pour toutes les tentatives de
+                  ## validation de cette proposition : aucune page en doublon.
+                  ## Si DATA était déjà enregistrée, conserver son contenu.
+                  #set($publishedRef = $publishedDoc.getFullName())
+                  #set($publishedAcronym = "$!publishedObject.getValue('acronyme')")
+                  #set($publishedLabel = "$!publishedObject.getValue('libelle')")
+                  #set($publishedDefinition = "$!publishedObject.getValue('definition')")
+                  #set($discard = $proposalObject.set('acronyme', $publishedAcronym))
+                  #set($discard = $proposalObject.set('libelle', $publishedLabel))
+                  #set($discard = $proposalObject.set('definition', $publishedDefinition))
+                  #set($discard = $proposalObject.set('status', 'approved'))
+                  #set($discard = $proposalObject.set('reviewComment', $comment))
+                  #set($discard = $proposalObject.set('reviewer', $currentUser))
+                  #set($discard = $proposalObject.set('reviewedAt', $datetool.date))
+                  #set($discard = $proposalObject.set('publishedRef', $publishedRef))
+                  #set($discard = $proposalDoc.saveAsAuthor('Validation de proposition via interface Glossaire', true))
+                  #set($resultLine = "GLOSSAIRE_APPROVED|$escapetool.url($publishedRef)|$escapetool.url($publishedName)|$escapetool.url($publishedAcronym)|$escapetool.url($publishedLabel)|$escapetool.url($publishedDefinition)")
+                #end
+              #end
+            #end
+          #end
+        #end
+      #end
+    #end
+  #end
+#end
+#if($errorMessage != '')
+  #set($resultLine = "GLOSSAIRE_ERROR|$escapetool.url($errorMessage)")
+#end
+#set($discard = $response.setContentType('text/plain; charset=UTF-8'))
+$response.writer.println($resultLine)
+$response.writer.flush()
+$xcontext.setFinished(true)
+{{/velocity}}

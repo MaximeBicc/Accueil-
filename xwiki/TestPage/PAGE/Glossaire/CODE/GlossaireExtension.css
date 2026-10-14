@@ -139,6 +139,7 @@
 .glossary-toolbar-right {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 8px;
 }
 
@@ -148,6 +149,70 @@
 
 .glossary-toolbar-button {
     margin-left: 0;
+}
+
+.glossary-proposals-button {
+    position: relative;
+    margin-right: 9px;
+}
+
+.glossary-proposals-badge {
+    position: absolute;
+    top: -10px;
+    right: -10px;
+    min-width: 22px;
+    height: 22px;
+    padding: 2px 6px;
+    border: 2px solid #fff;
+    border-radius: 12px;
+    background: #c9302c;
+    color: #fff;
+    font-size: 12px;
+    font-weight: bold;
+    line-height: 14px;
+    text-align: center;
+}
+
+.glossary-proposal-card,
+.glossary-proposal-status-card {
+    margin: 0 0 16px;
+    padding: 18px;
+    border: 1px solid #dbe4ef;
+    border-radius: 8px;
+    background: #fff;
+    overflow-wrap: anywhere;
+}
+
+.glossary-proposal-card h5,
+.glossary-proposal-status-card h3 {
+    margin: 0 0 9px;
+    color: #0d2d73;
+    font-size: 17px;
+    font-weight: 600;
+}
+
+.glossary-proposal-meta {
+    font-size: 12px;
+}
+
+.glossary-proposal-comment {
+    white-space: pre-wrap;
+}
+
+.glossary-proposal-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.glossary-own-proposals {
+    margin-top: 32px;
+}
+
+.glossary-own-proposals h2 {
+    margin-bottom: 18px;
+    color: #0d2d73;
+    font-size: 24px;
 }
 
 .glossary-hidden-file-input,
