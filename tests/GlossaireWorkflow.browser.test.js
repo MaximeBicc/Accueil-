@@ -163,7 +163,7 @@ function check(value, expected, label) { assert.deepEqual(value, expected, label
     check(await reader.evaluate(() => requests[0].values.action), 'propose', 'envoi par le circuit de proposition');
     check(await reader.evaluate(() => requests[0].values.form_token), 'test-token', 'jeton CSRF envoyé');
     check(await reader.locator('.main-term-row').count(), initialRows, 'proposition absente du glossaire public');
-    check(await reader.locator('#glossaryOwnProposals').innerText().then(text => text.includes('API|+% — <Libellé proposé>')), true, 'proposition ajoutée au suivi avec texte littéral');
+    check(await reader.locator('#glossaryOwnProposals').innerText().then(text => text.includes('API|+% : <Libellé proposé>')), true, 'proposition ajoutée au suivi avec texte littéral');
     check(await reader.locator('#glossaryCreateForm [name="acronyme"]').inputValue(), '', 'formulaire vidé après succès');
     await reader.evaluate(async () => {
       reply = { ok: true, text: 'GLOSSAIRE_ERROR|' + encodeURIComponent('Accès refusé') };
@@ -209,7 +209,7 @@ function check(value, expected, label) { assert.deepEqual(value, expected, label
       requests.at(-1).values.label_0, requests.at(-1).values.form_token, requests.at(-1).values.allowAcronymDuplicates, requests.at(-1).values.allowLabelDuplicates]),
       ['import', '2', 'IMP|+%', '<Libellé importé>', 'test-token', 'false', 'false'], 'contributeur : lignes importées avec jeton CSRF et options de doublons');
     check(await reader.locator('.glossary-proposal-status-card').count(), ownCardsBeforeImport + 2, 'import contributeur : une proposition de suivi par ligne');
-    check(await reader.locator('#glossaryOwnProposals').innerText().then(text => text.includes('IMP|+% — <Libellé importé>') && text.includes('DEUX — Deuxième')), true, 'import contributeur : suivi des deux lignes avec texte littéral');
+    check(await reader.locator('#glossaryOwnProposals').innerText().then(text => text.includes('IMP|+% : <Libellé importé>') && text.includes('DEUX : Deuxième')), true, 'import contributeur : suivi des deux lignes avec texte littéral');
     check(await reader.locator('.main-term-row').count(), initialRows, 'import contributeur : aucune ligne ajoutée au tableau public');
     check(await reader.locator('.js-edit-row,.js-delete-row,#btnBulkDeleteModeGlossary,#btnReviewGlossaryProposals').count(), 0, 'import contributeur : aucune commande de modification ou validation ajoutée');
     check(await reader.locator('#glossaryToast').innerText().then(text => text.includes('2 propositions') && text.includes('validateurs')), true, 'import contributeur : confirmation de l’envoi pour validation');

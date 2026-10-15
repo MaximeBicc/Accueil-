@@ -15,7 +15,6 @@ Un import au niveau Proposition crée **une demande par ligne acceptée**, sans 
 
 - **Valider** permet de corriger les champs, publie l'acronyme dans DATA puis retire la proposition de PROPOSITIONS.
 - **Refuser** exige un motif et déplace la proposition dans CORBEILLE.
-- **Supprimer une proposition** la déplace également dans CORBEILLE.
 - **Revalider** depuis la corbeille publie les champs corrigés puis retire la proposition de CORBEILLE.
 
 Le proposant consulte uniquement ses propres demandes et les motifs de refus. Le niveau Validation permet de traiter toutes les demandes et d'ouvrir la corbeille.
@@ -127,7 +126,7 @@ Une destination déterministe par proposition permet de reprendre une publicatio
 2. Enregistrer les paramètres, retirer l'accès à un groupe puis vérifier aussi une URL de fiche DATA et un accès brut. Garder une session administrateur pour régler les droits.
 3. Proposer manuellement et par import : une demande par ligne acceptée, aucune fiche publiée avant validation.
 4. Corriger et valider : une seule fiche publiée, plus de proposition dans PROPOSITIONS.
-5. Refuser avec motif, supprimer une autre proposition puis revalider dans la corbeille ; vérifier les auteurs, champs et compteurs après rechargement.
+5. Refuser avec motif puis revalider dans la corbeille ; vérifier les auteurs, champs et compteurs après rechargement.
 6. Avec des données de test de plus de sept jours, ouvrir le glossaire et vérifier le nettoyage et le refus de revalidation.
 7. Modifier plusieurs fois un acronyme et vérifier son URL fixe. Essayer aussi la conversion d'une ancienne fiche, les filtres, doublons et suppressions multiples.
 

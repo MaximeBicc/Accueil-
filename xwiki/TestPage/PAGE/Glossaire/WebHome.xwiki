@@ -606,7 +606,7 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
           <form class="glossary-proposal-card" data-proposal-ref="$escapetool.xml($proposalDoc.fullName)" data-expected-version="$escapetool.xml($proposalDoc.version)"
                 data-proposal-author="$escapetool.xml($!proposalObject.getValue('author'))"
                 data-proposal-submitted-at="$escapetool.xml($!proposalObject.getValue('submittedAt'))">
-            <h5>$escapetool.xml($!proposalObject.getValue('acronyme')) — $escapetool.xml($!proposalObject.getValue('libelle'))</h5>
+            <h5>$escapetool.xml($!proposalObject.getValue('acronyme')) : $escapetool.xml($!proposalObject.getValue('libelle'))</h5>
             <p class="text-muted glossary-proposal-meta">Proposé par $escapetool.xml($!proposalObject.getValue('author')) le $escapetool.xml($!proposalObject.getValue('submittedAt'))</p>
             <div class="form-group">
               <label for="proposalAcronym${foreach.count}">Acronyme ou sigle</label>
@@ -628,7 +628,6 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
             <div class="glossary-proposal-actions">
               <button type="button" class="btn btn-success" data-review-action="approve">Valider et publier</button>
               <button type="button" class="btn btn-danger" data-review-action="reject">Refuser</button>
-              <button type="button" class="btn btn-default" data-review-action="trash">Mettre à la corbeille</button>
             </div>
           </form>
           #end
@@ -665,7 +664,7 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
             #end
           <form class="glossary-trash-card" data-proposal-ref="$escapetool.xml($trashDoc.fullName)" data-expected-version="$escapetool.xml($trashDoc.version)"
                 data-expires-at="$expiresMillis" data-deleted-at="$deletedAt.time" data-proposal-author="$escapetool.xml($!trashObject.getValue('author'))">
-            <h5>$escapetool.xml($!trashObject.getValue('acronyme')) — $escapetool.xml($!trashObject.getValue('libelle'))</h5>
+            <h5>$escapetool.xml($!trashObject.getValue('acronyme')) : $escapetool.xml($!trashObject.getValue('libelle'))</h5>
             <p><strong>$escapetool.xml($trashStatusLabel)</strong></p>
             <p class="text-muted glossary-proposal-meta">Proposé par $escapetool.xml($!trashObject.getValue('author')) le $escapetool.xml($!trashObject.getValue('submittedAt'))</p>
             <p class="text-muted glossary-proposal-meta">Mise à la corbeille le $escapetool.xml($deletedAt). <span class="glossary-trash-expiration" data-expires-at="$expiresMillis">Suppression après 7 jours.</span></p>
@@ -753,9 +752,9 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
                     <label for="glossaryGroupLevel$settingRowIndex">$escapetool.xml($settingGroup)</label>
                     <input type="hidden" name="group_$settingRowIndex" value="$escapetool.xml($settingGroup)">
                     #if($settingGroup == 'XWiki.XWikiGuest')
-                    <span class="text-muted"> — visiteurs non connectés</span>
+                    <span class="text-muted"> (visiteurs non connectés)</span>
                     #elseif($settingGroupMissing)
-                    <span class="text-warning glossary-missing-group"> — Groupe introuvable</span>
+                    <span class="text-warning glossary-missing-group"> (groupe introuvable)</span>
                     #end
                   </td>
                   <td>
@@ -810,9 +809,9 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
       #if($proposalStatus == 'approved')
         #set($proposalStatusLabel = "Validée et publiée")
       #elseif($proposalStatus == 'rejected')
-        #set($proposalStatusLabel = "Refusée — dans la corbeille")
+        #set($proposalStatusLabel = "Refusée (dans la corbeille)")
       #elseif($proposalStatus == 'trashed')
-        #set($proposalStatusLabel = "Retirée — dans la corbeille")
+        #set($proposalStatusLabel = "Retirée (dans la corbeille)")
       #end
     <article class="glossary-proposal-status-card"
              data-proposal-ref="$escapetool.xml($proposalDoc.fullName)"
@@ -820,7 +819,7 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
              data-expires-at="$ownExpiresAt"
              data-proposal-acronym="$escapetool.xml($!proposalObject.getValue('acronyme'))"
              data-proposal-label="$escapetool.xml($!proposalObject.getValue('libelle'))">
-      <h3>$escapetool.xml($!proposalObject.getValue('acronyme')) — $escapetool.xml($!proposalObject.getValue('libelle'))</h3>
+      <h3>$escapetool.xml($!proposalObject.getValue('acronyme')) : $escapetool.xml($!proposalObject.getValue('libelle'))</h3>
       <p class="glossary-proposal-meta text-muted">Envoyée le $escapetool.xml($!proposalObject.getValue('submittedAt'))</p>
       <p><strong>$escapetool.xml($proposalStatusLabel)</strong></p>
       #if("$!proposalObject.getValue('reviewComment')" != "")

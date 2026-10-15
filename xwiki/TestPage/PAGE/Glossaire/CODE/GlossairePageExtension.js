@@ -1018,14 +1018,14 @@ function appendOwnGlossaryProposal(values, reference, state) {
     card.setAttribute('data-proposal-label', values.label);
     if (state.expiresAt) card.setAttribute('data-expires-at', String(state.expiresAt));
     var title = document.createElement('h3');
-    title.textContent = values.acronym + ' — ' + values.label;
+    title.textContent = values.acronym + ' : ' + values.label;
     var date = document.createElement('p');
     date.className = 'glossary-proposal-meta text-muted';
     date.textContent = values.submittedAt ? 'Envoyée le ' + values.submittedAt : 'Proposition envoyée à l’instant';
     var status = document.createElement('p');
     var label = document.createElement('strong');
-    label.textContent = proposalStatus === 'rejected' ? 'Refusée — dans la corbeille' :
-        (proposalStatus === 'trashed' ? 'Retirée — dans la corbeille' : 'En attente de validation');
+    label.textContent = proposalStatus === 'rejected' ? 'Refusée (dans la corbeille)' :
+        (proposalStatus === 'trashed' ? 'Retirée (dans la corbeille)' : 'En attente de validation');
     status.appendChild(label);
     card.appendChild(title);
     card.appendChild(date);
@@ -1138,7 +1138,7 @@ function appendGlossaryTrashProposal(values, reference, version, deletedMillis, 
           '<textarea name="comment" class="form-control" rows="2"></textarea></div>' +
         '<p class="glossary-proposal-feedback text-danger is-hidden" role="alert"></p>' +
         '<button type="button" class="btn btn-success" data-review-action="restore">Revalider et publier</button>';
-    card.querySelector('h5').textContent = values.acronym + ' — ' + values.label;
+    card.querySelector('h5').textContent = values.acronym + ' : ' + values.label;
     card.querySelector('.glossary-trash-status').textContent = status === 'rejected' ? 'Proposition refusée' : 'Proposition retirée';
     card.querySelector('.glossary-trash-author').textContent = 'Proposé par ' + (values.author || '') +
         (values.submittedAt ? ' le ' + values.submittedAt : '');

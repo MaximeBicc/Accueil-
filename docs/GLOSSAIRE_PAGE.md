@@ -23,7 +23,7 @@ La page charge explicitement ses extensions. Si les JavaScript sont parsés par 
 - La conversion des anciennes adresses est disponible manuellement dans Paramètres ; elle met à jour les liens internes sans redirection. Les anciennes fiches non converties restent modifiables avec leur référence actuelle.
 - Les groupes reçoivent quatre niveaux cumulatifs : Lecture, Proposition, Ajout direct et Validation. Les deux niveaux supérieurs peuvent modifier et supprimer les acronymes publiés. Paramètres reste réservé aux administrateurs du wiki.
 - L'import crée une proposition par ligne au niveau Proposition et publie directement à partir du niveau Ajout direct. Aperçu, corrections et options de doublons sont conservés.
-- Une validation publie puis retire la proposition. Refus et suppression de proposition alimentent CORBEILLE, avec revalidation pendant sept jours. Les propositions expirées sont nettoyées à l'ouverture du glossaire.
+- Une validation publie puis retire la proposition. Un refus l'envoie dans CORBEILLE, avec revalidation pendant sept jours. Les propositions expirées sont nettoyées à l'ouverture du glossaire.
 - Les décisions utilisent une version attendue ; les références cibles et les permissions sont vérifiées côté serveur. Les auteurs et dates proviennent du serveur.
 - Filtres, tri, pagination et tableau de vérification sont recalculés après une modification. Les doubles clics ne lancent pas deux sauvegardes concurrentes.
 - Les références et textes spéciaux sont encodés et échappés. Les noms `constructor`, `toString` et `__proto__` ne sont pas traités comme des doublons Excel.
@@ -55,5 +55,5 @@ Validation de cette version : **266 contrôles serveur**, exécutés avec Veloci
 1. Ajouter un terme puis changer plusieurs fois son acronyme : une fiche et une URL fixe dans DATA.
 2. Convertir une ancienne fiche via Paramètres, vérifier ses liens internes puis la modifier et la supprimer.
 3. Tester les quatre niveaux et les requêtes directes avec un compte non autorisé ; vérifier également l'absence d'accès aux URL de données quand Voir est retiré.
-4. Proposer, refuser, supprimer une proposition, revalider depuis la corbeille puis vérifier le nettoyage des données expirées.
+4. Proposer, refuser et revalider depuis la corbeille puis vérifier le nettoyage des données expirées.
 5. Essayer l'import avec doublons, les filtres et la suppression multiple, puis vérifier la barre du titre et les formulaires sur mobile.

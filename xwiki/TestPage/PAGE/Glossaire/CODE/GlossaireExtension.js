@@ -895,7 +895,7 @@ function renderExcelImportPreview(fileName) {
         columnDescription = 'Aucune entête complète reconnue : les colonnes 1, 2 et 3 sont utilisées dans cet ordre.';
     }
 
-    info.textContent = fileName + ' — feuille « ' + excelImportSheetName + ' » — ' + columnDescription;
+    info.textContent = fileName + ', feuille « ' + excelImportSheetName + ' ». ' + columnDescription;
 
     var duplicateCount = 0;
     var invalidCount = 0;
