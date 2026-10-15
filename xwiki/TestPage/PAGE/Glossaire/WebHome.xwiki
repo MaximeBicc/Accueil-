@@ -710,9 +710,18 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
         <button type="button" class="close" data-dismiss="modal" aria-label="Fermer" title="Fermer">$services.icon.renderHTML('cross')</button>
         <h4 class="modal-title" id="glossarySettingsTitle">Paramètres du glossaire</h4>
       </div>
-      <form id="glossarySettingsForm" data-expected-version="$escapetool.xml($configurationVersion)">
+      <form id="glossarySettingsForm" method="post" action="$escapetool.xml($!urlGlossaireData)" data-expected-version="$escapetool.xml($configurationVersion)">
+        <input type="hidden" name="action" value="settings">
+        <input type="hidden" name="xpage" value="plain">
+        <input type="hidden" name="form_token" value="$escapetool.xml($services.csrf.getToken())">
+        <input type="hidden" name="expectedVersion" value="$escapetool.xml($configurationVersion)">
+        <input type="hidden" name="settingsForm" value="true">
+        <input type="hidden" name="groupCount" value="$settingsGroups.size()">
         <div class="modal-body">
           <p>Les niveaux sont cumulatifs : un validateur peut aussi ajouter, proposer et consulter. L'ajout direct permet de modifier et supprimer les acronymes publiés. Les membres de plusieurs groupes reçoivent le niveau le plus élevé.</p>
+          #if($configurationDoc && !$configurationObject)
+          <p class="alert alert-info glossary-settings-first-use">La configuration sera créée automatiquement lors du premier enregistrement. Aucun objet n'est à ajouter manuellement.</p>
+          #end
           <div class="table-responsive">
             <table class="table table-striped table-bordered glossary-permissions-table">
               <thead><tr><th>Groupe XWiki</th><th>Niveau d'autorisation</th></tr></thead>
@@ -726,15 +735,31 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
                       #set($settingLevel = $level)
                     #end
                   #end
+                  #set($settingGroupMissing = false)
+                  #if($settingGroup != 'XWiki.XWikiGuest')
+                    #set($settingGroupDoc = false)
+                    #set($settingGroupObject = false)
+                    #set($settingGroupDoc = $xwiki.getDocument($services.model.resolveDocument($settingGroup)))
+                    #if($settingGroupDoc && !$settingGroupDoc.isNew())
+                      #set($settingGroupObject = $settingGroupDoc.getObject('XWiki.XWikiGroups'))
+                    #end
+                    #if(!$settingGroupObject)
+                      #set($settingGroupMissing = true)
+                      #set($settingLevel = 0)
+                    #end
+                  #end
                 <tr class="glossary-permission-row" data-group-ref="$escapetool.xml($settingGroup)">
                   <td>
                     <label for="glossaryGroupLevel$settingRowIndex">$escapetool.xml($settingGroup)</label>
+                    <input type="hidden" name="group_$settingRowIndex" value="$escapetool.xml($settingGroup)">
                     #if($settingGroup == 'XWiki.XWikiGuest')
                     <span class="text-muted"> — visiteurs non connectés</span>
+                    #elseif($settingGroupMissing)
+                    <span class="text-warning glossary-missing-group"> — Groupe introuvable</span>
                     #end
                   </td>
                   <td>
-                    <select id="glossaryGroupLevel$settingRowIndex" class="form-control glossary-role-select">
+                    <select id="glossaryGroupLevel$settingRowIndex" name="level_$settingRowIndex" class="form-control glossary-role-select">
                       #foreach($level in [0..4])
                         #if($settingGroup != 'XWiki.XWikiGuest' || $level <= 1)
                           #set($selectedRoleAttr = '')

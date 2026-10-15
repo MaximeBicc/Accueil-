@@ -850,7 +850,8 @@ function setupGlossaryBulkDeleteUi() {
 
 function bindGlossaryPageEvents() {
     var table = document.getElementById('mainGlossaryTable');
-    if (!table) return;
+    if (!table || table.dataset.pageEventsBound === 'true') return;
+    table.dataset.pageEventsBound = 'true';
 
     ['actionFeedbackModal', 'deleteConfirmModal', 'glossaryModal'].forEach(function(modalId) {
         var modal = document.getElementById(modalId);
@@ -1335,10 +1336,23 @@ function initGlossaryWorkflow() {
 }
 
 
-document.addEventListener('DOMContentLoaded', function() {
+function initGlossaryPage() {
     bindGlossaryPageEvents();
     createExcelImportUi();
     setupGlossaryBulkDeleteUi();
     initGlossaryWorkflow();
     updateGlossarySortButtons();
-});
+    var table = document.getElementById('mainGlossaryTable');
+    if (table && table.dataset.pageInitialized !== 'true') {
+        table.dataset.pageInitialized = 'true';
+        applyCurrentSort();
+        sortPopupTableAlphabetically();
+        applyPagination();
+    }
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initGlossaryPage, { once: true });
+} else {
+    initGlossaryPage();
+}

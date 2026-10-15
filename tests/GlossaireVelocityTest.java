@@ -81,6 +81,7 @@ public class GlossaireVelocityTest {
     public boolean isNew() { return !wiki.docs.containsKey(ref); }
     public Obj getObject(String className) { return objects.get(className); }
     public Obj newObject(String className) {
+      if (wiki.missingClasses.contains(className)) return null;
       obj = new Obj(wiki.ignoredFields.getOrDefault(className, Set.of())); objectLists.computeIfAbsent(className, ignored -> new ArrayList<>()).add(obj);
       objects.putIfAbsent(className, obj); return obj;
     }
@@ -104,13 +105,18 @@ public class GlossaireVelocityTest {
     public String getTitle() { return title; }
     public String getURL() { return "/glossaire"; }
     public Ref getDocumentReference() { return ref; }
-    public String getVersion() { return revision + ".1"; }
+    public String getVersion() { return Math.max(1, revision) + ".1"; }
     public String getContent() { return content; }
     public void setContent(String value) { content = value; }
     public void setTitle(String value) { title = value; }
     public void save(String message, boolean minor) {
       if (!wiki.allowed) throw new IllegalStateException("Caller lacks native edit right");
-      wiki.normalSaves++; persist();
+      wiki.normalSaves++;
+      if (wiki.silentAclRollback.contains(ref)) {
+        objects.remove(RIGHTS_CLASS); objectLists.remove(RIGHTS_CLASS);
+        objects.remove("XWiki.XWikiGlobalRights"); objectLists.remove("XWiki.XWikiGlobalRights");
+      }
+      persist();
     }
     public void saveAsAuthor(String message, boolean minor) {
       if (!wiki.authorAllowed) throw new IllegalStateException("Script author lacks edit right");
@@ -125,6 +131,7 @@ public class GlossaireVelocityTest {
   public static class Wiki {
     final Map<Ref, Doc> docs = new LinkedHashMap<>();
     final Map<String, Set<String>> ignoredFields = new HashMap<>();
+    final Set<String> missingClasses = new HashSet<>();
     final List<Ref> authorReads = new ArrayList<>();
     final Extension jsx = new Extension(), ssx = new Extension();
     boolean allowed = true, visible = true, authorAllowed = true, admin, absoluteReferences; int normalSaves, authorSaves, uniqueId;
@@ -132,6 +139,7 @@ public class GlossaireVelocityTest {
     final List<Ref> authorDeletes = new ArrayList<>();
     final Set<Ref> failedDeletes = new HashSet<>();
     final Set<Ref> deniedAuthorReads = new HashSet<>();
+    final Set<Ref> silentAclRollback = new HashSet<>();
     final Deque<String> forcedNames = new ArrayDeque<>();
     public boolean hasWikiAdminRights() { return admin; }
     public Extension getJsx() { return jsx; }
@@ -184,14 +192,16 @@ public class GlossaireVelocityTest {
   public static class Response {
     final StringWriter body = new StringWriter(); final PrintWriter writer = new PrintWriter(body);
     public PrintWriter getWriter() { return writer; }
-    public void setContentType(String type) {}
-    public void sendRedirect(String url) {}
+    int status = 200; String contentType = "", redirectURL = "";
+    public void setContentType(String type) { contentType = type; }
+    public void setStatus(int value) { status = value; }
+    public void sendRedirect(String url) { status = 302; redirectURL = url; }
   }
   public static class Context {
-    Ref user = new Ref("XWiki", "Test");
+    Ref user = new Ref("XWiki", "Test"); boolean finished;
     public String getUser() { return user == null ? "XWiki.XWikiGuest" : user.toString(); }
     public Ref getUserReference() { return user; }
-    public void setFinished(boolean value) {}
+    public void setFinished(boolean value) { finished = value; }
   }
   public static class Group {
     final Set<Ref> memberships = new HashSet<>(Set.of(new Ref("XWiki", "GlossaireValidateurs")));
@@ -279,11 +289,12 @@ public class GlossaireVelocityTest {
     final Wiki wiki = new Wiki(); final Request request = new Request(); final Refactoring refactoring = new Refactoring(wiki);
     final Context userContext = new Context(); final UserServices userServices = new UserServices();
     final DateTool clock = new DateTool();
+    Response lastResponse;
     Fixture() { request.params.put("form_token", "test-token"); }
     String render(String filename, String action, String... pairs) throws Exception {
       request.params.put("action", action);
       for (int i = 0; i < pairs.length; i += 2) request.params.put(pairs[i], pairs[i + 1]);
-      Response response = new Response(); VelocityContext context = new VelocityContext();
+      Response response = new Response(); lastResponse = response; VelocityContext context = new VelocityContext();
       context.put("xwiki", wiki); context.put("request", request); context.put("response", response);
       String documentName = filename.equals("DATA/WebHome.xwiki") ? DATA_DOC : "TestPage.PAGE.Glossaire.WebHome";
       context.put("doc", wiki.getDocument(documentName));
@@ -657,6 +668,61 @@ public class GlossaireVelocityTest {
       check(error(settings(f, before)) && config.getVersion().equals(before), "paramètres refusés : " + denied);
     }
   }
+  static void firstSettingsChecks() throws Exception {
+    Fixture fresh = new Fixture(); fresh.ordinary(); fresh.wiki.admin = true;
+    fresh.group("XWiki.Real"); fresh.userServices.group.memberships.add(new Ref("XWiki", "Real"));
+    Doc initial = fresh.wiki.getDocument(CONFIG_DOC);
+    check(initial.isNew() && initial.getObject(CONFIG_CLASS) == null && initial.getVersion().equals("1.1"), "première configuration : document et objet absents avec version XWiki initiale 1.1");
+    String result = settings(fresh, initial.getVersion(), "group_0", "XWiki.Real", "level_0", "4", "group_1", "XWiki.GlossaireValidateurs", "level_1", "0");
+    Doc saved = fresh.wiki.getDocument(CONFIG_DOC); Obj object = saved.getObject(CONFIG_CLASS);
+    check(result.startsWith("GLOSSAIRE_SETTINGS_SAVED") && !saved.isNew() && object != null && object.getValue("schemaVersion").equals("2")
+        && object.getValue("reviewGroups").equals("XWiki.Real"), "première sauvegarde crée et remplit l’objet sans ajouter manuellement un objet de configuration");
+    check(fresh.render("WebHome.xwiki", "").contains("data-can-review=\"true\"") && fresh.create("PREMIER", "Groupe réel").startsWith("GLOSSAIRE_OK|"),
+        "groupe réel choisi à la première sauvegarde appliqué au rendu et aux requêtes suivantes");
+    Fixture forged = new Fixture(); forged.ordinary(); forged.wiki.admin = true; forged.group("XWiki.Real");
+    result = settings(forged, forged.wiki.getDocument(CONFIG_DOC).getVersion(), "group_0", "XWiki.Real", "level_0", "4", "group_1", "XWiki.GlossaireValidateurs", "level_1", "4");
+    check(error(result) && forged.wiki.getDocument(CONFIG_DOC).isNew() && forged.wiki.getDocument(CONFIG_DOC).getObject(CONFIG_CLASS) == null,
+        "première sauvegarde refuse toujours un groupe inexistant auquel un droit positif est forgé");
+    Fixture missing = new Fixture(); missing.ordinary(); missing.wiki.admin = true; missing.group("XWiki.Real"); missing.wiki.missingClasses.add(CONFIG_CLASS);
+    result = settings(missing, missing.wiki.getDocument(CONFIG_DOC).getVersion(), "group_0", "XWiki.Real", "level_0", "4");
+    check(error(result) && missing.wiki.getDocument(CONFIG_DOC).isNew() && missing.wiki.getDocument(CONFIG_DOC).getObject(CONFIG_CLASS) == null
+        && missing.wiki.normalSaves == 0, "classe de configuration manquante : erreur explicite avant sauvegarde ou changement des droits");
+  }
+  static void nativeSettingsChecks() throws Exception {
+    Fixture form = new Fixture(); form.ordinary(); form.wiki.admin = true; form.group("XWiki.Real");
+    form.request.params.put("settingsForm", "true"); form.request.params.put("returnURL", "https://exemple.invalid/ignorer");
+    settings(form, form.wiki.getDocument(CONFIG_DOC).getVersion(), "group_0", "XWiki.Real", "level_0", "4");
+    String mainURL = form.wiki.getURL("TestPage.PAGE.Glossaire.WebHome", "view");
+    check(form.lastResponse.status == 302 && form.lastResponse.redirectURL.equals(mainURL) && form.userContext.finished && !form.wiki.getDocument(CONFIG_DOC).isNew(),
+        "formulaire POST natif : première sauvegarde puis redirection vers le glossaire connu");
+    Fixture invalid = new Fixture(); invalid.wiki.admin = true; invalid.request.params.put("settingsForm", "true");
+    String html = settings(invalid, invalid.wiki.getDocument(CONFIG_DOC).getVersion(), "group_0", "XWiki.<script>alert(1)</script>", "level_0", "4");
+    check(invalid.lastResponse.status == 400 && invalid.lastResponse.contentType.startsWith("text/html") && html.contains("&lt;script&gt;")
+        && !html.contains("<script>") && html.contains(mainURL) && invalid.wiki.getDocument(CONFIG_DOC).isNew(),
+        "formulaire POST natif : groupe invalide expliqué en HTML échappé sans écriture silencieuse");
+    for (String denied : List.of("GET", "csrf", "admin")) {
+      Fixture blocked = new Fixture(); blocked.wiki.admin = true; blocked.group("XWiki.Real"); blocked.request.params.put("settingsForm", "true");
+      if (denied.equals("GET")) blocked.request.method = "GET";
+      if (denied.equals("csrf")) blocked.request.params.remove("form_token");
+      if (denied.equals("admin")) blocked.wiki.admin = false;
+      String errorHTML = settings(blocked, blocked.wiki.getDocument(CONFIG_DOC).getVersion(), "group_0", "XWiki.Real", "level_0", "4");
+      check(blocked.lastResponse.status == 400 && blocked.lastResponse.contentType.startsWith("text/html") && blocked.lastResponse.redirectURL.isEmpty()
+          && blocked.userContext.finished && errorHTML.contains(mainURL) && !errorHTML.contains("<script>")
+          && blocked.wiki.getDocument(CONFIG_DOC).isNew() && blocked.wiki.getDocument(CONFIG_DOC).getObject(CONFIG_CLASS) == null,
+          "formulaire natif forgé refusé sans objet créé ni rechargement silencieux : " + denied);
+    }
+    Fixture missing = new Fixture(); missing.wiki.admin = true; missing.group("XWiki.Real"); missing.wiki.missingClasses.add(CONFIG_CLASS); missing.request.params.put("settingsForm", "true");
+    html = settings(missing, missing.wiki.getDocument(CONFIG_DOC).getVersion(), "group_0", "XWiki.Real", "level_0", "4");
+    check(missing.lastResponse.status == 400 && html.contains(CONFIG_CLASS) && html.contains(mainURL) && missing.wiki.getDocument(CONFIG_DOC).getObject(CONFIG_CLASS) == null,
+        "formulaire POST natif : classe manquante identifiée sans exiger la création manuelle d’un objet");
+  }
+  static void settingsAclReadbackCheck() throws Exception {
+    Fixture rollback = new Fixture(); rollback.wiki.admin = true; rollback.group("XWiki.Real"); rollback.request.params.put("settingsForm", "true");
+    Ref mainRef = new Model().resolveDocument("TestPage.PAGE.Glossaire.WebHome"); rollback.wiki.silentAclRollback.add(mainRef);
+    String html = settings(rollback, rollback.wiki.getDocument(CONFIG_DOC).getVersion(), "group_0", "XWiki.Real", "level_0", "4");
+    check(rollback.lastResponse.status == 400 && html.contains(mainRef.toString()) && rollback.wiki.getDocument(CONFIG_DOC).isNew()
+        && rollback.wiki.getDocument(mainRef).getObjects(RIGHTS_CLASS).isEmpty(), "première sauvegarde détecte les ACL retirées silencieusement et ne persiste pas une configuration trompeuse");
+  }
   static void literalTitle(Doc doc, String expected, String label) throws Exception {
     VelocityContext context = new VelocityContext(); context.put("escapetool", new Escape());
     StringWriter rendered = new StringWriter(); ENGINE.evaluate(context, rendered, label, doc.title);
@@ -783,6 +849,9 @@ public class GlossaireVelocityTest {
     Fixture admin = new Fixture(); admin.role(0); admin.wiki.admin = true; admin.wiki.add("Ancienne", "Ancienne");
     for (String name : List.of("Lecteurs", "Contributeurs", "Ajouteurs", "Validateurs")) admin.group("XWiki." + name);
     Files.writeString(directory.resolve("glossaire-admin.html"), admin.render("WebHome.xwiki", ""));
+    Fixture firstboot = new Fixture(); firstboot.ordinary(); firstboot.wiki.admin = true;
+    firstboot.group("XWiki.Real"); firstboot.userServices.group.memberships.add(new Ref("XWiki", "Real"));
+    Files.writeString(directory.resolve("glossaire-admin-firstboot.html"), firstboot.render("WebHome.xwiki", ""));
     String reviewerHtml = reviewer.render("WebHome.xwiki", "");
     check(reviewerHtml.contains(">2</span>") && reviewerHtml.split("class=\"glossary-proposal-card\"", -1).length == 3
         && reviewerHtml.split("class=\"glossary-trash-card\"", -1).length == 3, "fixtures validateur avec deux attentes et deux éléments en corbeille");
@@ -859,6 +928,9 @@ public class GlossaireVelocityTest {
     roleChecks();
     lifecycleChecks();
     settingsChecks();
+    firstSettingsChecks();
+    nativeSettingsChecks();
+    settingsAclReadbackCheck();
     migrationChecks();
     titleAndClassChecks();
     inertPageChecks();

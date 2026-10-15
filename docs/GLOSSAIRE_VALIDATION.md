@@ -29,9 +29,9 @@ La corbeille du glossaire concerne les **propositions**. Supprimer un acronyme d
 Les fichiers GitHub doivent être installés dans XWiki ; ils ne mettent pas automatiquement l'instance à jour. Les API de groupes nécessitent XWiki 10.8 ou ultérieur.
 
 1. Installer ensemble les deux pages et trois extensions de [GLOSSAIRE_PAGE.md](GLOSSAIRE_PAGE.md), en copiant les sources complètes dans l'éditeur Wiki, syntaxe XWiki 2.1.
-2. Compléter les classes ci-dessous et l'objet de configuration existant.
+2. Compléter les classes ci-dessous. Aucun objet de configuration n'est à créer manuellement : le premier enregistrement dans Paramètres le crée, ainsi que sa page si elle n'existe pas.
 3. Créer les conteneurs `TestPage.PAGE.Glossaire.PROPOSITIONS.WebHome` et `TestPage.PAGE.Glossaire.CORBEILLE.WebHome`, puis appliquer les droits indiqués ci-dessous.
-4. Enregistrer l'affichage et DATA avec des comptes de confiance. L'auteur de DATA doit avoir **View, Edit et Delete** sur DATA, PROPOSITIONS et CORBEILLE. L'auteur de l'affichage doit pouvoir lire les propositions privées.
+4. Pour le premier paramétrage, enregistrer DATA avec un **administrateur du wiki disposant du droit Script**. Son auteur doit pouvoir modifier Configuration et les préférences d'autorisations, ainsi que lire, modifier et supprimer les fiches DATA, PROPOSITIONS et CORBEILLE. L'auteur de l'affichage doit pouvoir lire les propositions privées.
 5. Recharger sans cache. Avec un administrateur du wiki, ouvrir **Paramètres**, attribuer les niveaux puis enregistrer.
 
 Tous les traitements restent dans **DATA.WebHome** : aucune page COMMANDE ni GlossaireWorkflow n'est nécessaire. Supprimer les anciennes pages techniques de ces noms après vérification si elles avaient été installées.
@@ -49,13 +49,24 @@ Créer ou compléter `TestPage.PAGE.Glossaire.CODE.glossaireConfigurationClass.W
 | `directAddGroups` | TextArea | Groupes au niveau Ajout direct, une référence par ligne |
 | `reviewGroups` | TextArea | Groupes au niveau Validation, une référence par ligne |
 
-L'objet reste sur `TestPage.PAGE.Glossaire.CODE.Configuration.WebHome`. Chaque groupe figure dans son niveau le plus élevé. Les sous-groupes sont pris en compte ; les références qualifiées d'un autre wiki sont acceptées si le groupe est accessible. Les noms de classes sont sensibles à la casse.
+L'objet est créé automatiquement sur `TestPage.PAGE.Glossaire.CODE.Configuration.WebHome`, et non sur la page de définition de la classe. Chaque groupe figure dans son niveau le plus élevé. Les sous-groupes sont pris en compte ; les références qualifiées d'un autre wiki sont acceptées si le groupe est accessible. Les noms de classes et de propriétés sont sensibles à la casse.
 
 L'entrée spéciale des visiteurs non connectés est limitée à Lecture. « Aucun accès » ne donne aucun droit par ce groupe ; un autre groupe peut toutefois accorder un niveau supérieur.
 
 Avant le premier enregistrement, le comportement existant est conservé : visiteurs en lecture, comptes connectés proposant, groupe `reviewGroup` validant. Sans ancien réglage, ce groupe est `XWiki.GlossaireValidateurs`. Après enregistrement, une liste volontairement vide ne réactive pas de valeur par défaut.
 
 Pour ajouter une personne à un groupe : **Administration du wiki → Utilisateurs et groupes → Groupes**, ouvrir le groupe, ajouter le compte et enregistrer. Recharger le glossaire. L'administration du wiki permet de régler les paramètres sans attribuer automatiquement un niveau fonctionnel.
+
+## Premier enregistrement des paramètres
+
+1. Installer les dernières versions de l'affichage, de DATA et de `GlossairePageExtension.js`, puis recharger sans cache avec **Ctrl + F5**.
+2. Ouvrir Paramètres avec un administrateur. Choisir **Validation** pour un groupe existant qui contient le compte à autoriser. Le rôle se donne au groupe, pas directement au compte.
+3. Un ancien groupe absent, par exemple `XWiki.GlossaireValidateurs` s'il n'a jamais été créé, est affiché comme introuvable au niveau **Aucun accès**. Il ne bloque plus l'enregistrement des autres groupes.
+4. Cliquer **Enregistrer les autorisations**. L'objet est créé automatiquement ; après rechargement, les choix doivent être conservés et les boutons correspondants apparaître pour les membres du groupe.
+
+Le formulaire envoie aussi ses données par POST lorsque le JavaScript n'est pas chargé. Il revient au glossaire après succès ; une erreur affiche une explication lisible. Avec le JavaScript, une erreur apparaît dans Paramètres et conserve la saisie. Une classe incomplète indique le nom de la classe et du champ à corriger ; créer un objet manuellement ne remplace pas l'installation de ces champs.
+
+Si la page recharge avec les anciens choix sans aucun message, vérifier que ces trois sources ont été mises à jour ensemble et vider le cache du navigateur. L'ancienne extension JavaScript attendait uniquement l'événement de chargement du DOM et pouvait manquer son initialisation ; l'ancien formulaire n'envoyait alors aucune donnée. Le correctif initialise aussi les extensions chargées tardivement et fournit un véritable formulaire POST.
 
 ## Classe des propositions
 
@@ -85,6 +96,8 @@ Les écritures utilisent l'auteur de confiance du script, après contrôle serve
 L'enregistrement des paramètres synchronise les ACL natives **View** sur la page du glossaire, DATA et ses fiches, ainsi que les ACL enfants de **DATA.WebPreferences**. Cela protège aussi les accès aux fiches par URL, rendu brut et REST. L'édition native des documents reste réservée aux comptes de confiance : les niveaux Ajout direct et Validation modifient et suppriment les acronymes avec les boutons du glossaire. Les autres niveaux natifs sont conservés. Les administrateurs natifs gardent leurs droits.
 
 La même synchronisation réserve l'accès natif à PROPOSITIONS et CORBEILLE aux comptes de confiance, y compris sur leurs préférences et leurs fiches existantes. Elle conserve les auteurs effectifs de l'affichage et de DATA pour permettre les lectures et écritures filtrées. Une erreur interrompt l'enregistrement des paramètres ; les ACL déjà synchronisées ne sont pas annulées automatiquement. Corriger l'erreur avec un administrateur puis enregistrer de nouveau.
+
+XWiki peut appliquer les droits de l'auteur du script lors d'un appel à `save()`, même si le compte connecté est administrateur. Des autorisations que cet auteur n'est pas habilité à modifier peuvent être annulées par XWiki ; DATA relit les règles après sauvegarde et signale cette situation avant d'annoncer que les paramètres sont enregistrés. Aucun droit Programming n'est nécessaire pour ce parcours.
 
 Configurer également les zones privées et techniques :
 

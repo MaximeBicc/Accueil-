@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const http = require('node:http');
 const { chromium } = require('playwright');
 
 const fixtureDirectory = process.argv[2];
@@ -15,9 +16,14 @@ function check(value, expected, label) { assert.deepEqual(value, expected, label
   const browser = await chromium.launch({ headless: true,
     ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH } : {}) });
   const errors = [];
-  async function openFixture(profile) {
+  let nativeServer;
+  const navigationRequests = new WeakMap();
+  async function openFixture(profile, { redispatch = true } = {}) {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     page.on('pageerror', error => errors.push(error.message));
+    const navigations = [];
+    navigationRequests.set(page, navigations);
+    page.on('request', request => { if (request.isNavigationRequest() && request.frame() === page.mainFrame()) navigations.push({ url: request.url(), method: request.method() }); });
     const html = fs.readFileSync(path.join(fixtureDirectory, 'glossaire-' + profile + '.html'), 'utf8');
     await page.route('https://wiki.test/**', route => route.fulfill({ contentType: 'text/html; charset=utf-8', body: html }));
     await page.goto('https://wiki.test/glossaire');
@@ -28,6 +34,7 @@ function check(value, expected, label) { assert.deepEqual(value, expected, label
         const modal = document.querySelector(selector);
         if (modal) { modal.style.display = action === 'show' ? 'block' : 'none'; }
       } });
+      window.extensionsReadyState = document.readyState;
       window.requests = [];
       window.maintenanceRequests = [];
       window.reply = { ok: true, text: 'GLOSSAIRE_PROPOSED|TestPage.PAGE.Glossaire.PROPOSITIONS.nouvelle' };
@@ -37,7 +44,7 @@ function check(value, expected, label) { assert.deepEqual(value, expected, label
           maintenanceRequests.push({ url, method: options.method, values });
           return { ok: true, text: async () => 'GLOSSAIRE_PURGED|0' };
         }
-        requests.push({ url, values });
+        requests.push({ url, method: options.method, values });
         const current = reply;
         return { ok: current.ok, text: async () => current.text };
       };
@@ -45,10 +52,98 @@ function check(value, expected, label) { assert.deepEqual(value, expected, label
     for (const name of ['GlossaireExtension.js', 'GlossairePageExtension.js']) {
       await page.addScriptTag({ path: path.join(codeDirectory, name) });
     }
-    await page.evaluate(() => document.dispatchEvent(new Event('DOMContentLoaded')));
+    if (redispatch) await page.evaluate(() => document.dispatchEvent(new Event('DOMContentLoaded')));
     return page;
   }
   try {
+    // XWiki peut charger les JSX après DOMContentLoaded : aucun événement artificiel ici.
+    const firstBoot = await openFixture('admin-firstboot', { redispatch: false });
+    check(await firstBoot.evaluate(() => extensionsReadyState), 'complete', 'premiers paramètres : extensions chargées après DOMContentLoaded');
+    check(await firstBoot.locator('#glossarySettingsForm').getAttribute('data-workflow-bound'), 'true', 'premiers paramètres : formulaire lié automatiquement malgré le chargement tardif');
+    check(await firstBoot.locator('.glossary-settings-first-use').count(), 1, 'premiers paramètres : création automatique de la configuration annoncée');
+    const firstBootGroups = await firstBoot.locator('.glossary-permission-row').evaluateAll(rows => rows.map(row => ({
+      reference: row.getAttribute('data-group-ref'),
+      level: row.querySelector('.glossary-role-select').value,
+      missing: !!row.querySelector('.glossary-missing-group')
+    })));
+    check(firstBootGroups.filter(group => group.missing).every(group => group.level === '0'), true, 'premiers paramètres : groupes absents désactivés par défaut');
+    check(firstBootGroups.some(group => /(^|:)XWiki\.GlossaireValidateurs$/.test(group.reference) && group.missing && group.level === '0'), true, 'premiers paramètres : ancien groupe de validation absent au niveau zéro');
+    check(firstBootGroups.some(group => /(^|:)XWiki\.Real$/.test(group.reference) && !group.missing), true, 'premiers paramètres : groupe XWiki existant proposé dans la liste');
+    await firstBoot.evaluate(() => {
+      window.reloads = 0;
+      window.reloadGlossaryAfterSettings = () => { reloads++; };
+      reply = { ok: true, text: 'GLOSSAIRE_SETTINGS_SAVED' };
+      initGlossaryPage();
+      initGlossaryPage();
+      jQuery('#glossarySettingsModal').modal('show');
+    });
+    check(await firstBoot.evaluate(() => maintenanceRequests.length), 1, 'initialisation tardive répétée : une seule purge');
+    const realGroup = firstBootGroups.find(group => /(^|:)XWiki\.Real$/.test(group.reference)).reference;
+    await firstBoot.getByLabel(realGroup, { exact: true }).selectOption('4');
+    const navigationCount = navigationRequests.get(firstBoot).length;
+    await firstBoot.locator('#glossarySettingsForm button[type="submit"]').click();
+    check(navigationRequests.get(firstBoot).length, navigationCount, 'clic réel sur Enregistrer : aucune navigation native GET ou POST');
+    await firstBoot.waitForFunction(() => reloads === 1, undefined, { timeout: 5000 });
+    const firstBootRequest = await firstBoot.evaluate(() => requests[0]);
+    check(await firstBoot.evaluate(() => requests.length), 1, 'clic unique après initialisations répétées : un seul enregistrement AJAX');
+    check([firstBootRequest.method, firstBootRequest.values.action, firstBootRequest.values.form_token], ['POST', 'settings', 'test-token'], 'premiers paramètres : clic réel envoie un POST settings protégé');
+    check(firstBootRequest.values.expectedVersion, await firstBoot.locator('#glossarySettingsForm').getAttribute('data-expected-version'), 'premiers paramètres : version initiale envoyée');
+    check(Object.hasOwn(firstBootRequest.values, 'settingsForm'), false, 'enregistrement AJAX : réponse texte demandée sans indicateur du formulaire natif');
+    const sentGroups = Array.from({ length: Number(firstBootRequest.values.groupCount) }, (_, index) => [firstBootRequest.values['group_' + index], firstBootRequest.values['level_' + index]]);
+    check(sentGroups.find(([reference]) => reference === realGroup), [realGroup, '4'], 'premiers paramètres : groupe existant enregistré au niveau validation');
+    check(sentGroups.filter(([reference]) => /(^|:)XWiki\.GlossaireValidateurs$/.test(reference)).map(([, level]) => level), ['0'], 'premiers paramètres : groupe historique absent envoyé désactivé');
+    check(await firstBoot.evaluate(() => reloads), 1, 'premiers paramètres : succès suivi d’un seul rechargement');
+
+    // Sans JSX, le navigateur doit conserver un vrai formulaire POST exploitable.
+    const nativeSettings = await browser.newPage({ javaScriptEnabled: false });
+    const nativeRequests = [];
+    const firstBootHtml = fs.readFileSync(path.join(fixtureDirectory, 'glossaire-admin-firstboot.html'), 'utf8');
+    const dataPath = new URL(dataUrl).pathname;
+    nativeServer = http.createServer(async (request, response) => {
+      if (request.url.split('?')[0] === dataPath) {
+        const chunks = [];
+        for await (const chunk of request) chunks.push(chunk);
+        const body = Buffer.concat(chunks).toString('utf8');
+        nativeRequests.push({ url: request.url, method: request.method, contentType: request.headers['content-type'], values: Object.fromEntries(new URLSearchParams(body)) });
+        response.writeHead(303, { location: '/glossaire-settings-saved' });
+        response.end();
+      } else if (request.url === '/glossaire-settings-saved') {
+        nativeRequests.push({ url: request.url, method: request.method });
+        response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        response.end('<p>Configuration enregistrée.</p>');
+      } else {
+        response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        response.end('<style>.modal{display:block!important}</style>' + firstBootHtml);
+      }
+    });
+    await new Promise((resolve, reject) => {
+      nativeServer.once('error', reject);
+      nativeServer.listen(0, '127.0.0.1', resolve);
+    });
+    const nativeOrigin = 'http://127.0.0.1:' + nativeServer.address().port;
+    await nativeSettings.goto(nativeOrigin + '/glossaire-native-settings');
+    const nativeForm = nativeSettings.locator('#glossarySettingsForm');
+    check(await nativeForm.getAttribute('method'), 'post', 'sans JavaScript : méthode POST présente dans le HTML');
+    check(await nativeForm.getAttribute('action'), dataUrl, 'sans JavaScript : formulaire HTML original dirigé vers DATA');
+    // Une vraie réponse 303 est suivie hors de page.route dans certains Chromium.
+    // Après vérification de l’URL d’origine, seule son origine est remplacée par le serveur de test.
+    await nativeForm.evaluate((form, origin) => {
+      const action = new URL(form.getAttribute('action'), document.baseURI);
+      form.setAttribute('action', origin + action.pathname + action.search);
+    }, nativeOrigin);
+    await nativeSettings.getByLabel(realGroup, { exact: true }).selectOption('4');
+    await nativeForm.locator('button[type="submit"]').click();
+    await nativeSettings.waitForURL(nativeOrigin + '/glossaire-settings-saved', { timeout: 5000 });
+    check(nativeRequests.map(request => request.method), ['POST', 'GET'], 'sans JavaScript : POST natif suivi du GET de redirection 303');
+    const nativePost = nativeRequests[0];
+    check(nativePost.url.split('?')[0], dataPath, 'sans JavaScript : chemin DATA conservé après changement de l’origine de test');
+    check(nativePost.contentType.startsWith('application/x-www-form-urlencoded'), true, 'sans JavaScript : encodage natif des champs');
+    check([nativePost.values.action, nativePost.values.xpage, nativePost.values.form_token, nativePost.values.settingsForm], ['settings', 'plain', 'test-token', 'true'], 'sans JavaScript : action, rendu, CSRF et indicateur de formulaire transmis');
+    check(nativePost.values.expectedVersion, firstBootRequest.values.expectedVersion, 'sans JavaScript : version initiale transmise');
+    const nativeGroups = Array.from({ length: Number(nativePost.values.groupCount) }, (_, index) => [nativePost.values['group_' + index], nativePost.values['level_' + index]]);
+    check(nativeGroups, sentGroups, 'sans JavaScript : mêmes groupes et niveaux que le clic AJAX');
+    await nativeSettings.close();
+
     const reader = await openFixture('reader');
     check(await reader.locator('#mainGlossaryTable').getAttribute('data-endpoint-url'), dataUrl, 'route DATA fournie par le vrai template');
     check(await reader.locator('#mainGlossaryTable').getAttribute('data-workflow-url'), null, 'aucun service Workflow séparé demandé');
@@ -466,5 +561,11 @@ function check(value, expected, label) { assert.deepEqual(value, expected, label
 
     check(errors, [], 'aucune erreur JavaScript dans les profils du glossaire');
     console.log(checks + ' vérifications du circuit de validation réussies dans Chromium.');
-  } finally { await browser.close(); }
+  } finally {
+    await browser.close();
+    if (nativeServer) {
+      nativeServer.closeAllConnections();
+      await new Promise(resolve => nativeServer.close(resolve));
+    }
+  }
 })().catch(error => { console.error(error); process.exitCode = 1; });

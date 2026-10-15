@@ -48,7 +48,7 @@ Les tests Java utilisent un seul moteur Velocity à la fois ; ils peuvent aussi 
 
 Les vérifications couvrent les références fixes, niveaux et paramètres, imports, requêtes forgées, versions périmées, publications et reprises, corbeille, expiration, échappement HTML, filtres, erreurs réseau, doubles clics, pagination et suppressions multiples. Elles ne remplacent pas un essai sur l'instance, notamment pour ses ACL natives et ses extensions.
 
-Validation de cette version : **254 contrôles serveur**, exécutés avec Velocity 1.7 et 2.3, **22 contrôles navigateur du glossaire**, **167 du circuit de propositions**, **13 contrôles des parseurs XWiki/Velocity**, le test d'accueil et la syntaxe des **16 fichiers JavaScript** passent. Les tests vérifient aussi que les titres saisis restent du texte et qu'une classe incomplète ne provoque pas la perte d'une proposition.
+Validation de cette version : **266 contrôles serveur**, exécutés avec Velocity 1.7 et 2.3, **22 contrôles navigateur du glossaire**, **190 du circuit de propositions**, **13 contrôles des parseurs XWiki/Velocity**, le test d'accueil et la syntaxe des **16 fichiers JavaScript** passent. Les tests vérifient aussi que les titres saisis restent du texte, qu'une classe incomplète ne provoque pas la perte d'une proposition et que le premier paramétrage crée sa configuration, même avec un JavaScript chargé tardivement ou un envoi par formulaire natif.
 
 ## Vérification après installation
 

@@ -293,7 +293,8 @@
 ## newAddRefs : union des groupes ajout direct + validation.
 ## Ces deux paramètres contiennent des DocumentReference validées côté serveur.
 ## XWikiGuest est accepté uniquement dans la première liste (droit de lecture).
-## Les écritures ci-dessous utilisent l'administrateur connecté, jamais saveAsAuthor.
+## Les écritures ci-dessous utilisent save() ; XWiki peut aussi contrôler les
+## droits de l'auteur effectif du script avant de les accepter.
 
 #macro(applyGlossaireNativeRights $aclDocument $aclClassName $aclProtectedScript $aclPrivateScope)
   #if($errorMessage == '')
@@ -362,10 +363,38 @@
             #set($errorMessage = "Impossible de préparer les autorisations natives du glossaire")
           #else
             #set($discard = $aclDocument.save('Synchronisation des autorisations du glossaire', true))
-            #if($aclDocument.isNew())
-              #set($errorMessage = "Une page d'autorisations du glossaire n'a pas été enregistrée")
-            #else
+            ## XWiki peut restaurer silencieusement les anciennes règles si
+            ## l'auteur du script n'a pas les droits nécessaires. Relire les
+            ## vrais objets après save(), pas les wrappers préparés ci-dessus.
+            #set($gaclSavedDocument = false)
+            #set($gaclSavedDocument = $xwiki.getDocument($aclDocument.documentReference))
+            #set($gaclSavedManagedCount = 0)
+            #set($gaclSavedViewCount = 0)
+            #set($gaclSavedWriteCount = 0)
+            #if($gaclSavedDocument && !$gaclSavedDocument.isNew())
+              #foreach($gaclSavedRule in $gaclSavedDocument.getObjects($aclClassName))
+                #set($gaclSavedLevels = "$!gaclSavedRule.getValue('levels')")
+                #set($gaclSavedHasManagedLevel = false)
+                #foreach($gaclSavedLevel in $gaclSavedLevels.split('[,\s]+'))
+                  #if($gaclSavedLevel == 'view' || $gaclSavedLevel == 'edit' || $gaclSavedLevel == 'delete')
+                    #set($gaclSavedHasManagedLevel = true)
+                  #end
+                #end
+                #if($gaclSavedHasManagedLevel)
+                  #set($gaclSavedManagedCount = $gaclSavedManagedCount + 1)
+                  #if($gaclSavedLevels == 'view' && "$!gaclSavedRule.getValue('groups')" == $gaclDocumentViewGroups && "$!gaclSavedRule.getValue('users')" == $gaclDocumentViewUsers && "$!gaclSavedRule.getValue('allow')" == '1')
+                    #set($gaclSavedViewCount = $gaclSavedViewCount + 1)
+                  #elseif($gaclSavedLevels == 'edit,delete' && "$!gaclSavedRule.getValue('groups')" == $gaclDocumentWriteGroups && "$!gaclSavedRule.getValue('users')" == $glossaireAclTrustedUsers && "$!gaclSavedRule.getValue('allow')" == '1')
+                    #set($gaclSavedWriteCount = $gaclSavedWriteCount + 1)
+                  #end
+                #end
+              #end
+            #end
+            #if($gaclSavedManagedCount == 2 && $gaclSavedViewCount == 1 && $gaclSavedWriteCount == 1)
               #set($glossaireAclUpdatedCount = $glossaireAclUpdatedCount + 1)
+            #else
+              #set($gaclFailedReference = $aclDocument.getFullName())
+              #set($errorMessage = "Les autorisations natives n'ont pas été conservées pour $gaclFailedReference. Vérifiez les droits du compte qui a enregistré DATA, puis réessayez.")
             #end
           #end
         #end
@@ -580,7 +609,7 @@
                 #end
               #end
               #if(!$validGroup)
-                #set($errorMessage = "Le groupe sélectionné n'existe pas ou ne peut pas recevoir ce niveau")
+                #set($errorMessage = "Le groupe $candidateGroupRef n'existe pas ou ne peut pas recevoir ce niveau")
               #elseif($groupLevel > 0)
                 #set($discard = $newGroupsByLevel.get($groupLevel).add($candidateGroupRef))
                 #set($discard = $newViewRefs.add($candidateGroupReference))
@@ -598,7 +627,7 @@
           #set($configurationObject = $configuration.newObject($configurationClass))
         #end
         #if(!$configurationObject)
-          #set($errorMessage = "La classe de configuration n'est pas installée")
+          #set($errorMessage = "La classe $configurationClass n'est pas installée ou ne permet pas de créer son objet")
         #else
           #foreach($permission in [{'field':'viewGroups', 'level':1}, {'field':'proposeGroups', 'level':2}, {'field':'directAddGroups', 'level':3}, {'field':'reviewGroups', 'level':4}])
             #set($groupListText = '')
@@ -609,13 +638,14 @@
 ")
             #end
             #set($discard = $configurationObject.set($permission.field, $groupListText))
-            #if("$!configurationObject.getValue($permission.field)" != $groupListText)
-              #set($errorMessage = 'Les champs de permissions ne sont pas installés correctement dans la classe de configuration')
+            #if("$!configurationObject.getValue($permission.field)" != $groupListText && $errorMessage == '')
+              #set($missingConfigurationField = $permission.field)
+              #set($errorMessage = "Le champ $missingConfigurationField de la classe $configurationClass est absent ou n'enregistre pas la valeur attendue")
             #end
           #end
           #set($discard = $configurationObject.set('schemaVersion', '2'))
-          #if("$!configurationObject.getValue('schemaVersion')" != '2')
-            #set($errorMessage = "Le champ schemaVersion n'est pas installé dans la classe de configuration")
+          #if("$!configurationObject.getValue('schemaVersion')" != '2' && $errorMessage == '')
+            #set($errorMessage = "Le champ schemaVersion de la classe $configurationClass est absent ou n'enregistre pas la valeur attendue")
           #end
         #end
         #if($errorMessage == '')
@@ -1086,15 +1116,37 @@
 #if($errorMessage != '')
   #set($resultLine = "GLOSSAIRE_ERROR|$escapetool.url($errorMessage)")
 #end
-#set($discard = $response.setContentType('text/plain; charset=UTF-8'))
-#set($writer = $response.writer)
-#if($isImportResponse)
-  #foreach($importLine in $importLines)
-    $writer.println($importLine)
+#if($action == 'settings' && "$!request.getParameter('settingsForm')" == 'true')
+  ## Le formulaire HTML fonctionne même si l'extension JavaScript ne démarre
+  ## pas. La destination est fixe et ne provient jamais de la requête.
+  #set($returnURL = $xwiki.getURL('TestPage.PAGE.Glossaire.WebHome', 'view'))
+  #if($resultLine == 'GLOSSAIRE_SETTINGS_SAVED')
+    #set($discard = $response.sendRedirect($returnURL))
+  #else
+    #if($errorMessage == '')
+      #set($errorMessage = "Les paramètres n'ont pas pu être enregistrés")
+    #end
+    #set($discard = $response.setStatus(400))
+    #set($discard = $response.setContentType('text/html; charset=UTF-8'))
+    #set($writer = $response.writer)
+    $writer.println('<!doctype html><html lang="fr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Paramètres du glossaire</title></head><body><main>')
+    $writer.println('<h1>Les paramètres n’ont pas été enregistrés</h1>')
+    $writer.println("<p>$escapetool.xml($errorMessage)</p>")
+    $writer.println("<p><a href='$escapetool.xml($returnURL)'>Retour au glossaire</a></p>")
+    $writer.println('</main></body></html>')
+    $writer.flush()
   #end
 #else
-  $writer.println($resultLine)
+  #set($discard = $response.setContentType('text/plain; charset=UTF-8'))
+  #set($writer = $response.writer)
+  #if($isImportResponse)
+    #foreach($importLine in $importLines)
+      $writer.println($importLine)
+    #end
+  #else
+    $writer.println($resultLine)
+  #end
+  $writer.flush()
 #end
-$writer.flush()
 $xcontext.setFinished(true)
 {{/velocity}}
