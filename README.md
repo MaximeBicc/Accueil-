@@ -6,6 +6,8 @@ Première version de la page d'accueil du wiki, pensée pour XWiki Syntax 2.1.
 
 - `xwiki/Accueil/WebHome.xwiki` : page d'accueil complète (Velocity + HTML + CSS + JavaScript).
 - `docs/CUSTOMISATION.md` : où modifier les modules, les textes et les espaces utilisés par les compteurs.
+- `docs/GLOSSAIRE_PAGE.md` : installation et vérifications du glossaire.
+- `docs/GLOSSAIRE_VALIDATION.md` : groupes, niveaux d'autorisation, propositions et corbeille.
 
 ## Installation rapide dans XWiki
 

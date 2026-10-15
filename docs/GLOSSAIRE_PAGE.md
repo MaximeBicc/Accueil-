@@ -1,12 +1,10 @@
 # Glossaire : installation et vérifications
 
-Les fichiers du dépôt sont à copier dans les pages et extensions XWiki correspondantes. Une modification sur GitHub ne met pas automatiquement à jour le wiki.
+Les fichiers du dépôt sont à copier dans les pages et extensions XWiki correspondantes. Une modification GitHub ne met pas automatiquement le wiki à jour. Les classes, groupes, permissions et propositions sont détaillés dans [GLOSSAIRE_VALIDATION.md](GLOSSAIRE_VALIDATION.md).
 
-Le circuit de proposition, le groupe de validation et ses droits sont décrits dans [GLOSSAIRE_VALIDATION.md](GLOSSAIRE_VALIDATION.md).
+## Fichiers à installer ensemble
 
-## Fichiers à mettre à jour ensemble
-
-| Fichier du dépôt, sous `xwiki/TestPage/PAGE/Glossaire/` | Destination XWiki |
+| Fichier sous `xwiki/TestPage/PAGE/Glossaire/` | Destination XWiki |
 | --- | --- |
 | `WebHome.xwiki` | Contenu de `TestPage.PAGE.Glossaire.WebHome`, syntaxe XWiki 2.1 |
 | `DATA/WebHome.xwiki` | Contenu de `TestPage.PAGE.Glossaire.DATA.WebHome`, syntaxe XWiki 2.1 ; tous les traitements serveur |
@@ -14,32 +12,29 @@ Le circuit de proposition, le groupe de validation et ses droits sont décrits d
 | `CODE/GlossaireExtension.js` | JavaScript Extension de `TestPage.PAGE.Glossaire.CODE.GlossaireExtension` |
 | `CODE/GlossairePageExtension.js` | JavaScript Extension de `TestPage.PAGE.Glossaire.CODE.GlossairePageExtension` |
 
-Conserver la classe `TestPage.PAGE.Glossaire.CODE.glossaireClass.WebHome` et ses champs `acronyme`, `libelle`, `definition`. La page charge explicitement ses extensions. Si les extensions JavaScript sont parsées par Velocity, conserver ce réglage.
+Conserver la classe `TestPage.PAGE.Glossaire.CODE.glossaireClass.WebHome` et ses champs `acronyme`, `libelle`, `definition`. Compléter les classes de configuration et de proposition avant utilisation. Créer les conteneurs PROPOSITIONS et CORBEILLE et protéger leurs droits.
 
-La page DATA reçoit les demandes d’ajout, modification, suppression, import, proposition et décision. La page d’affichage reste en lecture seule. Les deux extensions JavaScript existantes suffisent. L'import est accessible à tous les utilisateurs connectés : il publie pour les validateurs et crée une proposition par ligne acceptée pour les autres.
+La page charge explicitement ses extensions. Si les JavaScript sont parsés par Velocity, conserver ce réglage. DATA reçoit toutes les actions ; aucune page COMMANDE ni extension GlossaireWorkflow n'est nécessaire. DATA renvoie du texte brut avec des valeurs encodées par `escapetool.url` ; installer client et serveur ensemble puis recharger sans cache.
 
-DATA renvoie du texte brut et encode les références avec `escapetool.url`. Les extensions JavaScript décodent ces références : installer les fichiers serveur et client ensemble, puis recharger le navigateur sans cache.
+## Comportement
 
-## Corrections
+- Le titre conserve la barre de 3 px, bleue sur 78 % de sa hauteur puis rouge, comme l'accueil et les contacts.
+- Chaque nouvelle fiche a une référence technique indépendante du nom. Modifier l'acronyme met à jour les champs et le titre en conservant l'URL, sans créer de page résiduelle.
+- La conversion des anciennes adresses est disponible manuellement dans Paramètres ; elle met à jour les liens internes sans redirection. Les anciennes fiches non converties restent modifiables avec leur référence actuelle.
+- Les groupes reçoivent quatre niveaux cumulatifs : Lecture, Proposition, Ajout direct et Validation. Les deux niveaux supérieurs peuvent modifier et supprimer les acronymes publiés. Paramètres reste réservé aux administrateurs du wiki.
+- L'import crée une proposition par ligne au niveau Proposition et publie directement à partir du niveau Ajout direct. Aperçu, corrections et options de doublons sont conservés.
+- Une validation publie puis retire la proposition. Refus et suppression de proposition alimentent CORBEILLE, avec revalidation pendant sept jours. Les propositions expirées sont nettoyées à l'ouverture du glossaire.
+- Les décisions utilisent une version attendue ; les références cibles et les permissions sont vérifiées côté serveur. Les auteurs et dates proviennent du serveur.
+- Filtres, tri, pagination et tableau de vérification sont recalculés après une modification. Les doubles clics ne lancent pas deux sauvegardes concurrentes.
+- Les références et textes spéciaux sont encodés et échappés. Les noms `constructor`, `toString` et `__proto__` ne sont pas traités comme des doublons Excel.
 
-- Barre à gauche du titre : même pseudo-élément que l'accueil et les contacts, largeur de 3 px, extrémités arrondies, bleu sur 78 % de la hauteur puis rouge. Le rendu HTML utilise `clean="false"`, comme ces deux pages ; les valeurs saisies sont échappées avant leur insertion dans le HTML.
-- Renommage : requête XWiki explicite avec `setAutoRedirect(false)`, mise à jour des liens internes et absence d'interaction avec le job. Un succès exige que la destination existe avec son objet glossaire et que l'ancienne page ait disparu.
-- Suppression : un job absent ou une page encore présente produit une erreur. Le navigateur conserve alors la ligne, y compris en suppression multiple.
-- Les tableaux principal et de vérification utilisent la nouvelle référence après renommage. Les références contenant un point, un guillemet, un antislash ou `|` sont conservées correctement.
-- Les filtres lisent les textes affichés et sont recalculés après une modification. Les doubles clics sur « Enregistrer » ne lancent plus deux requêtes concurrentes.
-- La création vérifie POST, CSRF, champs obligatoires, droits et disponibilité du nom. L'épuisement des 100 noms candidats ne crée plus une page avec une référence invalide.
-- Les opérations sur une fiche sont limitées aux documents de DATA portant la classe glossaire, avec vérification des droits.
-- Les mots comme `constructor`, `toString` et `__proto__` ne sont plus considérés à tort comme des doublons Excel.
+## Anciennes pages résiduelles
 
-## Anciennes pages restées après un renommage
-
-Ce correctif empêche la création de nouvelles pages de redirection. Il ne supprime pas les anciennes pages déjà présentes sur le wiki.
-
-Dans XWiki, vérifier chaque ancienne page avant de la supprimer : une redirection créée par le renommage porte un objet `XWiki.RedirectClass` pointant vers la nouvelle fiche. Conserver toute page contenant des données utiles. Supprimer uniquement les anciennes redirections confirmées, puis vérifier l'arborescence. Aucun nettoyage des données existantes n'est exécuté par les tests.
+Les anciennes redirections déjà présentes ne sont pas supprimées automatiquement. Vérifier chaque ancienne page : une redirection XWiki porte un objet `XWiki.RedirectClass` pointant vers la nouvelle fiche. Conserver les pages contenant des données utiles et supprimer uniquement les redirections confirmées. La conversion des adresses porte uniquement sur les fiches ayant la classe glossaire.
 
 ## Tests automatisés
 
-Prérequis : Node.js, Playwright avec Chromium, Java 17 ou supérieur, et les JAR Velocity Engine 2.3, Commons Lang 3.11 et SLF4J API 1.7.30 dans un répertoire de test. Le contrôle des macros XWiki utilise aussi le JAR `org.xwiki.rendering:xwiki-rendering-wikimodel:16.10.17` dans ce répertoire.
+Prérequis : Node.js, Playwright avec Chromium, Java 17 ou supérieur, JAR Velocity Engine 2.3, Commons Lang 3.11 et SLF4J API 1.7.30. Le contrôle du parseur XWiki nécessite `org.xwiki.rendering:xwiki-rendering-wikimodel:16.10.17`.
 
 ```sh
 node tests/Accueil-Tracking.test.js
@@ -49,18 +44,16 @@ node tests/Glossaire.browser.test.js /tmp/glossaire-rendered.html
 node tests/GlossaireWorkflow.browser.test.js /tmp
 ```
 
-Le test Velocity exécute les templates du dépôt avec une API XWiki simulée : renommage suivi de suppression, collisions, échecs de jobs, droits, CSRF, créations invalides, saturation des noms, échappement HTML et import avec doublons. Le test navigateur utilise ce HTML et les véritables extensions : barre sur ordinateur/mobile, mise à jour des références, filtres, erreurs HTTP, double enregistrement, import, suppression multiple et pagination.
+Les tests Java utilisent un seul moteur Velocity à la fois ; ils peuvent aussi être exécutés avec Velocity 1.7 et ses dépendances Commons Collections et Commons Lang 2. Les tests simulent l'API XWiki, exécutent les templates complets, contrôlent le parsing réel puis chargent les extensions dans Chromium. Les captures sont enregistrées à côté du HTML généré.
 
-Le test d'accueil a été adapté à la version actuelle du suivi (`v5.4`, XMLHttpRequest). Il vérifie le suivi, la limitation des comptages répétés, l'exclusion des prévisualisations et l'affichage de l'historique récent.
+Les vérifications couvrent les références fixes, niveaux et paramètres, imports, requêtes forgées, versions périmées, publications et reprises, corbeille, expiration, échappement HTML, filtres, erreurs réseau, doubles clics, pagination et suppressions multiples. Elles ne remplacent pas un essai sur l'instance, notamment pour ses ACL natives et ses extensions.
 
-Résultat de la validation : **116 vérifications Velocity, 20 vérifications navigateur historiques, 58 vérifications navigateur du circuit de validation et test d'accueil réussis** ; **13 contrôles supplémentaires utilisent le vrai parseur XWiki avant compilation Velocity** ; les **16 fichiers JavaScript** de `xwiki/` et `preview/` passent la vérification de syntaxe. Les captures du navigateur sont enregistrées à côté du HTML généré.
+Validation de cette version : **254 contrôles serveur**, exécutés avec Velocity 1.7 et 2.3, **22 contrôles navigateur du glossaire**, **167 du circuit de propositions**, **13 contrôles des parseurs XWiki/Velocity**, le test d'accueil et la syntaxe des **16 fichiers JavaScript** passent. Les tests vérifient aussi que les titres saisis restent du texte et qu'une classe incomplète ne provoque pas la perte d'une proposition.
 
-Ces tests ne remplacent pas un essai sur l'instance XWiki, notamment pour ses droits et extensions installées.
+## Vérification après installation
 
-## Vérification après installation sur le wiki
-
-1. Ajouter un terme de test puis changer son acronyme. Vérifier qu'une seule fiche existe dans DATA et que l'ancienne adresse n'est plus une page de redirection.
-2. Renommer vers un acronyme déjà utilisé : la fiche existante doit être conservée et la nouvelle référence doit recevoir un suffixe disponible.
-3. Supprimer la fiche renommée et vérifier le tableau, la modale et l'arborescence après rechargement.
-4. Modifier un texte avec un filtre actif, importer quelques lignes avec doublons, puis essayer la suppression multiple.
-5. Vérifier le titre sur ordinateur et mobile, et les messages d'erreur avec un utilisateur sans les droits requis.
+1. Ajouter un terme puis changer plusieurs fois son acronyme : une fiche et une URL fixe dans DATA.
+2. Convertir une ancienne fiche via Paramètres, vérifier ses liens internes puis la modifier et la supprimer.
+3. Tester les quatre niveaux et les requêtes directes avec un compte non autorisé ; vérifier également l'absence d'accès aux URL de données quand Voir est retiré.
+4. Proposer, refuser, supprimer une proposition, revalider depuis la corbeille puis vérifier le nettoyage des données expirées.
+5. Essayer l'import avec doublons, les filtres et la suppression multiple, puis vérifier la barre du titre et les formulaires sur mobile.

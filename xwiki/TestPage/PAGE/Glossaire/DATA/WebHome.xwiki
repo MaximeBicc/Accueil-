@@ -1,242 +1,847 @@
 {{velocity output="false"}}
-## À installer dans la page DATA.WebHome ; cette page traite toutes les actions.
-## La file de propositions seule est écrite au nom de l'auteur de confiance.
-## Les mutations DATA exigent les droits XWiki du validateur connecté.
+## Tous les traitements restent dans DATA.WebHome. Protéger son contenu.
+## Les rôles applicatifs sont vérifiés avant toute écriture au nom de l'auteur.
 #set($resultLine = '')
 #set($errorMessage = '')
 #set($isImportResponse = false)
+#set($classPath = 'TestPage.PAGE.Glossaire.CODE.glossaireClass.WebHome')
+#set($configurationClass = 'TestPage.PAGE.Glossaire.CODE.glossaireConfigurationClass.WebHome')
+#set($configurationRef = 'TestPage.PAGE.Glossaire.CODE.Configuration.WebHome')
 #set($proposalClassPath = 'TestPage.PAGE.Glossaire.CODE.glossairePropositionClass.WebHome')
+#set($dataSpace = 'TestPage.PAGE.Glossaire.DATA')
+#set($dataSpaces = ['TestPage', 'PAGE', 'Glossaire', 'DATA'])
 #set($proposalSpace = 'TestPage.PAGE.Glossaire.PROPOSITIONS')
 #set($proposalSpaces = ['TestPage', 'PAGE', 'Glossaire', 'PROPOSITIONS'])
-#set($classPath = "TestPage.PAGE.Glossaire.CODE.glossaireClass.WebHome")
-#set($dataSpace = "TestPage.PAGE.Glossaire.DATA")
-#set($dataSpaces = ['TestPage', 'PAGE', 'Glossaire', 'DATA'])
-
-## L'appartenance au groupe est contrôlée pour CHAQUE mutation, même si la
-## requête ne provient pas des boutons de l'interface. Aucun rôle implicite.
-#set($reviewGroup = 'XWiki.GlossaireValidateurs')
-#set($configuration = $xwiki.getDocument('TestPage.PAGE.Glossaire.CODE.Configuration.WebHome'))
-#set($configurationObject = $configuration.getObject('TestPage.PAGE.Glossaire.CODE.glossaireConfigurationClass.WebHome'))
-#if($configurationObject)
-  #set($configuredReviewGroup = "$!configurationObject.getValue('reviewGroup')")
-  #if($configuredReviewGroup != '' && !$configuredReviewGroup.matches('\s*'))
-    #set($reviewGroup = $configuredReviewGroup)
-  #end
-#end
-#set($canReview = false)
+#set($trashSpace = 'TestPage.PAGE.Glossaire.CORBEILLE')
+#set($trashSpaces = ['TestPage', 'PAGE', 'Glossaire', 'CORBEILLE'])
+#set($now = $datetool.date)
+#set($nowMillis = $now.time)
+#set($trashCutoff = $nowMillis - 604800000)
 #set($currentUserReference = $xcontext.userReference)
 #set($isAuthenticated = $currentUserReference && $currentUserReference.name != 'XWikiGuest')
-#if($isAuthenticated)
-  #set($reviewGroupReference = $services.model.resolveDocument($reviewGroup))
-  #set($canReview = $services.user.group.getGroups($currentUserReference, $reviewGroupReference.wikiReference, true).contains($reviewGroupReference))
+#set($currentUser = '')
+#if($currentUserReference)
+  #set($currentUser = $services.model.serialize($currentUserReference))
 #end
+#set($guestReference = $services.model.resolveDocument('XWiki.XWikiGuest'))
+#set($canConfigure = $xwiki.hasWikiAdminRights())
+#set($configuration = $xwiki.getDocumentAsAuthor($configurationRef))
+#set($configurationObject = false)
+#if($configuration)
+  #set($configurationObject = $configuration.getObject($configurationClass))
+#end
+#set($rank = 0)
+#if(!$configuration)
+  ## Un refus d'accès n'est pas une configuration absente : ne jamais revenir
+  ## aux autorisations historiques si l'auteur ne peut pas lire les paramètres.
+  #set($rank = 0)
+#elseif($configurationObject && "$!configurationObject.getValue('schemaVersion')" == '2')
+  #set($membershipByWiki = {})
+  #foreach($permission in [{'field':'viewGroups', 'level':1}, {'field':'proposeGroups', 'level':2}, {'field':'directAddGroups', 'level':3}, {'field':'reviewGroups', 'level':4}])
+    #set($configuredGroups = "$!configurationObject.getValue($permission.field)")
+    #foreach($configuredGroup in $configuredGroups.split('[\r\n]+'))
+      #if($configuredGroup != '' && !$configuredGroup.matches('\s*'))
+        #set($configuredGroupReference = $services.model.resolveDocument($configuredGroup))
+        #set($isMember = false)
+        #if(!$isAuthenticated && $configuredGroupReference.equals($guestReference) && $permission.level == 1)
+          #set($isMember = true)
+        #elseif($isAuthenticated && !$configuredGroupReference.equals($guestReference))
+          #set($membershipWiki = $configuredGroupReference.wikiReference.name)
+          #if(!$membershipByWiki.containsKey($membershipWiki))
+            #set($discard = $membershipByWiki.put($membershipWiki, $services.user.group.getGroups($currentUserReference, $configuredGroupReference.wikiReference, true)))
+          #end
+          #set($isMember = $membershipByWiki.get($membershipWiki).contains($configuredGroupReference))
+        #end
+        #if($isMember && $permission.level > $rank)
+          #set($rank = $permission.level)
+        #end
+      #end
+    #end
+  #end
+#elseif($configurationObject && "$!configurationObject.getValue('schemaVersion')" != '')
+  ## Une version inconnue n'autorise pas un retour au mode public historique.
+  #set($rank = 0)
+#else
+  ## Compatibilité de l'installation précédente tant que les paramètres v2
+  ## n'ont pas été enregistrés : lecture publique, propositions connectées.
+  #set($rank = 1)
+  #if($isAuthenticated)
+    #set($rank = 2)
+    #set($reviewGroup = 'XWiki.GlossaireValidateurs')
+    #if($configurationObject)
+      #set($legacyReviewGroup = "$!configurationObject.getValue('reviewGroup')")
+      #if($legacyReviewGroup != '' && !$legacyReviewGroup.matches('\s*'))
+        #set($reviewGroup = $legacyReviewGroup)
+      #end
+    #end
+    #set($reviewGroupReference = $services.model.resolveDocument($reviewGroup))
+    #if($services.user.group.getGroups($currentUserReference, $reviewGroupReference.wikiReference, true).contains($reviewGroupReference))
+      #set($rank = 4)
+    #end
+  #end
+#end
+#set($canView = $rank >= 1)
+#set($canPropose = $isAuthenticated && $rank >= 2)
+#set($canAdd = $isAuthenticated && $rank >= 3)
+#set($canManage = $canAdd)
+#set($canReview = $isAuthenticated && $rank >= 4)
 
-## Validation commune aux créations et aux propositions corrigées ou nouvelles.
 #macro(validateGlossaireProposal)
   #if($acronym == '' || $label == '' || $acronym.matches('\s*') || $label.matches('\s*'))
     #set($errorMessage = "L'acronyme et le libellé ne peuvent pas être vides")
   #elseif($acronym.length() > 255 || $label.length() > 255)
     #set($errorMessage = "L'acronyme et le libellé sont limités à 255 caractères")
-  #elseif($acronym.contains('$') || $acronym.contains('{') || $acronym.contains('}') || $acronym.contains('/'))
-    #set($errorMessage = "L'acronyme contient un caractère incompatible avec le renommage des fiches")
   #end
 #end
 
-## Le proposant et l'état initial sont toujours déterminés par le serveur.
-## Seule cette écriture dans PROPOSITIONS utilise les droits de l'auteur.
-#macro(createGlossaireProposal $proposalAcronym $proposalLabel $proposalDefinition $proposalSaveComment)
+## Seuls les contenus inertes générés par ce module peuvent être réattribués
+## à l'auteur du traitement. Une fiche personnalisée reste intacte.
+#macro(checkKnownGlossaireContent $knownDoc)
+  #set($knownContent = "$!knownDoc.content")
+  #set($knownContent = $knownContent.replaceAll('^\s+|\s+$', ''))
+  #set($isKnownGlossaireContent = $knownContent == '' || $knownContent.matches('\s*'))
+  #set($knownOpenBrace = '{')
+  #set($knownCloseBrace = '}')
+  #set($knownHtmlOpen = $knownOpenBrace.concat($knownOpenBrace).concat('html').concat($knownCloseBrace).concat($knownCloseBrace))
+  #set($knownHtmlClose = $knownOpenBrace.concat($knownOpenBrace).concat('/html').concat($knownCloseBrace).concat($knownCloseBrace))
+  #set($knownStableMarker = "$knownHtmlOpen<!-- glossary-id:$knownDoc.name -->$knownHtmlClose")
+  #if($knownDoc.name.matches('[A-Za-z0-9_]+') && $knownContent == $knownStableMarker)
+    #set($isKnownGlossaireContent = true)
+  #end
+  #if($knownDoc.name.startsWith('Proposition_'))
+    #set($knownProposalId = $knownDoc.name.substring(12))
+    #if($knownProposalId.matches('[A-Za-z0-9_]+'))
+      #set($knownPublicationMarker = "$knownHtmlOpen<!-- glossary-proposal:$knownProposalId -->$knownHtmlClose")
+      #set($knownCombinedMarkers = "$knownPublicationMarker$knownStableMarker")
+      #if($knownContent == $knownPublicationMarker || $knownContent == $knownCombinedMarkers)
+        #set($isKnownGlossaireContent = true)
+      #end
+    #end
+  #end
+#end
+
+## Aucun texte utilisateur n'est utilisé comme nom technique.
+#macro(createGlossaireEntry $entryAcronym $entryLabel $entryDefinition $saveComment)
+  #set($entryError = '')
+  #set($createdEntryRef = '')
+  #set($createdEntryName = '')
+  #set($entryName = $xwiki.getUniquePageName($dataSpace))
+  #set($entryReference = $services.model.createDocumentReference('', $dataSpaces, $entryName))
+  #set($entryDoc = false)
+  #set($entryDoc = $xwiki.getDocumentAsAuthor($entryReference))
+  #if(!$entryDoc)
+    #set($entryError = "La destination n'est pas accessible à l'auteur du service")
+  #elseif(!$entryDoc.isNew())
+    #set($entryError = 'Ce nom de fiche est déjà utilisé ; réessayez')
+  #elseif(!$xwiki.hasAccessLevel('view', $xcontext.user, $services.model.serialize($entryReference)))
+    #set($entryError = 'Droits de consultation insuffisants sur la destination')
+  #else
+    #set($entryObject = false)
+    #set($entryObject = $entryDoc.newObject($classPath))
+    #if(!$entryObject)
+      #set($entryError = "La classe du glossaire n'est pas installée")
+    #else
+      #set($discard = $entryObject.set('acronyme', $entryAcronym))
+      #set($discard = $entryObject.set('libelle', $entryLabel))
+      #set($discard = $entryObject.set('definition', $entryDefinition))
+      #set($discard = $entryDoc.setTitle($escapetool.velocity($entryAcronym)))
+      #set($markerOpenBrace = '{')
+      #set($markerCloseBrace = '}')
+      #set($htmlOpen = $markerOpenBrace.concat($markerOpenBrace).concat('html').concat($markerCloseBrace).concat($markerCloseBrace))
+      #set($htmlClose = $markerOpenBrace.concat($markerOpenBrace).concat('/html').concat($markerCloseBrace).concat($markerCloseBrace))
+      #set($discard = $entryDoc.setContent("$htmlOpen<!-- glossary-id:$entryName -->$htmlClose"))
+      #set($discard = $entryDoc.saveAsAuthor($saveComment, true))
+      #set($createdEntryRef = $entryDoc.getFullName())
+      #set($createdEntryName = $entryDoc.getName())
+    #end
+  #end
+#end
+
+#macro(createGlossaireProposal $proposalAcronym $proposalLabel $proposalDefinition $saveComment)
   #set($proposalCreationError = '')
   #set($createdProposalRef = '')
   #set($proposalName = $xwiki.getUniquePageName($proposalSpace))
-  #set($proposalReference = $services.model.createDocumentReference('', $proposalSpaces, $proposalName))
-  #set($proposalDoc = false)
-  #set($proposalDoc = $xwiki.getDocumentAsAuthor($proposalReference))
-  #if(!$proposalDoc)
+  #set($newProposalReference = $services.model.createDocumentReference('', $proposalSpaces, $proposalName))
+  #set($newProposalDoc = false)
+  #set($newProposalDoc = $xwiki.getDocumentAsAuthor($newProposalReference))
+  #if(!$newProposalDoc)
     #set($proposalCreationError = "La file de propositions n'est pas accessible à l'auteur du service")
-  #elseif(!$proposalDoc.isNew())
+  #elseif(!$newProposalDoc.isNew())
     #set($proposalCreationError = 'Ce nom de proposition est déjà utilisé ; réessayez')
   #else
-    #set($proposalObject = false)
-    #set($proposalObject = $proposalDoc.newObject($proposalClassPath))
-    #if(!$proposalObject)
+    #set($newProposalObject = false)
+    #set($newProposalObject = $newProposalDoc.newObject($proposalClassPath))
+    #if(!$newProposalObject)
       #set($proposalCreationError = "La classe des propositions n'est pas installée")
     #else
-      #set($proposalAuthor = $services.model.serialize($currentUserReference))
-      #set($discard = $proposalObject.set('acronyme', $proposalAcronym))
-      #set($discard = $proposalObject.set('libelle', $proposalLabel))
-      #set($discard = $proposalObject.set('definition', $proposalDefinition))
-      #set($discard = $proposalObject.set('author', $proposalAuthor))
-      #set($discard = $proposalObject.set('submittedAt', $datetool.date))
-      #set($discard = $proposalObject.set('status', 'pending'))
-      #set($discard = $proposalObject.set('reviewComment', ''))
-      #set($discard = $proposalObject.set('reviewer', ''))
-      #set($discard = $proposalObject.set('publishedRef', ''))
-      #set($discard = $proposalDoc.setTitle($proposalAcronym))
-      #set($discard = $proposalDoc.saveAsAuthor($proposalSaveComment, true))
-      #set($createdProposalRef = $proposalDoc.getFullName())
+      #set($discard = $newProposalObject.set('acronyme', $proposalAcronym))
+      #set($discard = $newProposalObject.set('libelle', $proposalLabel))
+      #set($discard = $newProposalObject.set('definition', $proposalDefinition))
+      #set($discard = $newProposalObject.set('author', $currentUser))
+      #set($discard = $newProposalObject.set('submittedAt', $now))
+      #set($discard = $newProposalObject.set('status', 'pending'))
+      #set($discard = $newProposalObject.set('reviewComment', ''))
+      #set($discard = $newProposalObject.set('reviewer', ''))
+      #set($discard = $newProposalObject.set('publishedRef', ''))
+      #set($discard = $newProposalObject.set('sourceProposalId', $proposalName))
+      #set($preparedProposalMillis = -1)
+      #set($preparedProposalDate = false)
+      #set($preparedProposalDate = $newProposalObject.getValue('submittedAt'))
+      #if($preparedProposalDate)
+        #set($preparedProposalMillis = $preparedProposalDate.time)
+      #end
+      #if("$!newProposalObject.getValue('sourceProposalId')" != $proposalName || "$!newProposalObject.getValue('status')" != 'pending' || "$!newProposalObject.getValue('author')" != $currentUser || $preparedProposalMillis != $nowMillis || "$!newProposalObject.getValue('acronyme')" != $proposalAcronym || "$!newProposalObject.getValue('libelle')" != $proposalLabel || "$!newProposalObject.getValue('definition')" != $proposalDefinition)
+        #set($proposalCreationError = 'Les champs de la classe des propositions ne sont pas installés correctement')
+      #else
+        #set($discard = $newProposalDoc.setTitle($escapetool.velocity($proposalAcronym)))
+        #set($discard = $newProposalDoc.saveAsAuthor($saveComment, true))
+        #set($createdProposalRef = $newProposalDoc.getFullName())
+      #end
+    #end
+  #end
+#end
+
+## Copie uniquement les propriétés de notre classe ; aucun droit, pièce jointe
+## ou contenu exécutable du document source n'est transféré.
+#macro(copyGlossaireProposalFields $sourceObject $destinationObject)
+  #foreach($copyField in ['acronyme', 'libelle', 'definition', 'author', 'submittedAt', 'status', 'reviewComment', 'reviewer', 'reviewedAt', 'publishedRef', 'sourceProposalId', 'deletedAt'])
+    #set($copyValue = false)
+    #set($copyValue = $sourceObject.getValue($copyField))
+    #if($copyValue != false)
+      #set($discard = $destinationObject.set($copyField, $copyValue))
+    #end
+  #end
+#end
+
+## Sauver la copie avant de supprimer la source rend un échec partiel récupérable.
+## Une destination préexistante n'est réutilisée que si elle correspond exactement
+## à cette proposition et à cette décision.
+#macro(moveGlossaireProposalToTrash $sourceDoc $sourceObject $trashStatus $moveComment)
+  #set($moveError = '')
+  #set($movedTrashRef = '')
+  #set($movedTrashVersion = '')
+  #set($movedTrashMillis = -1)
+  #set($destinationReference = $services.model.createDocumentReference('', $trashSpaces, $sourceDoc.name))
+  #set($destinationDoc = false)
+  #set($destinationDoc = $xwiki.getDocumentAsAuthor($destinationReference))
+  #set($destinationObject = false)
+  #if(!$destinationDoc)
+    #set($moveError = "La corbeille n'est pas accessible à l'auteur du service")
+  #elseif(!$destinationDoc.isNew())
+    #set($destinationObject = $destinationDoc.getObject($proposalClassPath))
+    #set($sameProposal = $destinationObject && "$!destinationObject.getValue('sourceProposalId')" == "$sourceDoc.name" && "$!destinationObject.getValue('status')" == $trashStatus && "$!destinationObject.getValue('reviewComment')" == $moveComment)
+    #foreach($identityField in ['acronyme', 'libelle', 'definition', 'author', 'submittedAt'])
+      #if($sameProposal && "$!destinationObject.getValue($identityField)" != "$!sourceObject.getValue($identityField)")
+        #set($sameProposal = false)
+      #end
+    #end
+    #if(!$sameProposal)
+      #set($moveError = 'La destination de corbeille existe déjà et ne correspond pas à cette décision')
+    #end
+  #else
+    #set($destinationObject = $destinationDoc.newObject($proposalClassPath))
+    #if(!$destinationObject)
+      #set($moveError = "La classe des propositions n'est pas installée")
+    #else
+      #copyGlossaireProposalFields($sourceObject $destinationObject)
+      #set($discard = $destinationObject.set('sourceProposalId', $sourceDoc.name))
+      #set($discard = $destinationObject.set('status', $trashStatus))
+      #set($discard = $destinationObject.set('reviewComment', $moveComment))
+      #set($discard = $destinationObject.set('reviewer', $currentUser))
+      #set($discard = $destinationObject.set('reviewedAt', $now))
+      #set($discard = $destinationObject.set('deletedAt', $now))
+      #set($preparedTrashMillis = -1)
+      #set($preparedTrashDate = false)
+      #set($preparedTrashDate = $destinationObject.getValue('deletedAt'))
+      #if($preparedTrashDate)
+        #set($preparedTrashMillis = $preparedTrashDate.time)
+      #end
+      #if("$!destinationObject.getValue('sourceProposalId')" != "$sourceDoc.name" || "$!destinationObject.getValue('status')" != $trashStatus || $preparedTrashMillis != $nowMillis)
+        #set($moveError = 'Les champs deletedAt et sourceProposalId doivent être installés dans la classe des propositions')
+      #else
+        #set($trashTitle = "$!sourceObject.getValue('acronyme')")
+        #set($discard = $destinationDoc.setTitle($escapetool.velocity($trashTitle)))
+        #set($discard = $destinationDoc.saveAsAuthor('Mise en corbeille de proposition via interface Glossaire', true))
+      #end
+    #end
+  #end
+  #if($moveError == '')
+    #set($deletedAtValue = false)
+    #set($deletedAtValue = $destinationObject.getValue('deletedAt'))
+    #if($deletedAtValue)
+      #set($movedTrashMillis = $deletedAtValue.time)
+    #end
+    #if($movedTrashMillis < 0)
+      #set($moveError = 'La date de mise en corbeille est invalide')
+    #else
+      #set($discard = $sourceDoc.deleteAsAuthor())
+      #set($sourceAfterMove = false)
+      #set($sourceAfterMove = $xwiki.getDocumentAsAuthor($sourceDoc.documentReference))
+      #if(!$sourceAfterMove || !$sourceAfterMove.isNew())
+        #set($moveError = "La copie est conservée en corbeille, mais la source existe encore ; réessayez la même décision")
+      #else
+        #set($movedTrashRef = $destinationDoc.getFullName())
+        #set($movedTrashVersion = "$destinationDoc.version")
+      #end
+    #end
+  #end
+#end
+
+## Fragment à intégrer dans DATA, avant le traitement des actions.
+## Contrat : errorMessage est global et initialisé à '' par le service.
+## newViewRefs : union cumulative des groupes autorisés à lire.
+## newAddRefs : union des groupes ajout direct + validation.
+## Ces deux paramètres contiennent des DocumentReference validées côté serveur.
+## XWikiGuest est accepté uniquement dans la première liste (droit de lecture).
+## Les écritures ci-dessous utilisent l'administrateur connecté, jamais saveAsAuthor.
+
+#macro(applyGlossaireNativeRights $aclDocument $aclClassName $aclProtectedScript $aclPrivateScope)
+  #if($errorMessage == '')
+    #if(!$aclDocument)
+      #set($errorMessage = 'Une page à protéger est inaccessible')
+    #elseif(!$xwiki.hasAccessLevel('edit', $xcontext.user, $services.model.serialize($aclDocument.documentReference, 'default')))
+      #set($errorMessage = 'Droits insuffisants pour synchroniser les autorisations natives du glossaire')
+    #else
+      ## getObjects renvoie une copie des wrappers : removeObject ne modifie
+      ## pas la collection sur laquelle cette boucle est en cours.
+      #foreach($gaclRule in $aclDocument.getObjects($aclClassName))
+        #set($gaclOldLevels = "$!gaclRule.getValue('levels')")
+        #set($gaclKeptLevels = '')
+        #foreach($gaclLevel in $gaclOldLevels.split('[,\s]+'))
+          #if($gaclLevel != '' && $gaclLevel != 'view' && $gaclLevel != 'edit' && $gaclLevel != 'delete')
+            #if($gaclKeptLevels == '')
+              #set($gaclKeptLevels = $gaclLevel)
+            #else
+              #set($gaclKeptLevels = "$gaclKeptLevels,$gaclLevel")
+            #end
+          #end
+        #end
+        #if($gaclKeptLevels == '')
+          #if(!$aclDocument.removeObject($gaclRule))
+            #set($errorMessage = "Impossible de retirer une ancienne autorisation native du glossaire")
+          #end
+        #elseif($gaclKeptLevels != $gaclOldLevels)
+          #set($discard = $gaclRule.set('levels', $gaclKeptLevels))
+        #end
+      #end
+
+      #if($errorMessage == '')
+        #set($gaclViewRule = false)
+        #set($gaclWriteRule = false)
+        #set($gaclViewRule = $aclDocument.newObject($aclClassName))
+        #set($gaclWriteRule = $aclDocument.newObject($aclClassName))
+        #if(!$gaclViewRule || !$gaclWriteRule)
+          #set($errorMessage = "Les classes des autorisations natives XWiki ne sont pas disponibles")
+        #else
+          #set($gaclDocumentViewGroups = $glossaireAclViewGroups)
+          #set($gaclDocumentViewUsers = $glossaireAclViewUsers)
+          #if($aclPrivateScope)
+            #set($gaclDocumentViewGroups = '')
+            #set($gaclDocumentViewUsers = $glossaireAclTrustedUsers)
+          #end
+          #set($discard = $gaclViewRule.set('levels', 'view'))
+          #set($discard = $gaclViewRule.set('groups', $gaclDocumentViewGroups))
+          #set($discard = $gaclViewRule.set('users', $gaclDocumentViewUsers))
+          #set($discard = $gaclViewRule.set('allow', 1))
+          #set($discard = $gaclWriteRule.set('levels', 'edit,delete'))
+          ## Les groupes utilisent l'interface contrôlée. Ne pas accorder
+          ## d'édition native qui permettrait d'injecter du contenu dans une
+          ## fiche ensuite sauvegardée au nom de l'auteur de confiance.
+          #set($gaclDocumentWriteGroups = '')
+          #if($aclProtectedScript || $aclPrivateScope)
+            #set($gaclDocumentWriteGroups = '')
+          #end
+          #set($discard = $gaclWriteRule.set('groups', $gaclDocumentWriteGroups))
+          #set($discard = $gaclWriteRule.set('users', $glossaireAclTrustedUsers))
+          #set($discard = $gaclWriteRule.set('allow', 1))
+
+          ## Détecter une classe absente ou une propriété non installée avant
+          ## d'enregistrer. Une liste vide de groupes reste restrictive grâce
+          ## aux utilisateurs de confiance explicitement conservés.
+          #if("$!gaclViewRule.getValue('levels')" != 'view' || "$!gaclViewRule.getValue('groups')" != $gaclDocumentViewGroups || "$!gaclViewRule.getValue('users')" != $gaclDocumentViewUsers || "$!gaclViewRule.getValue('allow')" != '1' || "$!gaclWriteRule.getValue('levels')" != 'edit,delete' || "$!gaclWriteRule.getValue('groups')" != $gaclDocumentWriteGroups || "$!gaclWriteRule.getValue('users')" != $glossaireAclTrustedUsers || "$!gaclWriteRule.getValue('allow')" != '1')
+            #set($errorMessage = "Impossible de préparer les autorisations natives du glossaire")
+          #else
+            #set($discard = $aclDocument.save('Synchronisation des autorisations du glossaire', true))
+            #if($aclDocument.isNew())
+              #set($errorMessage = "Une page d'autorisations du glossaire n'a pas été enregistrée")
+            #else
+              #set($glossaireAclUpdatedCount = $glossaireAclUpdatedCount + 1)
+            #end
+          #end
+        #end
+      #end
+    #end
+  #end
+#end
+
+#macro(syncGlossaireViewRights $newViewRefs $newAddRefs)
+  #set($glossaireAclUpdatedCount = 0)
+  #if($errorMessage == '' && !$xwiki.hasWikiAdminRights())
+    #set($errorMessage = 'Seul un administrateur du wiki peut modifier les autorisations du glossaire')
+  #end
+  #if($errorMessage == '')
+    #set($gaclMainDoc = $xwiki.getDocument('TestPage.PAGE.Glossaire.WebHome'))
+    #set($gaclDataDoc = $xwiki.getDocument('TestPage.PAGE.Glossaire.DATA.WebHome'))
+    #set($gaclConfigDoc = $xwiki.getDocument('TestPage.PAGE.Glossaire.CODE.Configuration.WebHome'))
+    #set($gaclTrustedReferences = [])
+    #set($gaclCurrentAdmin = $xcontext.userReference)
+    #if($gaclCurrentAdmin && $gaclCurrentAdmin.name != 'XWikiGuest')
+      #set($discard = $gaclTrustedReferences.add($gaclCurrentAdmin))
+    #else
+      #set($errorMessage = "L'identité de l'administrateur connecté est introuvable")
+    #end
+    ## Capturer les auteurs AVANT de sauvegarder la première page.
+    #foreach($gaclSourceDocument in [$gaclMainDoc, $gaclDataDoc, $gaclConfigDoc])
+      #if($gaclSourceDocument)
+        #set($gaclSourceAuthor = false)
+        #set($gaclSourceAuthor = $gaclSourceDocument.getContentAuthorReference())
+        #if($gaclSourceAuthor && $gaclSourceAuthor.name != 'XWikiGuest' && !$gaclTrustedReferences.contains($gaclSourceAuthor))
+          #set($discard = $gaclTrustedReferences.add($gaclSourceAuthor))
+        #end
+      #end
+    #end
+
+    #set($glossaireAclTrustedUsers = '')
+    #foreach($gaclTrustedReference in $gaclTrustedReferences)
+      #set($gaclTrustedName = $services.model.serialize($gaclTrustedReference, 'default'))
+      ## Les listes natives sont séparées par des virgules. Protéger aussi
+      ## les antislashs utilisés par la sérialisation des références XWiki.
+      #set($gaclTrustedName = $gaclTrustedName.replace('\', '\\').replace(',', '\,'))
+      #if($glossaireAclTrustedUsers == '')
+        #set($glossaireAclTrustedUsers = $gaclTrustedName)
+      #else
+        #set($glossaireAclTrustedUsers = "$glossaireAclTrustedUsers,$gaclTrustedName")
+      #end
+    #end
+    #set($glossaireAclViewUsers = $glossaireAclTrustedUsers)
+    #set($glossaireAclViewGroups = '')
+    #set($gaclViewSeen = [])
+    #foreach($gaclViewReference in $newViewRefs)
+      #if($gaclViewReference && !$gaclViewSeen.contains($gaclViewReference))
+        #set($discard = $gaclViewSeen.add($gaclViewReference))
+        #if($gaclViewReference.name == 'XWikiGuest')
+          #set($glossaireAclViewUsers = "$glossaireAclViewUsers,XWiki.XWikiGuest")
+        #else
+          #set($gaclGroupName = $services.model.serialize($gaclViewReference, 'default'))
+          #set($gaclGroupName = $gaclGroupName.replace('\', '\\').replace(',', '\,'))
+          #if($glossaireAclViewGroups == '')
+            #set($glossaireAclViewGroups = $gaclGroupName)
+          #else
+            #set($glossaireAclViewGroups = "$glossaireAclViewGroups,$gaclGroupName")
+          #end
+        #end
+      #end
+    #end
+    #set($glossaireAclWriteGroups = '')
+    #set($gaclWriteSeen = [])
+    #foreach($gaclWriteReference in $newAddRefs)
+      #if(!$gaclWriteReference || $gaclWriteReference.name == 'XWikiGuest')
+        #set($errorMessage = "Un visiteur anonyme ne peut pas recevoir de droits d'écriture sur le glossaire")
+      #elseif(!$gaclWriteSeen.contains($gaclWriteReference))
+        #set($discard = $gaclWriteSeen.add($gaclWriteReference))
+        #set($gaclGroupName = $services.model.serialize($gaclWriteReference, 'default'))
+        #set($gaclGroupName = $gaclGroupName.replace('\', '\\').replace(',', '\,'))
+        #if($glossaireAclWriteGroups == '')
+          #set($glossaireAclWriteGroups = $gaclGroupName)
+        #else
+          #set($glossaireAclWriteGroups = "$glossaireAclWriteGroups,$gaclGroupName")
+        #end
+      #end
+    #end
+
+    #if($errorMessage == '' && $glossaireAclTrustedUsers == '')
+      #set($errorMessage = 'Aucun utilisateur de confiance ne permet de conserver la maintenance du glossaire')
+    #end
+    #if($errorMessage == '')
+      #applyGlossaireNativeRights($gaclMainDoc 'XWiki.XWikiRights' true false)
+      #applyGlossaireNativeRights($gaclDataDoc 'XWiki.XWikiRights' true false)
+      #set($gaclPreferencesReference = $services.model.createDocumentReference('', ['TestPage', 'PAGE', 'Glossaire', 'DATA'], 'WebPreferences'))
+      #set($gaclPreferencesDoc = $xwiki.getDocument($gaclPreferencesReference))
+      #applyGlossaireNativeRights($gaclPreferencesDoc 'XWiki.XWikiGlobalRights' false false)
+      ## Les droits des enfants DATA ne doivent pas donner aux contributeurs
+      ## la possibilité de modifier la page qui stocke ces autorisations.
+      #applyGlossaireNativeRights($gaclPreferencesDoc 'XWiki.XWikiRights' true false)
+      #foreach($gaclTermName in $xwiki.getSpaceDocsName('TestPage.PAGE.Glossaire.DATA'))
+        #if($gaclTermName != 'WebHome' && $gaclTermName != 'WebPreferences' && $errorMessage == '')
+          #set($gaclTermReference = $services.model.createDocumentReference('', ['TestPage', 'PAGE', 'Glossaire', 'DATA'], $gaclTermName))
+          #set($gaclTermDocument = $xwiki.getDocument($gaclTermReference))
+          #if($gaclTermDocument && !$gaclTermDocument.isNew() && $gaclTermDocument.getObject('TestPage.PAGE.Glossaire.CODE.glossaireClass.WebHome'))
+            #applyGlossaireNativeRights($gaclTermDocument 'XWiki.XWikiRights' false false)
+          #end
+        #end
+      #end
+      ## Les listes privées sont rendues par les pages de confiance après
+      ## filtrage du rôle et de l'auteur. Leurs documents bruts et leurs
+      ## paramètres d'espace ne doivent jamais être publiquement lisibles,
+      ## même pour un ancien membre du groupe de validation.
+      #foreach($gaclPrivateSpaceName in ['PROPOSITIONS', 'CORBEILLE'])
+        #if($errorMessage == '')
+          #set($gaclPrivateSpaces = ['TestPage', 'PAGE', 'Glossaire', $gaclPrivateSpaceName])
+          #set($gaclPrivateHomeReference = $services.model.createDocumentReference('', $gaclPrivateSpaces, 'WebHome'))
+          #set($gaclPrivateHomeDocument = $xwiki.getDocument($gaclPrivateHomeReference))
+          #applyGlossaireNativeRights($gaclPrivateHomeDocument 'XWiki.XWikiRights' true true)
+          #set($gaclPrivatePreferencesReference = $services.model.createDocumentReference('', $gaclPrivateSpaces, 'WebPreferences'))
+          #set($gaclPrivatePreferencesDocument = $xwiki.getDocument($gaclPrivatePreferencesReference))
+          #applyGlossaireNativeRights($gaclPrivatePreferencesDocument 'XWiki.XWikiGlobalRights' true true)
+          #applyGlossaireNativeRights($gaclPrivatePreferencesDocument 'XWiki.XWikiRights' true true)
+          #set($gaclPrivateSpace = "TestPage.PAGE.Glossaire.$gaclPrivateSpaceName")
+          #foreach($gaclPrivateDocumentName in $xwiki.getSpaceDocsName($gaclPrivateSpace))
+            #if($gaclPrivateDocumentName != 'WebHome' && $gaclPrivateDocumentName != 'WebPreferences' && $errorMessage == '')
+              #set($gaclPrivateDocumentReference = $services.model.createDocumentReference('', $gaclPrivateSpaces, $gaclPrivateDocumentName))
+              #set($gaclPrivateDocument = $xwiki.getDocument($gaclPrivateDocumentReference))
+              #if($gaclPrivateDocument && !$gaclPrivateDocument.isNew() && $gaclPrivateDocument.getObject('TestPage.PAGE.Glossaire.CODE.glossairePropositionClass.WebHome'))
+                #applyGlossaireNativeRights($gaclPrivateDocument 'XWiki.XWikiRights' true true)
+              #end
+            #end
+          #end
+        #end
+      #end
     #end
   #end
 #end
 
 #set($action = "$!request.getParameter('action')")
 #set($csrfToken = $request.getParameter('form_token'))
-#if($action != 'save' && $action != 'delete' && $action != 'import' && $action != 'create' && $action != 'propose' && $action != 'approve' && $action != 'reject')
+#set($knownActions = ['save', 'delete', 'import', 'create', 'propose', 'approve', 'reject', 'trash', 'restore', 'purge', 'settings', 'migrate'])
+#if(!$knownActions.contains($action))
   #set($resultLine = 'GLOSSAIRE_READY')
 #elseif($request.getMethod() != 'POST')
   #set($errorMessage = 'Cette action nécessite une requête POST')
 #elseif(!$csrfToken || !$services.csrf.isTokenValid($csrfToken))
   #set($errorMessage = 'Jeton CSRF invalide ou absent')
-#elseif(!$isAuthenticated)
-  #set($errorMessage = 'Connectez-vous pour proposer un acronyme')
-#elseif($action != 'propose' && $action != 'import' && !$canReview)
-  #set($errorMessage = 'Seuls les membres du groupe de validation peuvent modifier le glossaire et traiter les propositions')
+#elseif(($action == 'settings' || $action == 'migrate') && !$canConfigure)
+  #set($errorMessage = 'Seuls les administrateurs du wiki peuvent modifier les paramètres du glossaire')
+#elseif($action == 'purge' && !$canView && !$canConfigure)
+  #set($errorMessage = 'Droits de consultation insuffisants pour ouvrir la corbeille du glossaire')
+#elseif($action != 'settings' && $action != 'migrate' && $action != 'purge' && !$canView)
+  #set($errorMessage = 'Vous ne disposez pas du droit de consulter le glossaire')
+#elseif(($action == 'save' || $action == 'delete' || $action == 'create') && !$canAdd)
+  #set($errorMessage = 'Le droit d’ajout direct est nécessaire pour modifier le glossaire')
+#elseif(($action == 'propose' || $action == 'import') && !$canPropose)
+  #set($errorMessage = 'Vous ne disposez pas du droit de proposer des acronymes')
+#elseif(($action == 'approve' || $action == 'reject' || $action == 'trash' || $action == 'restore') && !$canReview)
+  #set($errorMessage = 'Vous ne disposez pas du droit de valider les propositions')
 #else
-  ## ========================================================================
-  ## MODIFICATION D'UNE LIGNE
-  ## ========================================================================
-  #if($action == "save")
-    #set($targetRef = "$!request.getParameter('targetRef')")
-    #set($targetReference = $services.model.resolveDocument($targetRef))
-    #set($dataRootReference = $services.model.createDocumentReference('', $dataSpaces, 'WebHome'))
-    #set($targetDoc = $xwiki.getDocument($targetReference))
+  #set($acronym = "$!request.getParameter('acronym')")
+  #set($label = "$!request.getParameter('label')")
+  #set($definition = "$!request.getParameter('definition')")
+  #set($comment = "$!request.getParameter('comment')")
 
-    #if(!$targetRef || !$targetReference.getParent().equals($dataRootReference.getParent()) || !$targetDoc.getObject($classPath))
-      #set($errorMessage = "La référence ne correspond pas à une fiche du glossaire")
-    #elseif($targetDoc.isNew())
-      #set($errorMessage = "Document introuvable")
-    #elseif(!$xwiki.hasAccessLevel('edit', $xcontext.user, $targetDoc.fullName))
-      #set($errorMessage = "Droits de modification insuffisants")
+  #if($action == 'settings')
+    #set($expectedVersion = "$!request.getParameter('expectedVersion')")
+    #if(!$configuration)
+      #set($errorMessage = "La configuration n'est pas accessible à l'auteur du service")
+    #elseif($expectedVersion == '' || $expectedVersion != "$configuration.version")
+      #set($errorMessage = 'Les paramètres ont changé ; rechargez la page avant de les enregistrer')
     #else
-      #set($glossaireObj = $targetDoc.getObject($classPath))
-      #set($acronymParam = $request.getParameter("acronym"))
-      #set($labelParam = $request.getParameter("label"))
-      #set($definitionParam = $request.getParameter("definition"))
-
-      #if(!$glossaireObj)
-        #set($errorMessage = "Objet glossaire introuvable")
-      #elseif(!$acronymParam || !$labelParam)
-        #set($errorMessage = "Données incomplètes")
-      #else
-        ## Aucun .trim() côté Velocity sur cette instance XWiki.
-        #set($oldAcronym = "$!glossaireObj.getValue('acronyme')")
-        #set($newAcronym = "$!acronymParam")
-        #set($newLabel = "$!labelParam")
-        #set($newDefinition = "$!definitionParam")
-
-        #if($newAcronym == "" || $newAcronym.matches('\s*') || $newLabel.matches('\s*'))
-          #set($errorMessage = "L'acronyme et le libellé ne peuvent pas être vides")
-        #elseif($newAcronym.length() > 255 || $newLabel.length() > 255)
-          #set($errorMessage = "L'acronyme et le libellé sont limités à 255 caractères")
-        #else
-          #set($workingDoc = $targetDoc)
-          #set($workingObj = $glossaireObj)
-          #set($renameError = "")
-
-          #if($newAcronym != $oldAcronym)
-            #set($baseCandidateName = $newAcronym)
-
-            #if(!$xwiki.hasAccessLevel('delete', $xcontext.user, $targetDoc.fullName))
-              #set($renameError = "Droits de renommage insuffisants")
-            #elseif(!$baseCandidateName || $baseCandidateName == "" || $baseCandidateName.contains('$') || $baseCandidateName.contains('{') || $baseCandidateName.contains('}') || $baseCandidateName.contains('/'))
-              #set($renameError = "Nom technique d'acronyme invalide")
+      #set($newGroupsByLevel = {1:[], 2:[], 3:[], 4:[]})
+      #set($newViewRefs = [])
+      #set($newAddRefs = [])
+      #set($seenGroupRefs = [])
+      #foreach($parameterEntry in $request.parameterMap.entrySet())
+        #set($parameterName = "$!parameterEntry.key")
+        #if($parameterName.startsWith('group_') && $errorMessage == '')
+          #set($rowIndex = $parameterName.substring(6))
+          #set($groupText = "$!request.getParameter($parameterName)")
+          #set($levelParameter = "level_$rowIndex")
+          #set($levelText = "$!request.getParameter($levelParameter)")
+          #if(!$rowIndex.matches('[0-9]+') || !$levelText.matches('[0-4]') || $groupText == '' || $groupText.matches('\s*') || $groupText.matches('[\s\S]*[\r\n][\s\S]*'))
+            #set($errorMessage = 'Un groupe ou un niveau de permission est invalide')
+          #else
+            #set($groupText = $groupText.replaceAll('^\s+|\s+$', ''))
+            #set($candidateGroupReference = $services.model.resolveDocument($groupText))
+            #set($candidateGroupRef = $services.model.serialize($candidateGroupReference))
+            #set($groupLevel = 0)
+            #if($levelText == '1')
+              #set($groupLevel = 1)
+            #elseif($levelText == '2')
+              #set($groupLevel = 2)
+            #elseif($levelText == '3')
+              #set($groupLevel = 3)
+            #elseif($levelText == '4')
+              #set($groupLevel = 4)
+            #end
+            #if($seenGroupRefs.contains($candidateGroupRef))
+              #set($errorMessage = 'Un même groupe ne peut apparaître plusieurs fois dans les paramètres')
             #else
-              #set($sourceReference = $targetReference)
-              #set($candidateName = $baseCandidateName)
-              #set($counter = 1)
-              #set($nameAvailable = false)
-              #set($candidateReference = false)
-
-              #foreach($n in [1..100])
-                #set($terminalCandidateReference = $services.model.createDocumentReference('', $dataSpaces, $candidateName))
-                #set($nestedCandidateSpaces = ['TestPage', 'PAGE', 'Glossaire', 'DATA', $candidateName])
-                #set($nestedCandidateReference = $services.model.createDocumentReference('', $nestedCandidateSpaces, 'WebHome'))
-                #set($terminalCandidateDoc = $xwiki.getDocument($terminalCandidateReference))
-                #set($nestedCandidateDoc = $xwiki.getDocument($nestedCandidateReference))
-                #set($terminalOccupied = !$terminalCandidateDoc.isNew() && !$terminalCandidateReference.equals($sourceReference))
-                #set($nestedOccupied = !$nestedCandidateDoc.isNew() && !$nestedCandidateReference.equals($sourceReference))
-
-                #if(!$terminalOccupied && !$nestedOccupied)
-                  #set($nameAvailable = true)
-                  #set($candidateReference = $terminalCandidateReference)
-                  #break
-                #else
-                  #set($suffix = "_$counter")
-                  #set($candidateName = "$baseCandidateName$suffix")
-                  #set($counter = $counter + 1)
+              #set($discard = $seenGroupRefs.add($candidateGroupRef))
+              #set($validGroup = false)
+              #if($candidateGroupReference.equals($guestReference))
+                #set($validGroup = $groupLevel <= 1)
+              #elseif($groupLevel == 0)
+                ## Retirer un ancien groupe supprimé ne doit pas bloquer les
+                ## paramètres ; le niveau zéro n'est jamais enregistré.
+                #set($validGroup = true)
+              #else
+                #set($candidateGroupDoc = false)
+                #set($candidateGroupDoc = $xwiki.getDocument($candidateGroupReference))
+                #if($candidateGroupDoc && !$candidateGroupDoc.isNew() && $candidateGroupDoc.getObject('XWiki.XWikiGroups'))
+                  #set($validGroup = true)
                 #end
               #end
-
-              #if(!$nameAvailable || !$candidateReference)
-                #set($renameError = "Impossible de trouver un nom de page disponible")
-              #elseif(!$xwiki.hasAccessLevel('edit', $xcontext.user, $services.model.serialize($candidateReference)))
-                #set($renameError = "Droits de création insuffisants à la destination du renommage")
-              #elseif(!$candidateReference.equals($sourceReference))
-                ## Un renommage AJAX ne doit ni conserver l'ancienne page,
-                ## ni attendre une réponse interactive à une question du job.
-                #set($renameRequest = $services.refactoring.requestFactory.createRenameRequest($sourceReference, $candidateReference))
-                #set($discard = $renameRequest.setAutoRedirect(false))
-                #set($discard = $renameRequest.setDeep(false))
-                #set($discard = $renameRequest.setInteractive(false))
-                #set($discard = $renameRequest.setUpdateLinks(true))
-                #set($discard = $renameRequest.setUpdateParentField(true))
-                #set($renameJob = $services.refactoring.rename($renameRequest))
-
-                #if(!$renameJob)
-                  #set($renameError = "Le service XWiki de renommage n'a pas pu démarrer")
-                #else
-                  #set($discard = $renameJob.join())
-                  #set($renamedDoc = $xwiki.getDocument($candidateReference))
-
-                  #if($renamedDoc.isNew())
-                    #set($renamedDoc = $xwiki.getDocument($nestedCandidateReference))
-                  #end
-
-                  #set($oldDocAfterRename = $xwiki.getDocument($sourceReference))
-                  #if(!$oldDocAfterRename.isNew())
-                    #set($renameError = "L'ancienne page existe encore après renommage")
-                  #elseif($renamedDoc.isNew())
-                    #set($renameError = "Le document renommé est introuvable à sa destination")
-                  #else
-                    #set($renamedObj = $renamedDoc.getObject($classPath))
-                    #if(!$renamedObj)
-                      #set($renameError = "Objet glossaire introuvable après renommage")
-                    #else
-                      #set($workingDoc = $renamedDoc)
-                      #set($workingObj = $renamedObj)
-                    #end
-                  #end
+              #if(!$validGroup)
+                #set($errorMessage = "Le groupe sélectionné n'existe pas ou ne peut pas recevoir ce niveau")
+              #elseif($groupLevel > 0)
+                #set($discard = $newGroupsByLevel.get($groupLevel).add($candidateGroupRef))
+                #set($discard = $newViewRefs.add($candidateGroupReference))
+                #if($groupLevel >= 3)
+                  #set($discard = $newAddRefs.add($candidateGroupReference))
                 #end
               #end
             #end
           #end
-
-          #if($renameError != "")
-            #set($errorMessage = "$renameError")
-          #else
-            #set($discard = $workingObj.set("acronyme", $newAcronym))
-            #set($discard = $workingObj.set("libelle", $newLabel))
-            #set($discard = $workingObj.set("definition", $newDefinition))
-            #set($discard = $workingDoc.setTitle($newAcronym))
-            #set($discard = $workingDoc.save("Modification via interface Glossaire", true))
-            #set($finalRef = $workingDoc.getFullName())
-            #set($finalDocName = $workingDoc.getName())
-
-            #if(!$finalRef || $finalRef.contains('$') || $finalRef.contains('{') || $finalRef.contains('}'))
-              #set($errorMessage = "Référence XWiki finale invalide")
-            #else
-              #set($resultLine = "GLOSSAIRE_OK|$escapetool.url($finalRef)|$escapetool.url($finalDocName)")
+        #end
+      #end
+      #if($errorMessage == '')
+        ## Préparer et vérifier la classe AVANT de modifier les ACL natives.
+        #if(!$configurationObject)
+          #set($configurationObject = $configuration.newObject($configurationClass))
+        #end
+        #if(!$configurationObject)
+          #set($errorMessage = "La classe de configuration n'est pas installée")
+        #else
+          #foreach($permission in [{'field':'viewGroups', 'level':1}, {'field':'proposeGroups', 'level':2}, {'field':'directAddGroups', 'level':3}, {'field':'reviewGroups', 'level':4}])
+            #set($groupListText = '')
+            #set($lineSeparator = '')
+            #foreach($savedGroupRef in $newGroupsByLevel.get($permission.level))
+              #set($groupListText = "$groupListText$lineSeparator$savedGroupRef")
+              #set($lineSeparator = "
+")
             #end
+            #set($discard = $configurationObject.set($permission.field, $groupListText))
+            #if("$!configurationObject.getValue($permission.field)" != $groupListText)
+              #set($errorMessage = 'Les champs de permissions ne sont pas installés correctement dans la classe de configuration')
+            #end
+          #end
+          #set($discard = $configurationObject.set('schemaVersion', '2'))
+          #if("$!configurationObject.getValue('schemaVersion')" != '2')
+            #set($errorMessage = "Le champ schemaVersion n'est pas installé dans la classe de configuration")
+          #end
+        #end
+        #if($errorMessage == '')
+          #syncGlossaireViewRights($newViewRefs $newAddRefs)
+          #if($errorMessage == '')
+            #set($discard = $configuration.save('Paramètres des permissions du glossaire', true))
+            #set($resultLine = 'GLOSSAIRE_SETTINGS_SAVED')
           #end
         #end
       #end
     #end
 
-    ## ========================================================================
-    ## IMPORT EXCEL
-    ## ========================================================================
-  #elseif($action == "import")
-    #set($allowAcronymDuplicates = "$!request.getParameter('allowAcronymDuplicates')" == "true")
-    #set($allowLabelDuplicates = "$!request.getParameter('allowLabelDuplicates')" == "true")
+## Fragment à intégrer dans la chaîne des actions de DATA.WebHome.
+## Préconditions partagées : utilisateur authentifié, POST et CSRF vérifiés.
+## L'action migrate est réservée à canConfigure, indépendamment de canReview.
+## Variables existantes : classPath, dataSpace, dataSpaces, canConfigure,
+## currentUserReference, resultLine et errorMessage. Aucun paramètre de cible accepté.
+#elseif($action == 'migrate')
+  #if(!$canConfigure)
+    #set($errorMessage = 'Seuls les administrateurs du wiki peuvent convertir les anciennes adresses')
+  #else
+    #set($migrationSuccessCount = 0)
+    #set($migrationFailedCount = 0)
+    #set($migrationOpenBrace = '{')
+    #set($migrationCloseBrace = '}')
+    #set($migrationSourceNames = $xwiki.getSpaceDocsName($dataSpace))
+    #foreach($migrationSourceName in $migrationSourceNames)
+      #set($migrationSourceReference = $services.model.createDocumentReference('', $dataSpaces, $migrationSourceName))
+      #set($migrationSourceDoc = $xwiki.getDocument($migrationSourceReference))
+      #set($migrationSourceObject = false)
+      #set($migrationSourceObject = $migrationSourceDoc.getObject($classPath))
+      #set($migrationStableMarker = "<!-- glossary-id:$migrationSourceName -->")
+      #set($migrationHasStableMarker = $migrationSourceDoc.content.contains($migrationStableMarker))
+      #set($migrationIsLegacyPublication = false)
+      ## Les anciennes publications de propositions ont déjà une adresse opaque.
+      ## Leur emplacement déterministe reste nécessaire pour reprendre une validation.
+      #if($migrationSourceName.startsWith('Proposition_'))
+        #set($migrationProposalName = $migrationSourceName.substring(12))
+        #if($migrationProposalName.matches('[A-Za-z0-9_]+'))
+          #set($migrationLegacyMarker = "${migrationOpenBrace}${migrationOpenBrace}html${migrationCloseBrace}${migrationCloseBrace}<!-- glossary-proposal:$migrationProposalName -->${migrationOpenBrace}${migrationOpenBrace}/html${migrationCloseBrace}${migrationCloseBrace}")
+          #set($migrationIsLegacyPublication = $migrationSourceDoc.content == $migrationLegacyMarker)
+        #end
+      #end
+      #if($migrationSourceName != 'WebHome' && !$migrationSourceDoc.isNew() && $migrationSourceObject && !$migrationHasStableMarker && !$migrationIsLegacyPublication)
+        #set($migrationCanProceed = true)
+        #set($migrationOriginalTitle = "$!migrationSourceDoc.title")
+        #set($migrationTargetReference = false)
+        #checkKnownGlossaireContent($migrationSourceDoc)
+        #if(!$isKnownGlossaireContent)
+          ## Le contenu personnalisé ne doit être ni renommé ni réattribué.
+          #set($migrationCanProceed = false)
+        #elseif(!$xwiki.hasAccessLevel('edit', $xcontext.user, $migrationSourceDoc.fullName) || !$xwiki.hasAccessLevel('delete', $xcontext.user, $migrationSourceDoc.fullName))
+          #set($migrationCanProceed = false)
+        #else
+          ## Vérifier les deux formes de page sans interpréter le nom comme un chemin.
+          #foreach($migrationAttempt in [1..100])
+            #set($migrationCandidateName = $xwiki.getUniquePageName($dataSpace))
+            #if($migrationCandidateName.matches('[A-Za-z0-9]{16}'))
+              #set($migrationCandidateReference = $services.model.createDocumentReference('', $dataSpaces, $migrationCandidateName))
+              #set($migrationCandidateSpaces = ['TestPage', 'PAGE', 'Glossaire', 'DATA', $migrationCandidateName])
+              #set($migrationNestedReference = $services.model.createDocumentReference('', $migrationCandidateSpaces, 'WebHome'))
+              #set($migrationCandidateDoc = $xwiki.getDocument($migrationCandidateReference))
+              #set($migrationNestedDoc = $xwiki.getDocument($migrationNestedReference))
+              #if($migrationCandidateDoc.isNew() && $migrationNestedDoc.isNew())
+                #set($migrationTargetReference = $migrationCandidateReference)
+                #break
+              #end
+            #end
+          #end
+          #if(!$migrationTargetReference || !$xwiki.hasAccessLevel('edit', $xcontext.user, $services.model.serialize($migrationTargetReference)))
+            #set($migrationCanProceed = false)
+          #end
+        #end
+        #if($migrationCanProceed)
+          #set($migrationRequest = $services.refactoring.requestFactory.createRenameRequest($migrationSourceReference, $migrationTargetReference))
+          #set($discard = $migrationRequest.setCheckRights(true))
+          #set($discard = $migrationRequest.setUserReference($currentUserReference))
+          #set($discard = $migrationRequest.setAutoRedirect(false))
+          #set($discard = $migrationRequest.setDeep(false))
+          #set($discard = $migrationRequest.setInteractive(false))
+          #set($discard = $migrationRequest.setUpdateLinks(true))
+          #set($discard = $migrationRequest.setUpdateParentField(true))
+          #set($migrationJob = false)
+          #set($migrationJob = $services.refactoring.rename($migrationRequest))
+          #if(!$migrationJob)
+            #set($migrationCanProceed = false)
+          #else
+            #set($discard = $migrationJob.join())
+            #set($migrationOldDoc = $xwiki.getDocument($migrationSourceReference))
+            #set($migrationFinalDoc = $xwiki.getDocument($migrationTargetReference))
+            #set($migrationFinalObject = false)
+            #set($migrationFinalObject = $migrationFinalDoc.getObject($classPath))
+            ## Ne jamais supprimer automatiquement une source restée présente.
+            ## Une destination imbriquée inattendue doit être examinée séparément.
+            #if(!$migrationOldDoc.isNew() || $migrationFinalDoc.isNew() || !$migrationFinalObject)
+              #set($migrationCanProceed = false)
+            #else
+              #set($migrationFinalName = $migrationFinalDoc.name)
+              #set($migrationFinalMarker = "${migrationOpenBrace}${migrationOpenBrace}html${migrationCloseBrace}${migrationCloseBrace}<!-- glossary-id:$migrationFinalName -->${migrationOpenBrace}${migrationOpenBrace}/html${migrationCloseBrace}${migrationCloseBrace}")
+              #set($migrationPreviousContent = "$!migrationFinalDoc.content")
+              #set($discard = $migrationFinalDoc.setContent("$migrationPreviousContent$migrationFinalMarker"))
+              #set($discard = $migrationFinalDoc.setTitle($escapetool.velocity($migrationOriginalTitle)))
+              #set($discard = $migrationFinalDoc.save('Conversion vers une adresse technique stable du glossaire', true))
+            #end
+          #end
+        #end
+        #if($migrationCanProceed)
+          #set($migrationSuccessCount = $migrationSuccessCount + 1)
+        #else
+          #set($migrationFailedCount = $migrationFailedCount + 1)
+        #end
+      #end
+    #end
+    #set($resultLine = "GLOSSAIRE_MIGRATED|$migrationSuccessCount|$migrationFailedCount")
+  #end
+
+  #elseif($action == 'purge')
+    #set($purgedCount = 0)
+    #foreach($trashName in $xwiki.getSpaceDocsName($trashSpace))
+      #if($trashName != 'WebHome')
+        #set($trashReference = $services.model.createDocumentReference('', $trashSpaces, $trashName))
+        #set($trashDoc = false)
+        #set($trashObject = false)
+        #set($trashDoc = $xwiki.getDocumentAsAuthor($trashReference))
+        #if(!$trashDoc)
+          #set($errorMessage = "Une fiche de corbeille n'est pas accessible à l'auteur du service")
+        #end
+        #if($trashDoc && !$trashDoc.isNew())
+          #set($trashObject = $trashDoc.getObject($proposalClassPath))
+        #end
+        #if($trashObject && ($trashObject.getValue('status') == 'rejected' || $trashObject.getValue('status') == 'trashed'))
+          #set($deletedAtMillis = -1)
+          #set($deletedAtValue = false)
+          #set($deletedAtValue = $trashObject.getValue('deletedAt'))
+          #if($deletedAtValue)
+            #set($deletedAtMillis = $deletedAtValue.time)
+          #end
+          #if($deletedAtMillis >= 0 && $deletedAtMillis <= $trashCutoff)
+            #set($discard = $trashDoc.deleteAsAuthor())
+            #set($purgedDoc = false)
+            #set($purgedDoc = $xwiki.getDocumentAsAuthor($trashReference))
+            #if($purgedDoc && $purgedDoc.isNew())
+              #set($purgedCount = $purgedCount + 1)
+            #else
+              #set($errorMessage = "Une proposition expirée n'a pas pu être supprimée de la corbeille")
+            #end
+          #end
+        #end
+      #end
+    #end
+    #if($errorMessage == '')
+      #set($resultLine = "GLOSSAIRE_PURGED|$purgedCount")
+    #end
+
+  #elseif($action == 'save' || $action == 'delete')
+    #set($targetRef = "$!request.getParameter('targetRef')")
+    #set($targetReference = $services.model.resolveDocument($targetRef))
+    #set($dataRootReference = $services.model.createDocumentReference('', $dataSpaces, 'WebHome'))
+    #if($targetRef == '' || !$targetReference.parent.equals($dataRootReference.parent) || $targetReference.name == 'WebHome')
+      #set($errorMessage = 'La référence ne correspond pas à une fiche du glossaire')
+    #elseif(!$xwiki.hasAccessLevel('view', $xcontext.user, $services.model.serialize($targetReference)))
+      #set($errorMessage = 'Droits de consultation insuffisants sur cette fiche')
+    #else
+      #set($targetDoc = false)
+      #set($targetDoc = $xwiki.getDocumentAsAuthor($targetReference))
+      #set($targetObject = false)
+      #if($targetDoc && !$targetDoc.isNew())
+        #set($targetObject = $targetDoc.getObject($classPath))
+      #end
+      #if(!$targetObject)
+        #set($errorMessage = 'Fiche du glossaire introuvable ou inaccessible au service')
+      #elseif($action == 'delete')
+        #set($discard = $targetDoc.deleteAsAuthor())
+        #set($deletedDoc = false)
+        #set($deletedDoc = $xwiki.getDocumentAsAuthor($targetReference))
+        #if(!$deletedDoc || !$deletedDoc.isNew())
+          #set($errorMessage = 'La page existe encore après la tentative de suppression')
+        #else
+          #set($resultLine = 'GLOSSAIRE_OK')
+        #end
+      #else
+        #validateGlossaireProposal()
+        ## Ne jamais réattribuer à l'auteur privilégié un ancien contenu
+        ## personnalisé écrit directement dans une fiche. Les marqueurs seuls
+        ## sont produits par le serveur et ne contiennent aucune saisie.
+        #checkKnownGlossaireContent($targetDoc)
+        #if(!$isKnownGlossaireContent)
+          #set($errorMessage = 'Cette fiche contient un contenu personnalisé ; un administrateur doit vérifier son contenu avant modification.')
+        #end
+        #if($errorMessage == '')
+          ## Le changement d'acronyme modifie les données et le titre seulement.
+          #set($discard = $targetObject.set('acronyme', $acronym))
+          #set($discard = $targetObject.set('libelle', $label))
+          #set($discard = $targetObject.set('definition', $definition))
+          #set($discard = $targetDoc.setTitle($escapetool.velocity($acronym)))
+          #set($discard = $targetDoc.saveAsAuthor('Modification via interface Glossaire', true))
+          #set($finalRef = $targetDoc.getFullName())
+          #set($finalName = $targetDoc.getName())
+          #set($resultLine = "GLOSSAIRE_OK|$escapetool.url($finalRef)|$escapetool.url($finalName)")
+        #end
+      #end
+    #end
+
+  #elseif($action == 'create' || $action == 'propose')
+    #validateGlossaireProposal()
+    #if($errorMessage == '')
+      #if($action == 'create')
+        #createGlossaireEntry($acronym $label $definition 'Ajout via interface Glossaire')
+        #if($entryError != '')
+          #set($errorMessage = $entryError)
+        #else
+          #set($resultLine = "GLOSSAIRE_OK|$escapetool.url($createdEntryRef)|$escapetool.url($createdEntryName)")
+        #end
+      #else
+        #createGlossaireProposal($acronym $label $definition 'Proposition via interface Glossaire')
+        #if($proposalCreationError != '')
+          #set($errorMessage = $proposalCreationError)
+        #else
+          #set($resultLine = "GLOSSAIRE_PROPOSED|$escapetool.url($createdProposalRef)")
+        #end
+      #end
+    #end
+
+  #elseif($action == 'import')
+    #set($allowAcronymDuplicates = "$!request.getParameter('allowAcronymDuplicates')" == 'true')
+    #set($allowLabelDuplicates = "$!request.getParameter('allowLabelDuplicates')" == 'true')
     #set($createdCount = 0)
     #set($proposedCount = 0)
     #set($skippedCount = 0)
@@ -245,11 +850,7 @@
     #set($isImportResponse = true)
     #set($pendingAcronyms = [])
     #set($pendingLabels = [])
-
-    ## Les doublons des contributeurs incluent uniquement leurs propositions
-    ## en attente. Les propositions des autres auteurs ne changent aucun résultat.
-    #if(!$canReview)
-      #set($currentAuthor = $services.model.serialize($currentUserReference))
+    #if(!$canAdd)
       #foreach($pendingName in $xwiki.getSpaceDocsName($proposalSpace))
         #set($pendingReference = $services.model.createDocumentReference('', $proposalSpaces, $pendingName))
         #set($pendingDoc = false)
@@ -258,374 +859,221 @@
         #if($pendingDoc)
           #set($pendingObject = $pendingDoc.getObject($proposalClassPath))
         #end
-        #if($pendingObject && $pendingObject.getValue('status') == 'pending' && $pendingObject.getValue('author') == $currentAuthor)
-          #set($pendingAcronym = "$!pendingObject.getValue('acronyme')")
-          #set($pendingLabel = "$!pendingObject.getValue('libelle')")
-          #set($discard = $pendingAcronyms.add($pendingAcronym))
-          #set($discard = $pendingLabels.add($pendingLabel))
+        #if($pendingObject && $pendingObject.getValue('status') == 'pending' && $pendingObject.getValue('author') == $currentUser)
+          #set($discard = $pendingAcronyms.add("$!pendingObject.getValue('acronyme')"))
+          #set($discard = $pendingLabels.add("$!pendingObject.getValue('libelle')"))
         #end
       #end
     #end
-
-    ## XWiki utilise lui-même cette forme dans ses macros internes :
-    ## $request.parameterMap.entrySet(). Elle évite de dépendre de keySet()
-    ## appelé explicitement depuis Velocity / SecureUberspector.
     #foreach($parameterEntry in $request.parameterMap.entrySet())
       #set($parameterName = "$!parameterEntry.key")
-
-      #if($parameterName.startsWith("acronym_"))
+      #if($parameterName.startsWith('acronym_'))
         #set($processedCount = $processedCount + 1)
         #set($i = $parameterName.substring(8))
-        #set($labelParameterName = "label_$i")
-        #set($definitionParameterName = "definition_$i")
-
-        ## Une valeur absente ne doit pas réutiliser la valeur de la ligne précédente.
-        #set($importAcronymRaw = '')
-        #set($importLabelRaw = '')
-        #set($importDefinitionRaw = '')
-        #set($importAcronymRaw = $request.getParameter($parameterName))
-        #set($importLabelRaw = $request.getParameter($labelParameterName))
-        #set($importDefinitionRaw = $request.getParameter($definitionParameterName))
-
-        ## Aucun .trim() côté Velocity.
-        #set($importAcronym = "$!importAcronymRaw")
-        #set($importLabel = "$!importLabelRaw")
-        #set($importDefinition = "$!importDefinitionRaw")
-
-        #if(!$importAcronymRaw || !$importLabelRaw || $importAcronym == "" || $importLabel == "" || $importAcronym.matches('\s*') || $importLabel.matches('\s*'))
-          #set($rowError = "Données incomplètes")
-          #set($discard = $importLines.add("ROW_ERROR|$i|$escapetool.url($rowError)"))
-          #set($skippedCount = $skippedCount + 1)
-        #elseif($importAcronym.length() > 255 || $importLabel.length() > 255)
-          #set($rowError = "L'acronyme et le libellé sont limités à 255 caractères")
-          #set($discard = $importLines.add("ROW_ERROR|$i|$escapetool.url($rowError)"))
-          #set($skippedCount = $skippedCount + 1)
-        #elseif($importAcronym.contains('$') || $importAcronym.contains('{') || $importAcronym.contains('}') || $importAcronym.contains('/'))
-          #set($rowError = "Nom technique d'acronyme invalide")
-          #set($discard = $importLines.add("ROW_ERROR|$i|$escapetool.url($rowError)"))
+        #set($acronym = "$!request.getParameter($parameterName)")
+        #set($labelParameter = "label_$i")
+        #set($definitionParameter = "definition_$i")
+        #set($label = "$!request.getParameter($labelParameter)")
+        #set($definition = "$!request.getParameter($definitionParameter)")
+        #set($errorMessage = '')
+        #validateGlossaireProposal()
+        #if($errorMessage != '')
+          #set($discard = $importLines.add("ROW_ERROR|$i|$escapetool.url($errorMessage)"))
           #set($skippedCount = $skippedCount + 1)
         #else
           #set($acronymExists = false)
           #set($labelExists = false)
-          #set($existingDocNames = $xwiki.getSpaceDocsName($dataSpace))
-
-          #foreach($existingDocName in $existingDocNames)
-            #set($existingRef = $services.model.createDocumentReference('', $dataSpaces, $existingDocName))
-            #set($existingDoc = $xwiki.getDocument($existingRef))
-            #set($existingObj = false)
-            #set($existingObj = $existingDoc.getObject($classPath))
-
-            #if($existingObj)
-              #set($existingAcronym = "$!existingObj.getValue('acronyme')")
-              #set($existingLabel = "$!existingObj.getValue('libelle')")
-
-              #if($existingAcronym.equalsIgnoreCase($importAcronym))
+          #foreach($existingName in $xwiki.getSpaceDocsName($dataSpace))
+            #set($existingReference = $services.model.createDocumentReference('', $dataSpaces, $existingName))
+            #set($existingDoc = false)
+            #set($existingObject = false)
+            #set($existingDoc = $xwiki.getDocument($existingReference))
+            #if($existingDoc)
+              #set($existingObject = $existingDoc.getObject($classPath))
+            #end
+            #if($existingObject)
+              #set($existingAcronym = "$!existingObject.getValue('acronyme')")
+              #set($existingLabel = "$!existingObject.getValue('libelle')")
+              #if($existingAcronym.equalsIgnoreCase($acronym))
                 #set($acronymExists = true)
               #end
-              #if($existingLabel.equalsIgnoreCase($importLabel))
+              #if($existingLabel.equalsIgnoreCase($label))
                 #set($labelExists = true)
               #end
             #end
           #end
-
           #foreach($pendingAcronym in $pendingAcronyms)
-            #if($pendingAcronym.equalsIgnoreCase($importAcronym))
+            #if($pendingAcronym.equalsIgnoreCase($acronym))
               #set($acronymExists = true)
             #end
           #end
           #foreach($pendingLabel in $pendingLabels)
-            #if($pendingLabel.equalsIgnoreCase($importLabel))
+            #if($pendingLabel.equalsIgnoreCase($label))
               #set($labelExists = true)
             #end
           #end
-
           #set($blockedByAcronym = $acronymExists && !$allowAcronymDuplicates)
           #set($blockedByLabel = $labelExists && !$allowLabelDuplicates)
-
           #if($blockedByAcronym || $blockedByLabel)
+            #set($duplicateCode = 'LABEL_DUPLICATE')
             #if($blockedByAcronym && $blockedByLabel)
-              #set($discard = $importLines.add("ROW_SKIP|$i|ACRONYM_AND_LABEL_DUPLICATE"))
+              #set($duplicateCode = 'ACRONYM_AND_LABEL_DUPLICATE')
             #elseif($blockedByAcronym)
-              #set($discard = $importLines.add("ROW_SKIP|$i|ACRONYM_DUPLICATE"))
-            #else
-              #set($discard = $importLines.add("ROW_SKIP|$i|LABEL_DUPLICATE"))
+              #set($duplicateCode = 'ACRONYM_DUPLICATE')
             #end
+            #set($discard = $importLines.add("ROW_SKIP|$i|$duplicateCode"))
             #set($skippedCount = $skippedCount + 1)
-          #elseif(!$canReview)
-            ## Le groupe connecté décide du traitement ; aucun rôle, auteur,
-            ## état ou mode de publication reçu du client n'est pris en compte.
-            #createGlossaireProposal($importAcronym $importLabel $importDefinition 'Proposition par import Excel via interface Glossaire')
+          #elseif($canAdd)
+            #createGlossaireEntry($acronym $label $definition 'Import Excel via interface Glossaire')
+            #if($entryError != '')
+              #set($discard = $importLines.add("ROW_ERROR|$i|$escapetool.url($entryError)"))
+              #set($skippedCount = $skippedCount + 1)
+            #else
+              #set($discard = $importLines.add("ROW_OK|$i|$escapetool.url($createdEntryRef)|$escapetool.url($createdEntryName)"))
+              #set($createdCount = $createdCount + 1)
+            #end
+          #else
+            #createGlossaireProposal($acronym $label $definition 'Proposition par import Excel via interface Glossaire')
             #if($proposalCreationError != '')
               #set($discard = $importLines.add("ROW_ERROR|$i|$escapetool.url($proposalCreationError)"))
               #set($skippedCount = $skippedCount + 1)
             #else
               #set($discard = $importLines.add("ROW_PROPOSED|$i|$escapetool.url($createdProposalRef)"))
               #set($proposedCount = $proposedCount + 1)
-              #set($discard = $pendingAcronyms.add($importAcronym))
-              #set($discard = $pendingLabels.add($importLabel))
-            #end
-          #else
-            #set($baseCandidateName = $importAcronym)
-            #set($candidateName = $baseCandidateName)
-            #set($counter = 1)
-            #set($candidateReference = false)
-
-            #foreach($n in [1..100])
-              #set($terminalReference = $services.model.createDocumentReference('', $dataSpaces, $candidateName))
-              #set($nestedSpaces = ['TestPage', 'PAGE', 'Glossaire', 'DATA', $candidateName])
-              #set($nestedReference = $services.model.createDocumentReference('', $nestedSpaces, 'WebHome'))
-              #set($terminalDoc = $xwiki.getDocument($terminalReference))
-              #set($nestedDoc = $xwiki.getDocument($nestedReference))
-
-              #if($terminalDoc.isNew() && $nestedDoc.isNew())
-                #set($candidateReference = $terminalReference)
-                #break
-              #else
-                #set($suffix = "_$counter")
-                #set($candidateName = "$baseCandidateName$suffix")
-                #set($counter = $counter + 1)
-              #end
-            #end
-
-            #if(!$candidateReference)
-              #set($rowError = "Impossible de trouver un nom de page disponible")
-              #set($discard = $importLines.add("ROW_ERROR|$i|$escapetool.url($rowError)"))
-              #set($skippedCount = $skippedCount + 1)
-            #elseif(!$xwiki.hasAccessLevel('edit', $xcontext.user, $services.model.serialize($candidateReference)))
-              #set($rowError = "Droits de création insuffisants")
-              #set($discard = $importLines.add("ROW_ERROR|$i|$escapetool.url($rowError)"))
-              #set($skippedCount = $skippedCount + 1)
-            #else
-              #set($newDoc = $xwiki.getDocument($candidateReference))
-              #set($newObj = false)
-              #set($newObj = $newDoc.newObject($classPath))
-              #if(!$newObj)
-                #set($rowError = "La classe du glossaire n'est pas installée")
-                #set($discard = $importLines.add("ROW_ERROR|$i|$escapetool.url($rowError)"))
-                #set($skippedCount = $skippedCount + 1)
-              #else
-                #set($discard = $newObj.set("acronyme", $importAcronym))
-                #set($discard = $newObj.set("libelle", $importLabel))
-                #set($discard = $newObj.set("definition", $importDefinition))
-                #set($discard = $newDoc.setTitle($importAcronym))
-                #set($discard = $newDoc.save("Import Excel via interface Glossaire", true))
-
-                #set($finalImportRef = $newDoc.getFullName())
-                #set($finalImportName = $newDoc.getName())
-                #set($discard = $importLines.add("ROW_OK|$i|$escapetool.url($finalImportRef)|$escapetool.url($finalImportName)"))
-                #set($createdCount = $createdCount + 1)
-              #end
+              #set($discard = $pendingAcronyms.add($acronym))
+              #set($discard = $pendingLabels.add($label))
             #end
           #end
         #end
       #end
     #end
-
+    #set($errorMessage = '')
     #if($processedCount == 0)
-      #set($errorMessage = "Aucune ligne d'import reçue par le serveur")
-      #set($discard = $importLines.add("GLOSSAIRE_ERROR|$escapetool.url($errorMessage)"))
+      #set($importError = "Aucune ligne d'import reçue par le serveur")
+      #set($discard = $importLines.add("GLOSSAIRE_ERROR|$escapetool.url($importError)"))
     #else
       #set($discard = $importLines.add("GLOSSAIRE_IMPORT_OK|$createdCount|$skippedCount|$processedCount|$proposedCount"))
     #end
 
-    ## ========================================================================
-    ## SUPPRESSION
-    ## ========================================================================
-  #elseif($action == "delete")
-    #set($targetRef = "$!request.getParameter('targetRef')")
-    #set($targetReference = $services.model.resolveDocument($targetRef))
-    #set($dataRootReference = $services.model.createDocumentReference('', $dataSpaces, 'WebHome'))
-    #set($targetDoc = $xwiki.getDocument($targetReference))
-
-    #if(!$targetRef || !$targetReference.getParent().equals($dataRootReference.getParent()) || !$targetDoc.getObject($classPath))
-      #set($errorMessage = "La référence ne correspond pas à une fiche du glossaire")
-    #elseif($targetDoc.isNew())
-      #set($errorMessage = "Document introuvable")
-    #elseif(!$xwiki.hasAccessLevel('delete', $xcontext.user, $targetDoc.fullName))
-      #set($errorMessage = "Droits de suppression insuffisants")
-    #else
-      #set($deleteRequest = $services.refactoring.requestFactory.createDeleteRequest([$targetReference]))
-      #set($discard = $deleteRequest.setDeep(false))
-      #set($discard = $deleteRequest.setInteractive(false))
-      #set($deleteJob = $services.refactoring.delete($deleteRequest))
-      #if(!$deleteJob)
-        #set($errorMessage = "Le service XWiki de suppression n'a pas pu démarrer")
-      #else
-        #set($discard = $deleteJob.join())
-        #set($deletedDoc = $xwiki.getDocument($targetReference))
-        #if(!$deletedDoc.isNew())
-          #set($errorMessage = "La page existe encore après la tentative de suppression")
-        #else
-          #set($resultLine = "GLOSSAIRE_OK")
-        #end
-      #end
-    #end
-    ## ========================================================================
-    ## CRÉATION DIRECTE (VALIDATEURS)
-    ## ========================================================================
-  #elseif($action == 'create')
-    #set($acronym = "$!request.getParameter('acronym')")
-    #set($label = "$!request.getParameter('label')")
-    #set($definition = "$!request.getParameter('definition')")
-    #validateGlossaireProposal()
-    #if($errorMessage == '')
-      #set($baseCandidateName = $acronym)
-      #set($candidateName = $baseCandidateName)
-      #set($counter = 1)
-      #set($candidateReference = false)
-      #foreach($n in [1..100])
-        #set($terminalReference = $services.model.createDocumentReference('', $dataSpaces, $candidateName))
-        #set($nestedSpaces = ['TestPage', 'PAGE', 'Glossaire', 'DATA', $candidateName])
-        #set($nestedReference = $services.model.createDocumentReference('', $nestedSpaces, 'WebHome'))
-        #set($terminalDoc = $xwiki.getDocument($terminalReference))
-        #set($nestedDoc = $xwiki.getDocument($nestedReference))
-        #if($terminalDoc.isNew() && $nestedDoc.isNew())
-          #set($candidateReference = $terminalReference)
-          #break
-        #else
-          #set($suffix = "_$counter")
-          #set($candidateName = "$baseCandidateName$suffix")
-          #set($counter = $counter + 1)
-        #end
-      #end
-      #if(!$candidateReference)
-        #set($errorMessage = 'Impossible de trouver un nom de page disponible')
-      #elseif(!$xwiki.hasAccessLevel('edit', $xcontext.user, $services.model.serialize($candidateReference)))
-        #set($errorMessage = 'Droits de création insuffisants')
-      #else
-        #set($newDoc = $xwiki.getDocument($candidateReference))
-        #set($newObj = $newDoc.newObject($classPath))
-        #if(!$newObj)
-          #set($errorMessage = "La classe du glossaire n'est pas installée")
-        #else
-          #set($discard = $newObj.set('acronyme', $acronym))
-          #set($discard = $newObj.set('libelle', $label))
-          #set($discard = $newObj.set('definition', $definition))
-          #set($discard = $newDoc.setTitle($acronym))
-          #set($discard = $newDoc.save('Ajout via interface Glossaire', true))
-          #set($finalRef = $newDoc.getFullName())
-          #set($finalDocName = $newDoc.getName())
-          #set($resultLine = "GLOSSAIRE_OK|$escapetool.url($finalRef)|$escapetool.url($finalDocName)")
-        #end
-      #end
-    #end
-
-    ## ========================================================================
-    ## PROPOSITIONS, VALIDATION ET REFUS
-    ## ========================================================================
   #else
-    #set($currentUser = $services.model.serialize($currentUserReference))
-    #set($acronym = "$!request.getParameter('acronym')")
-    #set($label = "$!request.getParameter('label')")
-    #set($definition = "$!request.getParameter('definition')")
-    #set($comment = "$!request.getParameter('comment')")
-
-    #if($action == 'propose')
-      #validateGlossaireProposal()
-      #if($errorMessage == '')
-        #createGlossaireProposal($acronym $label $definition 'Proposition via interface Glossaire')
-        #if($proposalCreationError != '')
-          #set($errorMessage = $proposalCreationError)
-        #else
-          #set($resultLine = "GLOSSAIRE_PROPOSED|$escapetool.url($createdProposalRef)")
-        #end
-      #end
+    ## Les références sont limitées à un espace connu avant lecture asAuthor.
+    #set($sourceSpaces = $proposalSpaces)
+    #if($action == 'restore')
+      #set($sourceSpaces = $trashSpaces)
+    #end
+    #set($targetRef = "$!request.getParameter('targetRef')")
+    #set($expectedVersion = "$!request.getParameter('expectedVersion')")
+    #set($sourceReference = $services.model.resolveDocument($targetRef))
+    #set($sourceRootReference = $services.model.createDocumentReference('', $sourceSpaces, 'WebHome'))
+    #if($targetRef == '' || !$sourceReference.parent.equals($sourceRootReference.parent) || $sourceReference.name == 'WebHome' || !$sourceReference.name.matches('[A-Za-z0-9_]+'))
+      #set($errorMessage = 'La référence ne correspond pas à une proposition du glossaire')
     #else
-      ## Ne jamais lire au nom de l'auteur une référence arbitraire fournie par
-      ## le client : elle doit désigner une fiche immédiate de PROPOSITIONS.
-      #set($targetRef = "$!request.getParameter('targetRef')")
-      #set($expectedVersion = "$!request.getParameter('expectedVersion')")
-      #set($proposalRootReference = $services.model.createDocumentReference('', $proposalSpaces, 'WebHome'))
-      #set($proposalReference = $services.model.resolveDocument($targetRef))
-      #if($targetRef == '' || !$proposalReference.getParent().equals($proposalRootReference.getParent()) || $proposalReference.name == 'WebHome' || !$proposalReference.name.matches('[A-Za-z0-9_]+'))
-        #set($errorMessage = 'La référence ne correspond pas à une proposition du glossaire')
+      #set($sourceDoc = false)
+      #set($sourceObject = false)
+      #set($sourceDoc = $xwiki.getDocumentAsAuthor($sourceReference))
+      #if($sourceDoc && !$sourceDoc.isNew())
+        #set($sourceObject = $sourceDoc.getObject($proposalClassPath))
+      #end
+      #if(!$sourceObject)
+        #set($errorMessage = 'Proposition introuvable ou inaccessible au service')
       #else
-        #set($proposalDoc = $xwiki.getDocumentAsAuthor($proposalReference))
-        #if(!$proposalDoc || $proposalDoc.isNew())
-          #set($errorMessage = 'Proposition introuvable ou inaccessible au service')
+        #set($sourceStatus = "$!sourceObject.getValue('status')")
+        #set($deletedAtMillis = -1)
+        #if($action == 'restore')
+          #set($deletedAtValue = false)
+          #set($deletedAtValue = $sourceObject.getValue('deletedAt'))
+          #if($deletedAtValue)
+            #set($deletedAtMillis = $deletedAtValue.time)
+          #end
+        #end
+        #if(($action != 'restore' && $sourceStatus != 'pending') || ($action == 'restore' && $sourceStatus != 'rejected' && $sourceStatus != 'trashed'))
+          #set($errorMessage = 'Cette proposition a déjà été traitée ; rechargez la liste')
+        #elseif($expectedVersion == '' || $expectedVersion != "$sourceDoc.version")
+          #set($errorMessage = 'Cette proposition a changé ; rechargez la liste avant de la traiter')
+        #elseif($action == 'restore' && ($deletedAtMillis < 0 || $deletedAtMillis > $nowMillis || $deletedAtMillis <= $trashCutoff || "$!sourceObject.getValue('sourceProposalId')" != "$sourceDoc.name"))
+          #set($errorMessage = 'Cette proposition a expiré ou sa date de corbeille est invalide')
+        #elseif($action == 'reject' && ($comment == '' || $comment.matches('\s*')))
+          #set($errorMessage = 'Indiquez un motif pour refuser la proposition')
         #else
-          #set($proposalObject = $proposalDoc.getObject($proposalClassPath))
-          #if(!$proposalObject)
-            #set($errorMessage = 'Cette page ne contient pas de proposition du glossaire')
-          #else
-            #set($status = "$!proposalObject.getValue('status')")
-            #if($status != 'pending')
-              #set($errorMessage = 'Cette proposition a déjà été traitée ; rechargez la liste')
-            #elseif($expectedVersion == '' || $expectedVersion != "$!proposalDoc.version")
-              #set($errorMessage = 'Cette proposition a changé ; rechargez la liste avant de la traiter')
-            #elseif($action == 'reject' && ($comment == '' || $comment.matches('\s*')))
-              #set($errorMessage = 'Indiquez un motif pour refuser la proposition')
+          #set($publishedName = "Proposition_$sourceDoc.name")
+          #set($publishedReference = $services.model.createDocumentReference('', $dataSpaces, $publishedName))
+          #set($markerOpenBrace = '{')
+          #set($markerCloseBrace = '}')
+          #set($htmlOpen = $markerOpenBrace.concat($markerOpenBrace).concat('html').concat($markerCloseBrace).concat($markerCloseBrace))
+          #set($htmlClose = $markerOpenBrace.concat($markerOpenBrace).concat('/html').concat($markerCloseBrace).concat($markerCloseBrace))
+          #set($publicationMarker = "$htmlOpen<!-- glossary-proposal:$sourceDoc.name -->$htmlClose")
+          #set($publishedDoc = false)
+          #set($publishedObject = false)
+          #set($publishedDoc = $xwiki.getDocumentAsAuthor($publishedReference))
+          #if($publishedDoc && !$publishedDoc.isNew())
+            #set($publishedObject = $publishedDoc.getObject($classPath))
+          #end
+          #set($isOwnPublication = $publishedDoc && !$publishedDoc.isNew() && $publishedObject && $publishedDoc.content == $publicationMarker)
+          #if(!$publishedDoc)
+            #set($errorMessage = "La destination n'est pas accessible à l'auteur du service")
+          #elseif($action == 'reject' || $action == 'trash')
+            #if($isOwnPublication)
+              #set($errorMessage = 'Cette proposition est déjà publiée ; validez-la pour terminer son traitement')
             #else
-              #set($proposalRef = $proposalDoc.getFullName())
-              #set($publishedName = "Proposition_$proposalDoc.name")
-              #set($publishedReference = $services.model.createDocumentReference('', $dataSpaces, $publishedName))
-              ## L'identifiant provient du serveur et ne contient que des lettres,
-              ## chiffres ou soulignés ; aucune saisie n'est exécutée en XWiki.
-              ## Composer les délimiteurs pour garder le source Velocity
-              ## sans macro HTML littérale interne.
-              ## La valeur finale reste compatible avec les publications existantes.
-              #set($markerOpenBrace = '{')
-              #set($markerCloseBrace = '}')
-              #set($publicationMarker = "${markerOpenBrace}${markerOpenBrace}html${markerCloseBrace}${markerCloseBrace}<!-- glossary-proposal:$proposalDoc.name -->${markerOpenBrace}${markerOpenBrace}/html${markerCloseBrace}${markerCloseBrace}")
-              #set($publishedDoc = $xwiki.getDocument($publishedReference))
-              #set($publishedObject = false)
-              #if(!$publishedDoc.isNew())
-                #set($publishedObject = $publishedDoc.getObject($classPath))
-              #end
-              #set($isOwnPublication = !$publishedDoc.isNew() && $publishedObject && $publishedDoc.content == $publicationMarker)
-
+              #set($trashStatus = 'trashed')
+              #set($trashCode = 'GLOSSAIRE_TRASHED')
               #if($action == 'reject')
-                ## Une publication réussie suivie d'un échec de sauvegarde de la
-                ## file se récupère par Valider ; Refuser ne doit pas la masquer.
-                #if($isOwnPublication)
-                  #set($errorMessage = 'Cette proposition est déjà publiée ; validez-la pour terminer son traitement')
-                #else
-                  #set($discard = $proposalObject.set('status', 'rejected'))
-                  #set($discard = $proposalObject.set('reviewComment', $comment))
-                  #set($discard = $proposalObject.set('reviewer', $currentUser))
-                  #set($discard = $proposalObject.set('reviewedAt', $datetool.date))
-                  #set($discard = $proposalDoc.saveAsAuthor('Refus de proposition via interface Glossaire', true))
-                  #set($resultLine = 'GLOSSAIRE_REJECTED')
-                #end
+                #set($trashStatus = 'rejected')
+                #set($trashCode = 'GLOSSAIRE_REJECTED')
+              #end
+              #moveGlossaireProposalToTrash($sourceDoc $sourceObject $trashStatus $comment)
+              #if($moveError != '')
+                #set($errorMessage = $moveError)
               #else
-                #validateGlossaireProposal()
-                #if($errorMessage == '' && !$publishedDoc.isNew() && !$isOwnPublication)
-                  #set($errorMessage = 'La page de destination existe déjà et ne correspond pas à cette proposition')
-                #elseif($errorMessage == '' && !$xwiki.hasAccessLevel('edit', $xcontext.user, $services.model.serialize($publishedReference)))
-                  #set($errorMessage = 'Droits de publication insuffisants dans le glossaire')
-                #elseif($errorMessage == '')
-                  #if(!$isOwnPublication)
-                    #set($publishedObject = $publishedDoc.newObject($classPath))
-                    #if(!$publishedObject)
-                      #set($errorMessage = "La classe du glossaire n'est pas installée")
-                    #else
-                      #set($discard = $publishedObject.set('acronyme', $acronym))
-                      #set($discard = $publishedObject.set('libelle', $label))
-                      #set($discard = $publishedObject.set('definition', $definition))
-                      #set($discard = $publishedDoc.setTitle($acronym))
-                      #set($discard = $publishedDoc.setContent($publicationMarker))
-                      #set($discard = $publishedDoc.save('Validation de proposition via interface Glossaire', true))
-                    #end
-                  #end
-                  #if($errorMessage == '')
-                    ## La destination est stable pour toutes les tentatives de
-                    ## validation de cette proposition : aucune page en doublon.
-                    ## Si DATA était déjà enregistrée, conserver son contenu.
-                    #set($publishedRef = $publishedDoc.getFullName())
-                    #set($publishedAcronym = "$!publishedObject.getValue('acronyme')")
-                    #set($publishedLabel = "$!publishedObject.getValue('libelle')")
-                    #set($publishedDefinition = "$!publishedObject.getValue('definition')")
-                    #set($discard = $proposalObject.set('acronyme', $publishedAcronym))
-                    #set($discard = $proposalObject.set('libelle', $publishedLabel))
-                    #set($discard = $proposalObject.set('definition', $publishedDefinition))
-                    #set($discard = $proposalObject.set('status', 'approved'))
-                    #set($discard = $proposalObject.set('reviewComment', $comment))
-                    #set($discard = $proposalObject.set('reviewer', $currentUser))
-                    #set($discard = $proposalObject.set('reviewedAt', $datetool.date))
-                    #set($discard = $proposalObject.set('publishedRef', $publishedRef))
-                    #set($discard = $proposalDoc.saveAsAuthor('Validation de proposition via interface Glossaire', true))
-                    #set($resultLine = "GLOSSAIRE_APPROVED|$escapetool.url($publishedRef)|$escapetool.url($publishedName)|$escapetool.url($publishedAcronym)|$escapetool.url($publishedLabel)|$escapetool.url($publishedDefinition)")
-                  #end
+                #set($trashMillisText = "$movedTrashMillis")
+                #set($resultLine = "$trashCode|$escapetool.url($movedTrashRef)|$escapetool.url($movedTrashVersion)|$escapetool.url($trashMillisText)")
+              #end
+            #end
+          #else
+            #validateGlossaireProposal()
+            #if($errorMessage == '' && !$publishedDoc.isNew() && !$isOwnPublication)
+              #set($errorMessage = 'La page de destination existe déjà et ne correspond pas à cette proposition')
+            #elseif($errorMessage == '' && !$xwiki.hasAccessLevel('view', $xcontext.user, $services.model.serialize($publishedReference)))
+              #set($errorMessage = 'Droits de consultation insuffisants sur la destination')
+            #elseif($errorMessage == '')
+              #if(!$isOwnPublication)
+                #set($publishedObject = $publishedDoc.newObject($classPath))
+                #set($auditObject = $publishedDoc.newObject($proposalClassPath))
+                #if(!$publishedObject || !$auditObject)
+                  #set($errorMessage = "Les classes du glossaire et des propositions doivent être installées")
+                #else
+                  #set($discard = $publishedObject.set('acronyme', $acronym))
+                  #set($discard = $publishedObject.set('libelle', $label))
+                  #set($discard = $publishedObject.set('definition', $definition))
+                  #copyGlossaireProposalFields($sourceObject $auditObject)
+                  #set($discard = $auditObject.set('acronyme', $acronym))
+                  #set($discard = $auditObject.set('libelle', $label))
+                  #set($discard = $auditObject.set('definition', $definition))
+                  #set($discard = $auditObject.set('status', 'approved'))
+                  #set($discard = $auditObject.set('reviewComment', $comment))
+                  #set($discard = $auditObject.set('reviewer', $currentUser))
+                  #set($discard = $auditObject.set('reviewedAt', $now))
+                  #set($discard = $auditObject.set('sourceProposalId', $sourceDoc.name))
+                  #set($discard = $auditObject.set('publishedRef', $publishedDoc.getFullName()))
+                  #set($discard = $publishedDoc.setTitle($escapetool.velocity($acronym)))
+                  #set($discard = $publishedDoc.setContent($publicationMarker))
+                  #set($discard = $publishedDoc.saveAsAuthor('Validation de proposition via interface Glossaire', true))
+                #end
+              #end
+              #if($errorMessage == '')
+                ## La publication existe avant le retrait de la file. Si celui-ci
+                ## échoue, la même destination et son contenu seront réutilisés.
+                #set($discard = $sourceDoc.deleteAsAuthor())
+                #set($sourceAfterApproval = false)
+                #set($sourceAfterApproval = $xwiki.getDocumentAsAuthor($sourceReference))
+                #if(!$sourceAfterApproval || !$sourceAfterApproval.isNew())
+                  #set($errorMessage = 'La fiche est publiée, mais la proposition existe encore ; réessayez la validation')
+                #else
+                  #set($publishedRef = $publishedDoc.getFullName())
+                  #set($publishedAcronym = "$!publishedObject.getValue('acronyme')")
+                  #set($publishedLabel = "$!publishedObject.getValue('libelle')")
+                  #set($publishedDefinition = "$!publishedObject.getValue('definition')")
+                  #set($resultLine = "GLOSSAIRE_APPROVED|$escapetool.url($publishedRef)|$escapetool.url($publishedName)|$escapetool.url($publishedAcronym)|$escapetool.url($publishedLabel)|$escapetool.url($publishedDefinition)")
                 #end
               #end
             #end
@@ -638,7 +1086,6 @@
 #if($errorMessage != '')
   #set($resultLine = "GLOSSAIRE_ERROR|$escapetool.url($errorMessage)")
 #end
-## Une seule réponse brute, avec de vrais sauts de ligne pour l'import Excel.
 #set($discard = $response.setContentType('text/plain; charset=UTF-8'))
 #set($writer = $response.writer)
 #if($isImportResponse)

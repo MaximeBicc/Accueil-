@@ -27,6 +27,13 @@ function check(actual, expected, label) { assert.deepEqual(actual, expected, lab
     await page.addStyleTag({ path: path.join(glossary, 'GlossaireExtension.css') });
     await page.evaluate(() => {
       window.jQuery = () => ({ modal() {} });
+      window.maintenanceRequests = [];
+      window.fetch = async (url, options) => {
+        const values = Object.fromEntries(options.body);
+        if (values.action !== 'purge') throw new Error('Commande imprévue pendant l’initialisation : ' + values.action);
+        maintenanceRequests.push({ url, values });
+        return { ok: true, text: async () => 'GLOSSAIRE_PURGED|0' };
+      };
       document.body.insertAdjacentHTML('beforeend', '<div class="naval-home"><header class="nh-header"><h1 class="nh-title">Glossaire</h1><p class="nh-subtitle">Retrouvez ici les acronymes, libellés et définitions du wiki.</p></header></div>');
     });
     await page.addScriptTag({ path: path.join(glossary, 'GlossaireExtension.js') });
@@ -50,7 +57,7 @@ function check(actual, expected, label) { assert.deepEqual(actual, expected, lab
 
     await page.evaluate(() => {
       document.querySelectorAll('.main-term-row, .term-row').forEach(row => row.remove());
-      appendImportedGlossaryRow({ acronym: 'API', label: 'Interface', definition: 'Ancien texte' }, 'TestPage.PAGE.Glossaire.DATA.API', 'API');
+      appendImportedGlossaryRow({ acronym: 'API', label: 'Interface', definition: 'Ancien texte' }, 'TestPage.PAGE.Glossaire.DATA.term-stable-api', 'term-stable-api');
       window.requests = [];
       window.requestUrls = [];
       window.nextReply = { ok: true, text: 'GLOSSAIRE_OK' };
@@ -61,34 +68,36 @@ function check(actual, expected, label) { assert.deepEqual(actual, expected, lab
         return { ok: reply.ok, text: async () => reply.text };
       };
     });
-    const renamedRef = 'TestPage.PAGE.Glossaire.DATA.A\\.B|" +%';
+    const stableRef = 'TestPage.PAGE.Glossaire.DATA.term-stable-api';
     await page.evaluate(ref => {
       const row = document.querySelector('.main-term-row');
       toggleEditMode(row.querySelector('.js-edit-row'), true);
       row.querySelector('.edit-acronym').value = 'A.B|" +%';
       row.querySelector('.edit-label').value = 'Nouveau libellé';
       row.querySelector('.edit-definition').value = 'Nouveau texte';
-      nextReply.text = 'GLOSSAIRE_OK|' + encodeURIComponent(ref) + '|' + encodeURIComponent('A.B|" +%');
+      nextReply.text = 'GLOSSAIRE_OK|' + encodeURIComponent(ref) + '|' + encodeURIComponent('term-stable-api');
       return saveRowEdition(row.querySelector('.js-save-row'));
-    }, renamedRef);
-    check(await page.locator('.main-term-row').getAttribute('data-full-ref'), renamedRef, 'nouvelle référence après renommage');
-    check(await page.locator('#popupCheckTable .term-row').getAttribute('data-full-ref'), renamedRef, 'référence de la modale synchronisée');
+    }, stableRef);
+    check(await page.locator('.main-term-row').getAttribute('data-full-ref'), stableRef, 'référence opaque conservée après changement d’acronyme');
+    check(await page.locator('#popupCheckTable .term-row').getAttribute('data-full-ref'), stableRef, 'référence stable de la modale conservée');
+    check(await page.locator('.main-term-row').getAttribute('data-doc-name'), 'term-stable-api', 'nom technique permanent malgré le changement d’acronyme');
+    check(await page.locator('.main-acronym .view-mode').innerText(), 'A.B|" +%', 'acronyme modifié avec caractères spéciaux affiché littéralement');
     await page.evaluate(async () => {
       nextReply.text = 'GLOSSAIRE_OK';
       openDeleteModal(document.querySelector('.js-delete-row'));
       await executeRowDelete();
     });
     check(await page.locator('.main-term-row, .term-row').count(), 0, 'suppression des deux tableaux');
-    check(await page.evaluate(() => requests.at(-1).targetRef), renamedRef, 'suppression envoyée à la nouvelle référence');
+    check(await page.evaluate(() => requests.at(-1).targetRef), stableRef, 'suppression envoyée à la référence opaque stable');
 
     await page.evaluate(async () => {
-      appendImportedGlossaryRow({ acronym: 'API', label: 'Interface', definition: 'Ancien texte' }, 'TestPage.PAGE.Glossaire.DATA.API', 'API');
+      appendImportedGlossaryRow({ acronym: 'API', label: 'Interface', definition: 'Ancien texte' }, 'TestPage.PAGE.Glossaire.DATA.term-stable-api', 'term-stable-api');
       const row = document.querySelector('.main-term-row');
       document.querySelector('#filterDefinition').value = 'nouveau';
       filterMainTableColumns();
       toggleEditMode(row.querySelector('.js-edit-row'), true);
       row.querySelector('.edit-definition').value = 'Nouveau texte';
-      nextReply.text = 'GLOSSAIRE_OK|' + encodeURIComponent(row.dataset.fullRef) + '|API';
+      nextReply.text = 'GLOSSAIRE_OK|' + encodeURIComponent(row.dataset.fullRef) + '|' + encodeURIComponent(row.dataset.docName);
       await saveRowEdition(row.querySelector('.js-save-row'));
     });
     check(await page.locator('.main-term-row').isVisible(), true, 'filtre recalculé après modification');
@@ -115,7 +124,7 @@ function check(actual, expected, label) { assert.deepEqual(actual, expected, lab
       nextReply = { ok: true, text: 'GLOSSAIRE_OK' };
       await saveRowEdition(row.querySelector('.js-save-row'));
     });
-    check(await page.locator('.main-term-row').getAttribute('data-acronym'), 'API', 'réponse sans nouvelle référence refusée');
+    check(await page.locator('.main-term-row').getAttribute('data-acronym'), 'API', 'réponse sans identité canonique refusée');
     const concurrency = await page.evaluate(async () => {
       const row = document.querySelector('.main-term-row');
       let release;
@@ -124,7 +133,7 @@ function check(actual, expected, label) { assert.deepEqual(actual, expected, lab
         requests.push(Object.fromEntries(options.body));
         requestUrls.push(url);
         await new Promise(resolve => { release = resolve; });
-        return { ok: true, text: async () => 'GLOSSAIRE_OK|' + encodeURIComponent(row.dataset.fullRef) + '|API' };
+        return { ok: true, text: async () => 'GLOSSAIRE_OK|' + encodeURIComponent(row.dataset.fullRef) + '|' + encodeURIComponent(row.dataset.docName) };
       };
       const first = saveRowEdition(row.querySelector('.js-save-row'));
       const second = saveRowEdition(row.querySelector('.js-save-row'));
@@ -137,11 +146,11 @@ function check(actual, expected, label) { assert.deepEqual(actual, expected, lab
       window.fetch = async (url, options) => {
         requests.push(Object.fromEntries(options.body));
         requestUrls.push(url);
-        return { ok: true, text: async () => 'ROW_OK|0|TestPage.PAGE.Glossaire.DATA.X%5C.Y%7C%22|X.Y%7C%22\nGLOSSAIRE_IMPORT_OK|1|0|1' };
+        return { ok: true, text: async () => 'ROW_OK|0|TestPage.PAGE.Glossaire.DATA.term-import-opaque|term-import-opaque\nGLOSSAIRE_IMPORT_OK|1|0|1|0' };
       };
       await executeExcelImport([{ acronym: 'X.Y|"', label: 'Importé', definition: 'Texte' }], false, false);
     });
-    check(await page.locator('.main-term-row[data-doc-name="X.Y|\\""]').count(), 1, 'import : ligne créée avec caractères spéciaux');
+    check(await page.locator('.main-term-row[data-doc-name="term-import-opaque"] .main-acronym .view-mode').innerText(), 'X.Y|"', 'import : caractères spéciaux affichés avec identité opaque');
     const bulk = await page.evaluate(async () => {
       const rows = Array.from(document.querySelectorAll('.main-term-row'));
       rows.forEach(row => row.querySelector('.glossary-row-select').checked = true);
@@ -149,12 +158,12 @@ function check(actual, expected, label) { assert.deepEqual(actual, expected, lab
       window.fetch = async (url, options) => {
         requests.push(Object.fromEntries(options.body));
         requestUrls.push(url);
-        return { ok: true, text: async () => options.body.get('targetRef').includes('X\\.Y') ? 'GLOSSAIRE_ERROR|échec' : 'GLOSSAIRE_OK' };
+        return { ok: true, text: async () => options.body.get('targetRef').endsWith('.term-import-opaque') ? 'GLOSSAIRE_ERROR|échec' : 'GLOSSAIRE_OK' };
       };
       await executeBulkGlossaryDelete();
       return [document.querySelectorAll('.main-term-row').length, document.querySelectorAll('.term-row').length, document.querySelector('.main-term-row').dataset.docName];
     });
-    check(bulk, [1, 1, 'X.Y|"'], 'suppression multiple : seules les suppressions réussies retirent les lignes');
+    check(bulk, [1, 1, 'term-import-opaque'], 'suppression multiple : seules les suppressions réussies retirent les lignes');
     const duplicates = await page.evaluate(() => fixedAnalyzeExcelRows([
       ['constructor', 'toString', 'Définition'], ['__proto__', 'valueOf', 'Définition'], ['constructor', 'Autre', 'Définition']
     ], { detected: false, map: { acronym: 0, label: 1, definition: 2 } }).map(row => [row.duplicateAcronym, row.duplicateLabel]));

@@ -136,7 +136,8 @@
 }
 
 .glossary-toolbar-left,
-.glossary-toolbar-right {
+.glossary-toolbar-right,
+.glossary-import-toolbar {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
@@ -174,6 +175,7 @@
 }
 
 .glossary-proposal-card,
+.glossary-trash-card,
 .glossary-proposal-status-card {
     margin: 0 0 16px;
     padding: 18px;
@@ -184,6 +186,7 @@
 }
 
 .glossary-proposal-card h5,
+.glossary-trash-card h5,
 .glossary-proposal-status-card h3 {
     margin: 0 0 9px;
     color: #0d2d73;
@@ -213,6 +216,25 @@
     margin-bottom: 18px;
     color: #0d2d73;
     font-size: 24px;
+}
+
+.glossary-permissions-table td {
+    vertical-align: middle !important;
+    overflow-wrap: anywhere;
+}
+
+.glossary-permissions-table .glossary-role-select {
+    min-width: 170px;
+}
+
+.glossary-permissions-table label {
+    margin-bottom: 0;
+}
+
+.glossary-migration {
+    margin-top: 20px;
+    padding-top: 15px;
+    border-top: 1px solid #dbe4ef;
 }
 
 .glossary-hidden-file-input,

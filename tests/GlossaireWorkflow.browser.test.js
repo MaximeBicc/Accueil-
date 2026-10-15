@@ -29,9 +29,15 @@ function check(value, expected, label) { assert.deepEqual(value, expected, label
         if (modal) { modal.style.display = action === 'show' ? 'block' : 'none'; }
       } });
       window.requests = [];
+      window.maintenanceRequests = [];
       window.reply = { ok: true, text: 'GLOSSAIRE_PROPOSED|TestPage.PAGE.Glossaire.PROPOSITIONS.nouvelle' };
       window.fetch = async (url, options) => {
-        requests.push({ url, values: Object.fromEntries(options.body) });
+        const values = Object.fromEntries(options.body);
+        if (values.action === 'purge') {
+          maintenanceRequests.push({ url, method: options.method, values });
+          return { ok: true, text: async () => 'GLOSSAIRE_PURGED|0' };
+        }
+        requests.push({ url, values });
         const current = reply;
         return { ok: current.ok, text: async () => current.text };
       };
@@ -138,6 +144,9 @@ function check(value, expected, label) { assert.deepEqual(value, expected, label
 
     const reviewer = await openFixture('reviewer');
     check(await reviewer.locator('#glossaryProposalCount').innerText(), '2', 'compteur des propositions en attente');
+    check(await reviewer.evaluate(() => maintenanceRequests.map(request => [request.method, request.values.action, request.values.form_token])), [['POST', 'purge', 'test-token']], 'purge automatique : POST unique protégé par CSRF');
+    await reviewer.evaluate(() => document.dispatchEvent(new Event('DOMContentLoaded')));
+    check(await reviewer.evaluate(() => maintenanceRequests.length), 1, 'initialisation répétée : aucune seconde purge automatique');
     const badgePosition = await reviewer.evaluate(() => {
       const badge = getComputedStyle(document.querySelector('#glossaryProposalCount'));
       const button = getComputedStyle(document.querySelector('#btnReviewGlossaryProposals'));
@@ -145,6 +154,8 @@ function check(value, expected, label) { assert.deepEqual(value, expected, label
     });
     check(badgePosition, ['absolute', 'relative', true, true], 'badge placé en haut à droite du bouton');
     check(await reviewer.locator('.glossary-proposal-card').count(), 2, 'liste contenant les deux demandes');
+    check(await reviewer.locator('.glossary-trash-card').count(), 2, 'corbeille initiale : un refus et une suppression conservés');
+    check(await reviewer.locator('#glossaryTrashCount').innerText(), '2', 'compteur de la corbeille initiale');
     check(await reviewer.locator('.js-edit-row').count(), 1, 'les validateurs conservent la modification directe');
     await reviewer.evaluate(async () => {
       const card = document.querySelector('.glossary-proposal-card');
@@ -184,7 +195,9 @@ function check(value, expected, label) { assert.deepEqual(value, expected, label
     await reviewer.evaluate(async () => {
       window.fetch = async (url, options) => {
         requests.push({ url, values: Object.fromEntries(options.body) });
-        return { ok: true, text: async () => 'GLOSSAIRE_REJECTED' };
+        return { ok: true, text: async () => 'GLOSSAIRE_REJECTED|' + [
+          'TestPage.PAGE.Glossaire.CORBEILLE.trash-refused', '2.1', String(Date.now())
+        ].map(encodeURIComponent).join('|') };
       };
       const card = document.querySelector('.glossary-proposal-card');
       card.querySelector('[name="comment"]').value = 'Terme déjà couvert par la définition existante.';
@@ -192,13 +205,15 @@ function check(value, expected, label) { assert.deepEqual(value, expected, label
     });
     check(await reviewer.locator('.main-term-row').count(), countBeforeReject, 'aucune publication lors du refus');
     check(await reviewer.locator('#glossaryProposalCount').innerText(), '0', 'compteur mis à zéro');
+    check(await reviewer.locator('#glossaryTrashCount').innerText(), '3', 'refus déplacé dans la corbeille sans publication');
+    check(await reviewer.locator('.glossary-trash-card').evaluateAll(cards => cards.some(card => card.getAttribute('data-proposal-ref') === 'TestPage.PAGE.Glossaire.CORBEILLE.trash-refused')), true, 'référence canonique du refus dans la corbeille');
     check(await reviewer.locator('#glossaryProposalsEmpty').isVisible(), false, 'modale fermée par défaut');
     check(await reviewer.locator('#glossaryProposalsEmpty').getAttribute('class').then(value => value.includes('is-hidden')), false, 'état vide prêt à être affiché');
     const rowsBeforeCreate = await reviewer.locator('.main-term-row').count();
     const creationEventHandled = await reviewer.evaluate(async () => {
       window.fetch = async (url, options) => {
         requests.push({ url, values: Object.fromEntries(options.body) });
-        return { ok: true, text: async () => 'GLOSSAIRE_OK|' + encodeURIComponent('TestPage.PAGE.Glossaire.DATA.DIRECT\\.API') + '|' + encodeURIComponent('DIRECT.API') };
+        return { ok: true, text: async () => 'GLOSSAIRE_OK|' + encodeURIComponent('TestPage.PAGE.Glossaire.DATA.term-direct-opaque') + '|' + encodeURIComponent('term-direct-opaque') };
       };
       const form = document.querySelector('#glossaryCreateForm');
       form.querySelector('[name="acronyme"]').value = 'DIRECT.API';
@@ -213,8 +228,8 @@ function check(value, expected, label) { assert.deepEqual(value, expected, label
     check(await reviewer.evaluate(() => [requests.at(-1).values.action, requests.at(-1).values.acronym, requests.at(-1).values.label, requests.at(-1).values.form_token]),
       ['create', 'DIRECT.API', 'Ajout direct validateur', 'test-token'], 'validateur : création directe par DATA avec les paramètres anglais');
     check(await reviewer.locator('.main-term-row').count(), rowsBeforeCreate + 1, 'ajout direct publié immédiatement dans le tableau');
-    check(await reviewer.locator('.main-term-row[data-doc-name="DIRECT.API"]').getAttribute('data-full-ref'), 'TestPage.PAGE.Glossaire.DATA.DIRECT\\.API', 'référence canonique de création conservée');
-    check(await reviewer.locator('#popupCheckTable .term-row').evaluateAll(rows => rows.filter(row => row.getAttribute('data-full-ref') === 'TestPage.PAGE.Glossaire.DATA.DIRECT\\.API').length), 1, 'ajout direct synchronisé dans les deux tableaux');
+    check(await reviewer.locator('.main-term-row[data-doc-name="term-direct-opaque"]').getAttribute('data-full-ref'), 'TestPage.PAGE.Glossaire.DATA.term-direct-opaque', 'référence canonique de création conservée');
+    check(await reviewer.locator('#popupCheckTable .term-row').evaluateAll(rows => rows.filter(row => row.getAttribute('data-full-ref') === 'TestPage.PAGE.Glossaire.DATA.term-direct-opaque').length), 1, 'ajout direct synchronisé dans les deux tableaux');
     check(await reviewer.locator('#glossaryProposalCount').innerText(), '0', 'ajout direct sans proposition en attente');
     await reviewer.evaluate(async () => {
       window.fetch = async (url, options) => {
@@ -241,7 +256,215 @@ function check(value, expected, label) { assert.deepEqual(value, expected, label
     const guest = await openFixture('guest');
     check(await guest.locator('#glossaryCreateForm,.js-edit-row,.js-delete-row,#btnImportExcelGlossary,#btnReviewGlossaryProposals').count(), 0, 'visiteur : consultation seule');
     check(await guest.locator('.main-term-row').count(), 1, 'visiteur : tableau public visible');
-    check(errors, [], 'aucune erreur JavaScript dans les trois profils');
+
+    const trashAudit = await openFixture('reviewer');
+    const trashStartRows = await trashAudit.locator('.main-term-row').count();
+    const trashedAt = Date.now();
+    await trashAudit.evaluate(async deletedAt => {
+      reply = { ok: true, text: 'GLOSSAIRE_TRASHED|' + [
+        'TestPage.PAGE.Glossaire.CORBEILLE.trash-test', '4.2', String(deletedAt)
+      ].map(encodeURIComponent).join('|') };
+      await reviewGlossaryProposal(document.querySelector('.glossary-proposal-card'), 'trash');
+    }, trashedAt);
+    check(await trashAudit.evaluate(() => requests.at(-1).values.action), 'trash', 'suppression de proposition : demande de déplacement en corbeille');
+    check(await trashAudit.locator('.main-term-row').count(), trashStartRows, 'mise en corbeille sans publication');
+    check(await trashAudit.locator('#glossaryProposalCount').innerText(), '1', 'mise en corbeille retire la proposition de la file');
+    check(await trashAudit.locator('#glossaryTrashCount').innerText(), '3', 'mise en corbeille augmente son compteur');
+    check(await trashAudit.locator('.glossary-trash-card').evaluateAll(cards => cards.filter(card => card.getAttribute('data-proposal-ref') === 'TestPage.PAGE.Glossaire.CORBEILLE.trash-test').length), 1, 'nouvelle carte corbeille avec référence canonique unique');
+    check(await trashAudit.locator('.glossary-trash-card').evaluateAll(cards => Number(cards.find(card => card.getAttribute('data-proposal-ref') === 'TestPage.PAGE.Glossaire.CORBEILLE.trash-test').getAttribute('data-expires-at'))), trashedAt + 604800000, 'corbeille : échéance calculée exactement sept jours après le déplacement');
+    check(await trashAudit.evaluate(deletedAt => {
+      const card = Array.from(document.querySelectorAll('.glossary-trash-card')).find(card => card.getAttribute('data-proposal-ref') === 'TestPage.PAGE.Glossaire.CORBEILLE.trash-test');
+      const dateText = card.querySelector('.glossary-trash-date').textContent;
+      return dateText.includes(new Date(deletedAt).toLocaleString('fr-FR')) && dateText.includes(new Date(deletedAt + 604800000).toLocaleString('fr-FR'));
+    }, trashedAt), true, 'corbeille : dates de déplacement et de suppression présentées au validateur');
+    for (const invalidReply of ['GLOSSAIRE_APPROVED', 'GLOSSAIRE_ERROR|' + encodeURIComponent('Cette proposition a expiré : délai de sept jours dépassé')]) {
+      await trashAudit.evaluate(async text => {
+        reply = { ok: true, text };
+        const card = Array.from(document.querySelectorAll('.glossary-trash-card')).find(card => card.getAttribute('data-proposal-ref') === 'TestPage.PAGE.Glossaire.CORBEILLE.trash-test');
+        await reviewGlossaryProposal(card, 'restore');
+      }, invalidReply);
+      check(await trashAudit.locator('.main-term-row').count(), trashStartRows, 'réponse incomplète ou refus d’expiration : aucune publication');
+      check(await trashAudit.locator('#glossaryTrashCount').innerText(), '3', 'échec de revalidation : carte conservée dans la corbeille');
+    }
+    const restored = await trashAudit.evaluate(async () => {
+      const card = Array.from(document.querySelectorAll('.glossary-trash-card')).find(card => card.getAttribute('data-proposal-ref') === 'TestPage.PAGE.Glossaire.CORBEILLE.trash-test');
+      card.querySelector('[name="acronym"]').value = 'À CORRIGER';
+      card.querySelector('[name="label"]').value = 'Libellé édité avant revalidation';
+      let release;
+      const before = requests.length;
+      window.fetch = async (url, options) => {
+        requests.push({ url, values: Object.fromEntries(options.body) });
+        await new Promise(resolve => { release = resolve; });
+        return { ok: true, text: async () => 'GLOSSAIRE_APPROVED|' + [
+          'TestPage.PAGE.Glossaire.DATA.term-restored-opaque', 'term-restored-opaque',
+          'CANONIQUE', '<Libellé du serveur>', 'Définition restaurée'
+        ].map(encodeURIComponent).join('|') };
+      };
+      const first = reviewGlossaryProposal(card, 'restore');
+      const second = reviewGlossaryProposal(card, 'restore');
+      const disabled = Array.from(card.querySelectorAll('button')).every(button => button.disabled);
+      release(); await Promise.all([first, second]);
+      return [requests.length - before, disabled, requests.at(-1).values.action,
+        requests.at(-1).values.targetRef, requests.at(-1).values.expectedVersion, requests.at(-1).values.acronym];
+    });
+    check(restored, [1, true, 'restore', 'TestPage.PAGE.Glossaire.CORBEILLE.trash-test', '4.2', 'À CORRIGER'], 'revalidation corrigée : référence/version envoyées et double clic bloqué');
+    check(await trashAudit.locator('#glossaryTrashCount').innerText(), '2', 'revalidation retire la carte de la corbeille');
+    check(await trashAudit.locator('.main-term-row').count(), trashStartRows + 1, 'revalidation publie exactement une ligne');
+    check(await trashAudit.locator('.main-term-row[data-doc-name="term-restored-opaque"] .main-label .view-mode').innerText(), '<Libellé du serveur>', 'revalidation affiche les valeurs canoniques comme du texte');
+
+    const adder = await openFixture('adder');
+    const adderRows = await adder.locator('.main-term-row').count();
+    await adder.evaluate(async () => {
+      reply = { ok: true, text: 'GLOSSAIRE_OK|' + ['TestPage.PAGE.Glossaire.DATA.term-added-level3', 'term-added-level3'].map(encodeURIComponent).join('|') };
+      const form = document.querySelector('#glossaryCreateForm');
+      form.querySelector('[name="acronyme"]').value = 'NIVEAU3';
+      form.querySelector('[name="libelle"]').value = 'Ajout direct sans validation';
+      await submitGlossaryProposal({ preventDefault() {}, currentTarget: form });
+    });
+    check(await adder.evaluate(() => requests.at(-1).values.action), 'create', 'niveau 3 : création directe');
+    check(await adder.locator('.main-term-row').count(), adderRows + 1, 'niveau 3 : publication immédiate');
+    await adder.evaluate(async () => {
+      reply = { ok: true, text: 'ROW_OK|0|TestPage.PAGE.Glossaire.DATA.term-import-level3|term-import-level3\nGLOSSAIRE_IMPORT_OK|1|0|1|0' };
+      await executeExcelImport([{ acronym: 'XL3', label: 'Import direct niveau trois', definition: '' }], false, false);
+    });
+    check(await adder.locator('.main-term-row').count(), adderRows + 2, 'niveau 3 : import direct conserve la publication');
+    check(await adder.locator('#btnReviewGlossaryProposals,#btnGlossaryTrash,#btnGlossarySettings').count(), 0, 'niveau 3 : pas de validation, corbeille ou paramètres');
+
+    const admin = await openFixture('admin');
+    check(await admin.locator('#mainGlossaryTable,.main-term-row,.glossary-proposal-card,.glossary-trash-card').count(), 0, 'administrateur wiki sans groupe : paramètres seuls et aucune donnée');
+    check(await admin.locator('.glossary-permission-row').count() > 1, true, 'paramètres : liste des groupes XWiki natifs');
+    const settingsSaved = await admin.evaluate(async () => {
+      window.reloads = 0;
+      window.reloadGlossaryAfterSettings = () => { reloads++; };
+      const form = document.querySelector('#glossarySettingsForm');
+      const rows = Array.from(form.querySelectorAll('.glossary-permission-row'));
+      rows.forEach(row => { row.querySelector('.glossary-role-select').value = /(^|:)XWiki\.XWikiGuest$/.test(row.getAttribute('data-group-ref')) ? '1' : '4'; });
+      const expected = rows.map(row => [row.getAttribute('data-group-ref'), row.querySelector('.glossary-role-select').value]);
+      let release;
+      const before = requests.length;
+      window.fetch = async (url, options) => {
+        requests.push({ url, values: Object.fromEntries(options.body) });
+        await new Promise(resolve => { release = resolve; });
+        return { ok: true, text: async () => 'GLOSSAIRE_SETTINGS_SAVED' };
+      };
+      const first = saveGlossarySettings({ preventDefault() {}, currentTarget: form });
+      const second = saveGlossarySettings({ preventDefault() {}, currentTarget: form });
+      const disabled = Array.from(form.querySelectorAll('button,select')).every(control => control.disabled);
+      release(); await Promise.all([first, second]);
+      const actual = requests.at(-1).values;
+      return { delta: requests.length - before, disabled, action: actual.action, csrf: actual.form_token,
+        version: actual.expectedVersion, expectedVersion: form.getAttribute('data-expected-version'), reloads,
+        count: Number(actual.groupCount), expected,
+        groups: expected.map((_, index) => [actual['group_' + index], actual['level_' + index]]) };
+    });
+    check([settingsSaved.delta, settingsSaved.disabled, settingsSaved.action, settingsSaved.csrf, settingsSaved.reloads], [1, true, 'settings', 'test-token', 1], 'paramètres : un POST protégé, double clic bloqué puis rechargement');
+    check(settingsSaved.version, settingsSaved.expectedVersion, 'paramètres : version actuelle envoyée pour contrôler les conflits');
+    check(settingsSaved.count, settingsSaved.expected.length, 'paramètres : tous les groupes soumis une fois');
+    check(settingsSaved.groups, settingsSaved.expected, 'paramètres : références des groupes natifs et niveaux choisis conservés');
+    check(await admin.locator('#mainGlossaryTable').count(), 0, 'enregistrement des paramètres sans accès implicite aux données avant rechargement');
+    const guestSettingsRows = await admin.locator('.glossary-permission-row').evaluateAll(rows => rows.filter(row => /(^|:)XWiki\.XWikiGuest$/.test(row.getAttribute('data-group-ref'))).map(row => Array.from(row.querySelectorAll('option')).map(option => option.value)));
+    check(guestSettingsRows, [['0', '1']], 'paramètres : une seule ligne visiteurs limitée à aucun accès ou lecture, même avec références qualifiées');
+    const settingsError = await admin.evaluate(async () => {
+      const form = document.querySelector('#glossarySettingsForm');
+      const select = form.querySelector('.glossary-role-select');
+      select.value = '0';
+      window.fetch = async (url, options) => {
+        requests.push({ url, values: Object.fromEntries(options.body) });
+        return { ok: true, text: async () => 'GLOSSAIRE_ERROR|' + encodeURIComponent('Les autorisations ont changé, rechargez la page.') };
+      };
+      await saveGlossarySettings({ preventDefault() {}, currentTarget: form });
+      return [form.querySelector('.glossary-settings-feedback').textContent, select.value, select.disabled, reloads];
+    });
+    check([settingsError[0].includes('rechargez'), ...settingsError.slice(1)], [true, '0', false, 1], 'paramètres : conflit signalé, saisie conservée et contrôles réactivés sans rechargement');
+    const invalidSettings = await admin.evaluate(async () => {
+      window.fetch = async (url, options) => {
+        requests.push({ url, values: Object.fromEntries(options.body) });
+        return { ok: true, text: async () => 'GLOSSAIRE_SETTINGS_SAVED|inattendu' };
+      };
+      await saveGlossarySettings({ preventDefault() {}, currentTarget: document.querySelector('#glossarySettingsForm') });
+      return reloads;
+    });
+    check(invalidSettings, 1, 'paramètres : réponse mal formée ne déclenche pas de rechargement');
+
+    check(await admin.evaluate(() => maintenanceRequests.every(request => request.values.action === 'purge') && requests.every(request => request.values.action !== 'migrate')), true, 'migration des anciennes références jamais automatique');
+    const cancelledMigration = await admin.evaluate(async () => {
+      const before = requests.length;
+      window.confirm = () => false;
+      await migrateGlossaryReferences();
+      return requests.length === before;
+    });
+    check(cancelledMigration, true, 'migration annulée : aucune conversion envoyée');
+    const migration = await admin.evaluate(async () => {
+      window.alerts = [];
+      window.confirm = () => true;
+      window.alert = message => alerts.push(message);
+      window.reloads = 0;
+      window.fetch = async (url, options) => {
+        requests.push({ url, values: Object.fromEntries(options.body) });
+        return { ok: true, text: async () => 'GLOSSAIRE_MIGRATED|2|1' };
+      };
+      await migrateGlossaryReferences();
+      return [requests.at(-1).values.action, requests.at(-1).values.form_token, reloads, alerts.join(' ')];
+    });
+    check(migration.slice(0, 3), ['migrate', 'test-token', 1], 'migration manuelle : action administrative protégée puis rechargement');
+    check(migration[3].includes('2') && migration[3].includes('1'), true, 'migration partielle : nombres de réussites et d’échecs présentés');
+
+    await admin.evaluate(() => jQuery('#glossarySettingsModal').modal('show'));
+    await admin.screenshot({ path: path.join(fixtureDirectory, 'glossaire-parametres.png'), fullPage: true });
+    await trashAudit.evaluate(() => jQuery('#glossaryTrashModal').modal('show'));
+    await trashAudit.screenshot({ path: path.join(fixtureDirectory, 'glossaire-corbeille.png'), fullPage: true });
+    for (const forbiddenPage of [reader, reviewer, adder]) {
+      const blocked = await forbiddenPage.evaluate(async () => {
+        const before = requests.length;
+        await saveGlossarySettings({ preventDefault() {}, currentTarget: document.createElement('form') });
+        await migrateGlossaryReferences();
+        return requests.length === before;
+      });
+      check(blocked, true, 'paramètres : appel direct du helper bloqué pour un non administrateur');
+    }
+
+    for (const [profile, expected] of [
+      ['guest', [true, false, false, false, false]],
+      ['viewer', [true, false, false, false, false]],
+      ['reader', [true, true, false, false, false]],
+      ['adder', [true, true, true, false, false]],
+      ['reviewer', [true, true, true, true, false]],
+      ['noaccess', [false, false, false, false, false]],
+      ['admin', [false, false, false, false, true]]
+    ]) {
+      const rolePage = await openFixture(profile);
+      check(await rolePage.evaluate(() => [canViewGlossary(), canProposeGlossary(), canAddGlossary(), canReviewGlossary(), canConfigureGlossary()]), expected, profile + ' : hiérarchie cumulative des capacités');
+      check(await rolePage.evaluate(() => canManageGlossary() === canAddGlossary()), true, profile + ' : modification/suppression suivent le niveau ajout direct');
+      check(await rolePage.locator('#mainGlossaryTable').count(), expected[0] ? 1 : 0, profile + ' : tableau uniquement avec droit de consultation');
+      check(await rolePage.locator('#btnImportExcelGlossary').count(), expected[1] ? 1 : 0, profile + ' : import proposé ou direct selon le niveau');
+      check(await rolePage.locator('.js-edit-row').count() > 0, expected[2], profile + ' : modification publiée réservée aux niveaux 3 et 4');
+      check(await rolePage.locator('#btnReviewGlossaryProposals').count(), expected[3] ? 1 : 0, profile + ' : validation réservée au niveau 4');
+      check(await rolePage.locator('#btnGlossaryTrash').count(), expected[3] ? 1 : 0, profile + ' : corbeille réservée au niveau 4');
+      check(await rolePage.locator('#btnGlossarySettings').count(), expected[4] ? 1 : 0, profile + ' : paramètres réservés à l’administration wiki');
+      if (!expected[2]) {
+        check(await rolePage.evaluate(async () => {
+          const before = requests.length;
+          await saveRowEdition(document.createElement('button'));
+          await executeRowDelete();
+          await executeBulkGlossaryDelete();
+          await reviewGlossaryProposal(document.createElement('form'), 'approve');
+          return requests.length === before;
+        }), true, profile + ' : commandes de gestion directes bloquées avant envoi');
+      }
+      if (!expected[1]) {
+        check(await rolePage.evaluate(async () => {
+          const before = requests.length;
+          await executeExcelImport([{ acronym: 'INTERDIT', label: 'Ne doit pas partir', definition: '' }], false, false);
+          return requests.length === before;
+        }), true, profile + ' : import direct interdit sans droit de proposition');
+      }
+      if (!expected[0]) {
+        check(await rolePage.locator('.main-term-row,.term-row,.glossary-proposal-card,.glossary-trash-card,.glossary-proposal-status-card').count(), 0, profile + ' : aucune donnée du glossaire dans le DOM sans consultation');
+      }
+      await rolePage.close();
+    }
+
+    check(errors, [], 'aucune erreur JavaScript dans les profils du glossaire');
     console.log(checks + ' vérifications du circuit de validation réussies dans Chromium.');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

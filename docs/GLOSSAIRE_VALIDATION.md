@@ -1,143 +1,125 @@
-# Propositions et validation des acronymes
+# Rôles et propositions du glossaire
 
-Le glossaire distingue les lecteurs connectés et les membres du groupe de validation. Un lecteur connecté peut proposer un terme, importer un fichier Excel sous forme de propositions et suivre ses demandes. Les membres du groupe conservent l'ajout et l'import directs, la modification et la suppression. Leur bouton **Propositions** porte un badge en haut à droite indiquant le nombre de demandes en attente.
+Le bouton **Paramètres**, réservé aux administrateurs du wiki, attribue un niveau aux groupes XWiki. Les niveaux sont cumulatifs ; une personne appartenant à plusieurs groupes bénéficie du niveau le plus élevé.
 
-Dans la liste d'attente, un validateur peut corriger l'acronyme, le libellé et la définition puis valider, ou refuser en indiquant un motif obligatoire. Seule une validation crée une fiche visible dans le tableau public. Le statut et le motif du refus restent consultables par le proposant dans **Mes propositions**.
+| Niveau | Voir | Proposer / importer des propositions | Ajouter / importer directement, modifier et supprimer les acronymes | Valider et gérer la corbeille |
+| --- | --- | --- | --- | --- |
+| Lecture | Oui | | | |
+| Proposition | Oui | Oui | | |
+| Ajout direct | Oui | Oui | Oui | |
+| Validation | Oui | Oui | Oui | Oui |
 
-## Installation dans XWiki
+Un import au niveau Proposition crée **une demande par ligne acceptée**, sans publication immédiate. À partir du niveau Ajout direct, chaque ligne acceptée devient une fiche publiée. Le serveur utilise les groupes actuels et ignore tout rôle transmis par le navigateur.
 
-La fonctionnalité utilise les API de groupes XWiki 10.8 ou ultérieur. Les fichiers du dépôt sont à installer ensemble ; leur présence sur GitHub ne modifie pas l'instance XWiki.
+## Propositions et corbeille
 
-1. Mettre à jour les deux pages et les trois extensions décrites dans [GLOSSAIRE_PAGE.md](GLOSSAIRE_PAGE.md).
-2. Copier **tout le contenu** de `xwiki/TestPage/PAGE/Glossaire/DATA/WebHome.xwiki` dans **`TestPage.PAGE.Glossaire.DATA.WebHome`**, en syntaxe XWiki 2.1. DATA reçoit tous les ajouts, modifications, suppressions, imports, propositions et décisions.
-3. Copier les JavaScript dans les deux extensions existantes `GlossaireExtension` et `GlossairePageExtension`. Les formulaires et la modération sont inclus dans ces extensions.
-4. Créer les deux classes décrites ci-dessous, puis la configuration du groupe.
-5. Créer la page conteneur `TestPage.PAGE.Glossaire.PROPOSITIONS.WebHome`. Appliquer les droits ci-dessous et enregistrer DATA avec un compte de confiance disposant des droits d'écriture sur l'espace des propositions. Recharger le navigateur sans cache.
+- **Valider** permet de corriger les champs, publie l'acronyme dans DATA puis retire la proposition de PROPOSITIONS.
+- **Refuser** exige un motif et déplace la proposition dans CORBEILLE.
+- **Supprimer une proposition** la déplace également dans CORBEILLE.
+- **Revalider** depuis la corbeille publie les champs corrigés puis retire la proposition de CORBEILLE.
 
-L'organisation est la suivante :
+Le proposant consulte uniquement ses propres demandes et les motifs de refus. Le niveau Validation permet de traiter toutes les demandes et d'ouvrir la corbeille.
 
-| Page / espace | Rôle |
-| --- | --- |
-| `TestPage.PAGE.Glossaire.WebHome` | Affichage du tableau et des formulaires, sans écriture de données |
-| `TestPage.PAGE.Glossaire.DATA.WebHome` | Traitements côté serveur, contrôles des droits et réponses aux formulaires |
-| Fiches sous `TestPage.PAGE.Glossaire.DATA` | Stockage des acronymes publiés |
-| `TestPage.PAGE.Glossaire.PROPOSITIONS.WebHome` et ses fiches | Stockage des propositions et de leur historique |
+Les propositions restent récupérables **sept jours après leur mise à la corbeille**. Passé ce délai, le serveur refuse leur revalidation. À l'ouverture du glossaire, le navigateur demande un nettoyage serveur : les propositions expirées disparaissent lors d'une visite suivante, sans tâche planifiée. Cette suppression utilise la corbeille native XWiki, dont la rétention administrative reste définie par l'instance.
 
-Si une ancienne version avec une page COMMANDE ou `CODE.GlossaireWorkflow.WebHome` a déjà été installée, remplacer ensemble la page d'affichage, DATA et les deux extensions JavaScript par les fichiers actuels. Après vérification, supprimer ces anciennes pages devenues inutiles. Le glossaire utilise uniquement DATA pour ses requêtes ; le JavaScript de la modération reste intégré à `GlossairePageExtension`.
+La corbeille du glossaire concerne les **propositions**. Supprimer un acronyme déjà publié utilise la suppression native XWiki.
 
-Les noms de classes sont sensibles à la casse : `glossaireConfigurationClass` et `glossairePropositionClass` commencent par une minuscule, comme la classe existante `glossaireClass`.
+## Installation
 
-## Choisir le groupe
+Les fichiers GitHub doivent être installés dans XWiki ; ils ne mettent pas automatiquement l'instance à jour. Les API de groupes nécessitent XWiki 10.8 ou ultérieur.
 
-Créer la classe `TestPage.PAGE.Glossaire.CODE.glossaireConfigurationClass.WebHome`, avec un champ :
+1. Installer ensemble les deux pages et trois extensions de [GLOSSAIRE_PAGE.md](GLOSSAIRE_PAGE.md), en copiant les sources complètes dans l'éditeur Wiki, syntaxe XWiki 2.1.
+2. Compléter les classes ci-dessous et l'objet de configuration existant.
+3. Créer les conteneurs `TestPage.PAGE.Glossaire.PROPOSITIONS.WebHome` et `TestPage.PAGE.Glossaire.CORBEILLE.WebHome`, puis appliquer les droits indiqués ci-dessous.
+4. Enregistrer l'affichage et DATA avec des comptes de confiance. L'auteur de DATA doit avoir **View, Edit et Delete** sur DATA, PROPOSITIONS et CORBEILLE. L'auteur de l'affichage doit pouvoir lire les propositions privées.
+5. Recharger sans cache. Avec un administrateur du wiki, ouvrir **Paramètres**, attribuer les niveaux puis enregistrer.
 
-| Propriété | Type | Réglage |
-| --- | --- | --- |
-| `reviewGroup` | String | Taille 255 ; référence exacte du groupe XWiki |
+Tous les traitements restent dans **DATA.WebHome** : aucune page COMMANDE ni GlossaireWorkflow n'est nécessaire. Supprimer les anciennes pages techniques de ces noms après vérification si elles avaient été installées.
 
-Créer `TestPage.PAGE.Glossaire.CODE.Configuration.WebHome`, y ajouter un objet de cette classe et renseigner `reviewGroup`, par exemple `XWiki.GlossaireValidateurs`. Une référence qualifiée telle que `monwiki:XWiki.Validateurs` est aussi possible. Les membres des sous-groupes sont pris en compte.
+## Configuration des groupes
 
-Sans configuration, le groupe par défaut est **`XWiki.GlossaireValidateurs`**. Créer ce groupe ou renseigner le groupe existant dans la configuration, puis y ajouter les validateurs. Les droits de modération reposent sur l'appartenance au groupe ; le rôle d'administrateur ne la remplace pas automatiquement.
-
-## Devenir validateur
-
-Avec un compte administrateur du wiki :
-
-1. Ouvrir **Administration du wiki → Utilisateurs et groupes → Groupes**.
-2. Ouvrir le groupe **GlossaireValidateurs** ou le créer avec ce nom technique. Sa référence attendue par défaut est `XWiki.GlossaireValidateurs`.
-3. Ajouter le compte utilisateur dans les membres du groupe et enregistrer.
-4. Si `reviewGroup` a été renseigné dans la configuration du glossaire, utiliser ce groupe configuré à la place du groupe par défaut.
-5. Recharger le glossaire : le bouton **Propositions** et la colonne **Actions** doivent apparaître.
-
-Le compte doit aussi disposer, via ce groupe, des droits d'ajout/modification sur les fiches enfants de DATA pour publier, et du droit de suppression pour supprimer. Les droits de la page de traitement DATA.WebHome restent réservés aux personnes qui maintiennent les scripts. Être administrateur ne rend pas automatiquement le bouton de validation visible si le compte ne fait pas partie du groupe configuré.
-
-## Importer selon son rôle
-
-Le bouton d'import Excel est disponible pour tous les utilisateurs connectés :
-
-| Utilisateur | Résultat de chaque ligne acceptée |
-| --- | --- |
-| Hors du groupe de validation | Une proposition distincte en attente, visible dans **Mes propositions** ; aucune fiche publique créée |
-| Membre du groupe de validation | Une fiche ajoutée directement au glossaire |
-| Visiteur non connecté | Consultation du glossaire, sans import ni proposition |
-
-Le rôle est vérifié de nouveau côté serveur à chaque import. Un paramètre fourni par le navigateur ne peut pas autoriser une publication directe pour une personne hors du groupe.
-
-L'import conserve l'aperçu, la correction des lignes et les options de doublons par acronyme/libellé. Les fiches publiées et les doublons du fichier sont pris en compte ; pour un proposant, ses propres propositions encore en attente sont aussi reconnues. Les propositions des autres personnes restent privées. Une ligne invalide ou ignorée ne bloque pas les lignes valides du fichier. Les résultats distinguent les fiches publiées, les propositions envoyées et les lignes ignorées.
-
-## Classe des propositions
-
-Créer `TestPage.PAGE.Glossaire.CODE.glossairePropositionClass.WebHome` avec ces propriétés :
+Créer ou compléter `TestPage.PAGE.Glossaire.CODE.glossaireConfigurationClass.WebHome` :
 
 | Propriété | Type | Usage |
 | --- | --- | --- |
-| `acronyme` | String, taille 255 | Acronyme proposé |
-| `libelle` | String, taille 255 | Libellé complet |
+| `reviewGroup` | String, taille 255 | Ancien groupe, conservé pour compatibilité |
+| `schemaVersion` | String | `2` après enregistrement des paramètres |
+| `viewGroups` | TextArea | Groupes au niveau Lecture, une référence par ligne |
+| `proposeGroups` | TextArea | Groupes au niveau Proposition, une référence par ligne |
+| `directAddGroups` | TextArea | Groupes au niveau Ajout direct, une référence par ligne |
+| `reviewGroups` | TextArea | Groupes au niveau Validation, une référence par ligne |
+
+L'objet reste sur `TestPage.PAGE.Glossaire.CODE.Configuration.WebHome`. Chaque groupe figure dans son niveau le plus élevé. Les sous-groupes sont pris en compte ; les références qualifiées d'un autre wiki sont acceptées si le groupe est accessible. Les noms de classes sont sensibles à la casse.
+
+L'entrée spéciale des visiteurs non connectés est limitée à Lecture. « Aucun accès » ne donne aucun droit par ce groupe ; un autre groupe peut toutefois accorder un niveau supérieur.
+
+Avant le premier enregistrement, le comportement existant est conservé : visiteurs en lecture, comptes connectés proposant, groupe `reviewGroup` validant. Sans ancien réglage, ce groupe est `XWiki.GlossaireValidateurs`. Après enregistrement, une liste volontairement vide ne réactive pas de valeur par défaut.
+
+Pour ajouter une personne à un groupe : **Administration du wiki → Utilisateurs et groupes → Groupes**, ouvrir le groupe, ajouter le compte et enregistrer. Recharger le glossaire. L'administration du wiki permet de régler les paramètres sans attribuer automatiquement un niveau fonctionnel.
+
+## Classe des propositions
+
+Créer ou compléter `TestPage.PAGE.Glossaire.CODE.glossairePropositionClass.WebHome` :
+
+| Propriété | Type | Usage |
+| --- | --- | --- |
+| `acronyme` | String, taille 255 | Acronyme |
+| `libelle` | String, taille 255 | Libellé |
 | `definition` | TextArea | Définition |
-| `author` | TextArea | Référence absolue du proposant, enregistrée par le serveur |
+| `author` | TextArea | Référence du proposant, fixée par le serveur |
 | `submittedAt` | Date | Date de proposition |
-| `status` | Static List | Valeurs `pending`, `approved`, `rejected` ; sélection unique |
-| `reviewComment` | TextArea | Commentaire de validation ou motif du refus |
-| `reviewer` | TextArea | Référence absolue du validateur |
+| `status` | Static List, sélection unique | `pending`, `approved`, `rejected`, `trashed` |
+| `reviewComment` | TextArea | Commentaire ou motif du refus |
+| `reviewer` | TextArea | Auteur de la décision |
 | `reviewedAt` | Date | Date de décision |
-| `publishedRef` | TextArea | Référence de la fiche publiée |
+| `publishedRef` | TextArea | Référence publiée |
+| `deletedAt` | Date | Début du délai de récupération |
+| `sourceProposalId` | String, taille 255 | Identifiant technique initial, conservé en corbeille et dans l'audit de publication |
 
-Les propositions sont stockées dans des documents distincts de `TestPage.PAGE.Glossaire.PROPOSITIONS`. Les fiches validées portent toujours la classe existante `TestPage.PAGE.Glossaire.CODE.glossaireClass.WebHome` dans DATA. Le stockage séparé empêche une proposition en attente d'apparaître dans le glossaire.
+Les fiches publiées conservent `TestPage.PAGE.Glossaire.CODE.glossaireClass.WebHome` et ses champs `acronyme`, `libelle`, `definition`.
 
-## Droits à appliquer
+## Droits XWiki
 
-Les contrôles des boutons et des requêtes serveur complètent les droits natifs XWiki. Configurer ces droits avant d'ouvrir la fonctionnalité :
+Les écritures utilisent l'auteur de confiance du script, après contrôle serveur du niveau, de POST, de CSRF, du périmètre des références et de la version de la proposition. Il n'est pas nécessaire d'autoriser les contributeurs à modifier les scripts.
 
-| Zone | Lecteurs connectés | Groupe de validation | Compte de confiance qui enregistre les scripts |
-| --- | --- | --- | --- |
-| Page du glossaire | View | View | Edit, Script |
-| CODE, classes et configuration | View ; aucun Edit/Delete/Admin | View | Edit, Script |
-| DATA.WebHome, page de traitement | View ; aucun Edit/Delete/Admin | View ; aucun Edit/Delete/Admin | View, Edit, Script |
-| Fiches publiées sous DATA | View ; aucun Edit/Delete/Admin | View, Edit, Delete | Droits de maintenance habituels |
-| PROPOSITIONS | Aucun Edit/Delete/Admin ; pas de View direct nécessaire | View | View, Edit |
+L'enregistrement des paramètres synchronise les ACL natives **View** sur la page du glossaire, DATA et ses fiches, ainsi que les ACL enfants de **DATA.WebPreferences**. Cela protège aussi les accès aux fiches par URL, rendu brut et REST. L'édition native des documents reste réservée aux comptes de confiance : les niveaux Ajout direct et Validation modifient et suppriment les acronymes avec les boutons du glossaire. Les autres niveaux natifs sont conservés. Les administrateurs natifs gardent leurs droits.
 
-Protéger **la page `TestPage.PAGE.Glossaire.DATA.WebHome` elle-même** contre les modifications par les lecteurs et les validateurs : elle contient les traitements exécutés avec l'auteur de confiance. Accorder au groupe de validation les droits Edit/Delete sur les **fiches enfants de DATA**, avec création de nouvelles fiches, sans lui accorder l'édition de la page de traitement. Utiliser les réglages XWiki des droits de la page et de ses enfants pour distinguer ces périmètres.
+La même synchronisation réserve l'accès natif à PROPOSITIONS et CORBEILLE aux comptes de confiance, y compris sur leurs préférences et leurs fiches existantes. Elle conserve les auteurs effectifs de l'affichage et de DATA pour permettre les lectures et écritures filtrées. Une erreur interrompt l'enregistrement des paramètres ; les ACL déjà synchronisées ne sont pas annulées automatiquement. Corriger l'erreur avec un administrateur puis enregistrer de nouveau.
 
-Utiliser les listes d'autorisation pour restreindre l'accès. Éviter un refus explicite global à `XWikiAllGroup`, car les validateurs appartiennent aussi à ce groupe. Les droits d'administration de l'instance restent sous le contrôle des administrateurs du wiki.
+Configurer également les zones privées et techniques :
 
-Les écritures de propositions utilisent `getDocumentAsAuthor` et `saveAsAuthor`, avec les droits de l'auteur effectif du script. Cela permet aux lecteurs de proposer sans leur accorder le droit de modifier directement la file d'attente. L'auteur effectif doit avoir **View + Edit** sur PROPOSITIONS ; la page du glossaire doit être enregistrée par un auteur ayant **View** sur ces documents pour afficher la liste filtrée. Aucun droit Programming n'est nécessaire pour ces API.
+| Zone | Droits réservés aux comptes de confiance / administrateurs |
+| --- | --- |
+| Affichage et DATA.WebHome | Edit, Delete, Script, Admin |
+| CODE, classes, extensions et configuration | Edit, Delete, Script, Admin |
+| PROPOSITIONS et CORBEILLE, pages et enfants | View, Edit, Delete, Admin |
 
-L'identité du proposant vient du compte connecté, et les décisions restent enregistrées dans les champs d'audit. Les textes saisis sont échappés avant affichage. Un visiteur anonyme peut consulter le glossaire mais ne peut pas proposer.
+La page d'affichage fournit une liste filtrée : les validateurs n'ont pas besoin d'un accès natif direct aux espaces privés. L'auteur de DATA doit pouvoir y lire, créer, modifier et supprimer les documents. Ces API ne nécessitent pas Programming.
 
-## Vérification du parcours
+Protéger ces zones avant d'ouvrir la fonctionnalité. Utiliser des listes d'autorisation ; un refus global sur XWikiAllGroup touche aussi les personnes autorisées. Vérifier les exceptions de droits historiques après installation. Les paramètres refusent les écritures provenant d'un compte sans administration du wiki.
 
-1. Avec un utilisateur connecté hors du groupe, vérifier l'absence de la colonne Actions et des boutons de suppression, puis la présence de l'import de propositions. Envoyer une proposition : elle apparaît dans **Mes propositions**, sans créer de fiche DATA.
-2. Avec un membre du groupe, vérifier le badge puis ouvrir la liste. Modifier les champs et valider : la fiche apparaît dans le tableau, la demande sort de la liste et le compteur diminue.
-3. Envoyer une autre proposition. Un refus sans motif doit être bloqué ; un refus motivé doit être visible par son auteur et ne créer aucune fiche DATA.
-4. Recharger les deux sessions et vérifier la persistance des états. Un autre lecteur ne doit pas voir les propositions de cet auteur.
-5. Vérifier qu'une requête directe de modification, suppression ou validation est refusée pour un utilisateur hors du groupe. Son import doit uniquement créer des propositions, même si une publication directe est demandée dans des paramètres forgés. Vérifier aussi POST, CSRF et les droits natifs DATA/PROPOSITIONS.
-6. Importer plusieurs lignes hors du groupe : vérifier une proposition en attente par ligne acceptée, aucune nouvelle fiche publique et des refus explicites pour les lignes invalides/doublons. Vérifier qu'un membre du groupe importe toujours directement.
-7. Tester une décision à partir d'une ancienne version de la proposition : elle doit être refusée et inviter au rechargement. La référence publiée est déterministe par proposition pour éviter les doublons lors des nouvelles tentatives.
+## Références fixes et anciennes fiches
 
-La validation automatisée exécute les vrais templates avec une API XWiki simulée, puis les extensions dans Chromium. Un essai après installation sur l'instance XWiki reste nécessaire pour ses droits, groupes et versions d'extensions.
+Les nouvelles fiches reçoivent une référence technique indépendante de l'acronyme. Une modification change les champs et le titre sans renommer le document.
 
+Dans **Paramètres**, la conversion manuelle des anciennes adresses attribue des identifiants techniques aux fiches existantes. Elle met à jour les liens internes sans conserver de page de redirection. Les anciennes URL externes doivent être remplacées. Aucune migration n'est déclenchée par une simple visite ; les fiches non converties restent utilisables et conservent leur adresse lors d'une modification.
 
-## Résultats des tests
+Une fiche dont le corps contient du contenu personnalisé, au lieu d'être vide ou de contenir uniquement les marqueurs techniques connus, est laissée intacte et signalée parmi les échecs de conversion. Sa modification par le formulaire est également refusée jusqu'à vérification par un administrateur. Cette règle conserve le contenu existant et évite de lui attribuer implicitement les droits de l'auteur du script.
 
-```sh
-java -cp '/chemin/vers/jars/*' tests/GlossaireVelocityTest.java /tmp/glossaire-rendered.html
-java -cp '/chemin/vers/jars/*' tests/GlossaireXWikiParsingTest.java
-node tests/Glossaire.browser.test.js /tmp/glossaire-rendered.html
-node tests/GlossaireWorkflow.browser.test.js /tmp
-node tests/Accueil-Tracking.test.js
-```
+Une destination déterministe par proposition permet de reprendre une publication réussie suivie d'un échec du retrait, sans doublon ni écrasement des champs déjà publiés. Les versions périmées sont refusées. Ce mécanisme n'est pas un verrou transactionnel entre deux décisions exactement simultanées.
 
-Résultat : **116 vérifications Velocity**, **20 vérifications navigateur du glossaire**, **58 vérifications navigateur du circuit de validation**, et le test d'accueil passent. **13 contrôles du vrai parseur XWiki 16.10.17 puis de Velocity passent aussi**, avec détection d'un `#end` ou d'une fermeture de macro manquants. Les vérifications Java ont été exécutées avec les moteurs Velocity 1.7 et 2.3 ; ne mettre qu'un seul moteur à la fois dans le classpath. Le test de parsing exige le JAR `org.xwiki.rendering:xwiki-rendering-wikimodel:16.10.17` en plus des dépendances Velocity. Les **16 fichiers JavaScript** de `xwiki/` et `preview/` passent la vérification de syntaxe.
+## Vérification après installation
 
-Les tests comprennent les trois profils, les requêtes de gestion forgées, les droits natifs, le CSRF, l'absence de publication avant validation, les corrections, les refus motivés, le compteur, les décisions périmées et la reprise après un échec partiel. Les captures sont enregistrées à côté des fixtures HTML.
+1. Tester les quatre niveaux, plusieurs appartenances et les sous-groupes ; vérifier les boutons et le mode d'import.
+2. Enregistrer les paramètres, retirer l'accès à un groupe puis vérifier aussi une URL de fiche DATA et un accès brut. Garder une session administrateur pour régler les droits.
+3. Proposer manuellement et par import : une demande par ligne acceptée, aucune fiche publiée avant validation.
+4. Corriger et valider : une seule fiche publiée, plus de proposition dans PROPOSITIONS.
+5. Refuser avec motif, supprimer une autre proposition puis revalider dans la corbeille ; vérifier les auteurs, champs et compteurs après rechargement.
+6. Avec des données de test de plus de sept jours, ouvrir le glossaire et vérifier le nettoyage et le refus de revalidation.
+7. Modifier plusieurs fois un acronyme et vérifier son URL fixe. Essayer aussi la conversion d'une ancienne fiche, les filtres, doublons et suppressions multiples.
 
-Les vérifications de version rejettent les décisions prises depuis une ancienne liste. Elles ne constituent pas un verrou transactionnel entre deux décisions exactement simultanées ; la destination unique évite la création de plusieurs fiches pour la même proposition.
+## Tests et erreur EOF
 
+Les tests exécutent les vrais templates avec une API XWiki simulée, les parseurs XWiki et Velocity, puis les extensions dans Chromium. Les commandes et dépendances sont dans [GLOSSAIRE_PAGE.md](GLOSSAIRE_PAGE.md). Un essai sur l'instance reste nécessaire pour ses ACL et extensions installées.
 
-## Erreur « encountered EOF »
-
-Une erreur EOF signale que le parseur a atteint la fin du texte alors qu'il attendait une fermeture. Remplacer le contenu **entier** des pages, via l'éditeur Wiki/source en syntaxe XWiki 2.1. Ne pas coller les scripts dans l'éditeur visuel ni conserver un fragment de l'ancien contenu autour du nouveau.
-
-La page d'affichage commence par `{{velocity}}` puis `{{html clean="false"}}` et se termine par `{{/html}}` puis `{{/velocity}}`. DATA commence par `{{velocity output="false"}}` et se termine par `{{/velocity}}`. Conserver les directives `#end` et ces fermetures.
-
-Les conditions Velocity de la page d'affichage sont placées sur des lignes séparées des attributs et des libellés HTML. Les tests traitent le contenu complet du bloc Velocity, y compris le bloc HTML interne. L'erreur signalée n'a pas été reproduite avec le fichier complet du dépôt ; son message complet et sa ligne/colonne permettent de diagnostiquer un contenu différent installé sur le wiki.
+Pour une erreur **encountered EOF**, remplacer les sources complètes dans l'éditeur Wiki/source, en syntaxe XWiki 2.1. L'affichage commence par `{{velocity}}` puis `{{html clean="false"}}` et se termine par `{{/html}}` puis `{{/velocity}}`. DATA commence par `{{velocity output="false"}}` et se termine par `{{/velocity}}`. Conserver les directives `#end`. L'erreur précédemment signalée n'a pas été reproduite avec la source complète du dépôt.

@@ -25,14 +25,41 @@ function showGlossaryToast(message, isError) {
 }
 
 // Le serveur reste la source d'autorisation ; ce contrôle protège aussi l'interface.
+function getGlossaryMetadata() {
+    return document.getElementById('mainGlossaryTable') || document.getElementById('glossaryBootstrap');
+}
+
+function canViewGlossary() {
+    var metadata = getGlossaryMetadata();
+    return !!metadata && metadata.getAttribute('data-can-view') === 'true';
+}
+
+function canProposeGlossary() {
+    var metadata = getGlossaryMetadata();
+    return !!metadata && metadata.getAttribute('data-can-propose') === 'true';
+}
+
+function canAddGlossary() {
+    var metadata = getGlossaryMetadata();
+    return !!metadata && metadata.getAttribute('data-can-add') === 'true';
+}
+
 function canManageGlossary() {
-    var table = document.getElementById('mainGlossaryTable');
-    return !!table && table.getAttribute('data-can-manage') === 'true';
+    return canAddGlossary();
+}
+
+function canReviewGlossary() {
+    var metadata = getGlossaryMetadata();
+    return !!metadata && metadata.getAttribute('data-can-review') === 'true';
+}
+
+function canConfigureGlossary() {
+    var metadata = getGlossaryMetadata();
+    return !!metadata && metadata.getAttribute('data-can-configure') === 'true';
 }
 
 function canImportGlossary() {
-    var table = document.getElementById('mainGlossaryTable');
-    return !!table && table.getAttribute('data-can-propose') === 'true';
+    return canProposeGlossary() || canAddGlossary();
 }
 
 function toggleEditMode(button, isEnteringEdit) {
@@ -183,8 +210,8 @@ function getGlossaryResultLine(responseText, code) {
 
 // Toutes les modifications passent par DATA, qui conserve aussi les fiches du glossaire.
 function getGlossaryDataUrl() {
-    var table = document.getElementById('mainGlossaryTable');
-    var url = window.urlGlossaireData || (table && table.getAttribute('data-endpoint-url'));
+    var metadata = getGlossaryMetadata();
+    var url = window.urlGlossaireData || (metadata && metadata.getAttribute('data-endpoint-url'));
     if (!url) throw new Error('Le service du glossaire est indisponible. Rechargez la page.');
     var endpoint = new URL(url, window.location.href);
     endpoint.searchParams.set('xpage', 'plain');
@@ -264,7 +291,7 @@ async function saveRowEdition(button) {
             row.setAttribute('data-full-ref', updatedFullRef);
             row.setAttribute('data-doc-name', updatedDocName);
 
-            // Mise à jour du tableau de la modal et de sa référence après renommage XWiki.
+            // La référence reste stable lorsque l'acronyme change.
             var modalRow = findGlossaryPopupRow(fullRef);
             if (modalRow) {
                 var modalAcronymCell = modalRow.querySelector('.term-acronym');
@@ -374,6 +401,7 @@ var pageSize = 10;
 
 // Initialisation au chargement de la page : Acronyme A→Z puis pagination.
 document.addEventListener("DOMContentLoaded", function() {
+    if (!document.getElementById('mainGlossaryTable')) return;
     applyCurrentSort();
     sortPopupTableAlphabetically();
     applyPagination();
@@ -711,6 +739,7 @@ function ensureSheetJSLoaded() {
 }
 
 function createExcelImportUi() {
+    if (!canViewGlossary()) return;
     if (!canImportGlossary()) return;
     if (document.getElementById('btnImportExcelGlossary')) return;
 
