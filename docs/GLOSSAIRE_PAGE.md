@@ -9,17 +9,16 @@ Le circuit de proposition, le groupe de validation et ses droits sont décrits d
 | Fichier du dépôt, sous `xwiki/TestPage/PAGE/Glossaire/` | Destination XWiki |
 | --- | --- |
 | `WebHome.xwiki` | Contenu de `TestPage.PAGE.Glossaire.WebHome`, syntaxe XWiki 2.1 |
-| `DATA/WebHome.xwiki` | Page conteneur de `TestPage.PAGE.Glossaire.DATA.WebHome` ; stockage des fiches |
-| `COMMANDE.xwiki` | Contenu de `TestPage.PAGE.Glossaire.COMMANDE`, syntaxe XWiki 2.1 ; tous les traitements |
+| `DATA/WebHome.xwiki` | Contenu de `TestPage.PAGE.Glossaire.DATA.WebHome`, syntaxe XWiki 2.1 ; tous les traitements serveur |
 | `CODE/GlossaireExtension.css` | StyleSheet Extension de `TestPage.PAGE.Glossaire.CODE.GlossaireExtension` |
 | `CODE/GlossaireExtension.js` | JavaScript Extension de `TestPage.PAGE.Glossaire.CODE.GlossaireExtension` |
 | `CODE/GlossairePageExtension.js` | JavaScript Extension de `TestPage.PAGE.Glossaire.CODE.GlossairePageExtension` |
 
 Conserver la classe `TestPage.PAGE.Glossaire.CODE.glossaireClass.WebHome` et ses champs `acronyme`, `libelle`, `definition`. La page charge explicitement ses extensions. Si les extensions JavaScript sont parsées par Velocity, conserver ce réglage.
 
-La page COMMANDE reçoit les demandes d’ajout, modification, suppression, import, proposition et décision. La page d’affichage et la page DATA ne traitent plus de mutations. Les deux extensions JavaScript existantes suffisent.
+La page DATA reçoit les demandes d’ajout, modification, suppression, import, proposition et décision. La page d’affichage reste en lecture seule. Les deux extensions JavaScript existantes suffisent.
 
-COMMANDE renvoie du texte brut et encode les références avec `escapetool.url`. Les extensions JavaScript décodent ces références : installer les fichiers serveur et client ensemble, puis recharger le navigateur sans cache.
+DATA renvoie du texte brut et encode les références avec `escapetool.url`. Les extensions JavaScript décodent ces références : installer les fichiers serveur et client ensemble, puis recharger le navigateur sans cache.
 
 ## Corrections
 
@@ -40,11 +39,12 @@ Dans XWiki, vérifier chaque ancienne page avant de la supprimer : une redirecti
 
 ## Tests automatisés
 
-Prérequis : Node.js, Playwright avec Chromium, Java 17 ou supérieur, et les JAR Velocity Engine 2.3, Commons Lang 3.11 et SLF4J API 1.7.30 dans un répertoire de test.
+Prérequis : Node.js, Playwright avec Chromium, Java 17 ou supérieur, et les JAR Velocity Engine 2.3, Commons Lang 3.11 et SLF4J API 1.7.30 dans un répertoire de test. Le contrôle des macros XWiki utilise aussi le JAR `org.xwiki.rendering:xwiki-rendering-wikimodel:16.10.17` dans ce répertoire.
 
 ```sh
 node tests/Accueil-Tracking.test.js
 java -cp '/chemin/vers/jars/*' tests/GlossaireVelocityTest.java /tmp/glossaire-rendered.html
+java -cp '/chemin/vers/jars/*' tests/GlossaireXWikiParsingTest.java
 node tests/Glossaire.browser.test.js /tmp/glossaire-rendered.html
 node tests/GlossaireWorkflow.browser.test.js /tmp
 ```
@@ -53,7 +53,7 @@ Le test Velocity exécute les templates du dépôt avec une API XWiki simulée :
 
 Le test d'accueil a été adapté à la version actuelle du suivi (`v5.4`, XMLHttpRequest). Il vérifie le suivi, la limitation des comptages répétés, l'exclusion des prévisualisations et l'affichage de l'historique récent.
 
-Résultat de la validation : **103 vérifications Velocity, 20 vérifications navigateur historiques, 42 vérifications navigateur du circuit de validation et test d'accueil réussis** ; les **16 fichiers JavaScript** de `xwiki/` et `preview/` passent la vérification de syntaxe. Les captures du navigateur sont enregistrées à côté du HTML généré.
+Résultat de la validation : **99 vérifications Velocity, 20 vérifications navigateur historiques, 42 vérifications navigateur du circuit de validation et test d'accueil réussis** ; **13 contrôles supplémentaires utilisent le vrai parseur XWiki avant compilation Velocity** ; les **16 fichiers JavaScript** de `xwiki/` et `preview/` passent la vérification de syntaxe. Les captures du navigateur sont enregistrées à côté du HTML généré.
 
 Ces tests ne remplacent pas un essai sur l'instance XWiki, notamment pour ses droits et extensions installées.
 

@@ -176,10 +176,10 @@ function getGlossaryResultLine(responseText, code) {
     }) || '';
 }
 
-// Toutes les modifications passent par la page COMMANDE, DATA reste le stockage.
-function getGlossaryCommandeUrl() {
+// Toutes les modifications passent par DATA, qui conserve aussi les fiches du glossaire.
+function getGlossaryDataUrl() {
     var table = document.getElementById('mainGlossaryTable');
-    var url = window.urlGlossaireCommande || (table && table.getAttribute('data-endpoint-url'));
+    var url = window.urlGlossaireData || (table && table.getAttribute('data-endpoint-url'));
     if (!url) throw new Error('Le service du glossaire est indisponible. Rechargez la page.');
     var endpoint = new URL(url, window.location.href);
     endpoint.searchParams.set('xpage', 'plain');
@@ -236,7 +236,7 @@ async function saveRowEdition(button) {
     donnees.append("form_token", csrfToken);
 
     try {
-        const reponse = await fetch(getGlossaryCommandeUrl(), {
+        const reponse = await fetch(getGlossaryDataUrl(), {
             method: "POST",
             body: donnees,
             credentials: "same-origin",
@@ -325,7 +325,7 @@ async function executeRowDelete() {
     deleteButton.disabled = true;
 
     try {
-        const reponse = await fetch(getGlossaryCommandeUrl(), {
+        const reponse = await fetch(getGlossaryDataUrl(), {
             method: "POST",
             body: donnees,
             credentials: "same-origin",
@@ -1001,7 +1001,7 @@ async function executeExcelImport(rows, allowAcronymDuplicates, allowLabelDuplic
     newOnlyButton.disabled = true;
 
     try {
-        var response = await fetch(getGlossaryCommandeUrl(), {
+        var response = await fetch(getGlossaryDataUrl(), {
             method: 'POST',
             body: donnees,
             credentials: 'same-origin',

@@ -730,7 +730,7 @@ async function executeBulkGlossaryDelete() {
         donnees.append('form_token', csrfToken);
 
         try {
-            var response = await fetch(getGlossaryCommandeUrl(), {
+            var response = await fetch(getGlossaryDataUrl(), {
                 method: 'POST',
                 body: donnees,
                 credentials: 'same-origin',
@@ -849,7 +849,7 @@ function bindGlossaryPageEvents() {
         }
     });
 
-    window.urlGlossaireCommande = table.getAttribute('data-endpoint-url') || '';
+    window.urlGlossaireData = table.getAttribute('data-endpoint-url') || '';
 
     table.addEventListener('click', function(event) {
         var button = event.target.closest('button');
@@ -921,7 +921,7 @@ async function requestGlossaryWorkflow(action, values) {
         throw new Error('Le service des propositions est indisponible. Rechargez la page.');
     }
 
-    var endpoint = getGlossaryCommandeUrl();
+    var endpoint = getGlossaryDataUrl();
     var data = new FormData();
     data.append('action', action);
     data.append('form_token', table.getAttribute('data-csrf') || '');

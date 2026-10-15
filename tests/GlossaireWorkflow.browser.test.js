@@ -7,7 +7,7 @@ const fixtureDirectory = process.argv[2];
 if (!fixtureDirectory) throw new Error('Indiquer le dossier des fixtures produites par GlossaireVelocityTest.');
 const root = path.join(__dirname, '..');
 const codeDirectory = path.join(root, 'xwiki/TestPage/PAGE/Glossaire/CODE');
-const commandUrl = 'https://wiki.test/bin/view/TestPage/PAGE/Glossaire/COMMANDE';
+const dataUrl = 'https://wiki.test/bin/view/TestPage/PAGE/Glossaire/DATA/WebHome';
 let checks = 0;
 function check(value, expected, label) { assert.deepEqual(value, expected, label); checks++; }
 
@@ -44,7 +44,7 @@ function check(value, expected, label) { assert.deepEqual(value, expected, label
   }
   try {
     const reader = await openFixture('reader');
-    check(await reader.locator('#mainGlossaryTable').getAttribute('data-endpoint-url'), commandUrl, 'route COMMANDE fournie par le vrai template');
+    check(await reader.locator('#mainGlossaryTable').getAttribute('data-endpoint-url'), dataUrl, 'route DATA fournie par le vrai template');
     check(await reader.locator('#mainGlossaryTable').getAttribute('data-workflow-url'), null, 'aucun service Workflow séparé demandé');
     check(await reader.locator('#mainGlossaryTable thead tr').first().locator('th').count(), 3, 'hors groupe : aucune colonne Actions');
     check(await reader.locator('.js-edit-row,.js-delete-row,#btnImportExcelGlossary,#btnBulkDeleteModeGlossary,#btnReviewGlossaryProposals').count(), 0, 'hors groupe : aucune commande de gestion');
@@ -155,7 +155,7 @@ function check(value, expected, label) { assert.deepEqual(value, expected, label
     });
     check(creationEventHandled, true, 'formulaire validateur lié à l’extension JavaScript de page existante');
     check(await reviewer.evaluate(() => [requests.at(-1).values.action, requests.at(-1).values.acronym, requests.at(-1).values.label, requests.at(-1).values.form_token]),
-      ['create', 'DIRECT.API', 'Ajout direct validateur', 'test-token'], 'validateur : création directe par COMMANDE avec les paramètres anglais');
+      ['create', 'DIRECT.API', 'Ajout direct validateur', 'test-token'], 'validateur : création directe par DATA avec les paramètres anglais');
     check(await reviewer.locator('.main-term-row').count(), rowsBeforeCreate + 1, 'ajout direct publié immédiatement dans le tableau');
     check(await reviewer.locator('.main-term-row[data-doc-name="DIRECT.API"]').getAttribute('data-full-ref'), 'TestPage.PAGE.Glossaire.DATA.DIRECT\\.API', 'référence canonique de création conservée');
     check(await reviewer.locator('#popupCheckTable .term-row').evaluateAll(rows => rows.filter(row => row.getAttribute('data-full-ref') === 'TestPage.PAGE.Glossaire.DATA.DIRECT\\.API').length), 1, 'ajout direct synchronisé dans les deux tableaux');
@@ -177,9 +177,9 @@ function check(value, expected, label) { assert.deepEqual(value, expected, label
       check(await page.evaluate(expected => requests.every(request => {
         const endpoint = new URL(request.url);
         return endpoint.origin + endpoint.pathname === expected && endpoint.searchParams.getAll('xpage').join(',') === 'plain';
-      }), commandUrl), true, profile + ' : toutes les requêtes ciblent COMMANDE en rendu brut');
+      }), dataUrl), true, profile + ' : toutes les requêtes ciblent DATA en rendu brut');
     }
-    check(await reviewer.evaluate(() => Array.from(new Set(requests.map(request => request.values.action))).sort()), ['approve', 'create', 'reject'], 'création et décisions partagent le point d’entrée COMMANDE');
+    check(await reviewer.evaluate(() => Array.from(new Set(requests.map(request => request.values.action))).sort()), ['approve', 'create', 'reject'], 'création et décisions partagent le point d’entrée DATA');
     await reviewer.screenshot({ path: path.join(fixtureDirectory, 'glossaire-validateur.png'), fullPage: true });
 
     const guest = await openFixture('guest');

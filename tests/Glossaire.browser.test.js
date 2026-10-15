@@ -8,7 +8,7 @@ const htmlFile = process.argv[2];
 if (!htmlFile) throw new Error('Indiquer le HTML généré par GlossaireVelocityTest.');
 const root = path.join(__dirname, '..');
 const glossary = path.join(root, 'xwiki/TestPage/PAGE/Glossaire/CODE');
-const commandUrl = 'https://wiki.test/bin/view/TestPage/PAGE/Glossaire/COMMANDE';
+const dataUrl = 'https://wiki.test/bin/view/TestPage/PAGE/Glossaire/DATA/WebHome';
 let checks = 0;
 function check(actual, expected, label) { assert.deepEqual(actual, expected, label); checks++; }
 
@@ -32,7 +32,7 @@ function check(actual, expected, label) { assert.deepEqual(actual, expected, lab
     await page.addScriptTag({ path: path.join(glossary, 'GlossaireExtension.js') });
     await page.addScriptTag({ path: path.join(glossary, 'GlossairePageExtension.js') });
     await page.evaluate(() => document.dispatchEvent(new Event('DOMContentLoaded')));
-    check(await page.locator('#mainGlossaryTable').getAttribute('data-endpoint-url'), commandUrl, 'route COMMANDE fournie par le vrai template');
+    check(await page.locator('#mainGlossaryTable').getAttribute('data-endpoint-url'), dataUrl, 'route DATA fournie par le vrai template');
     const styles = await page.evaluate(() => {
       const read = selector => {
         const header = document.querySelector(selector);
@@ -171,7 +171,7 @@ function check(actual, expected, label) { assert.deepEqual(actual, expected, lab
     check(await page.evaluate(() => requestUrls.every(url => {
       const endpoint = new URL(url);
       return endpoint.origin + endpoint.pathname === document.querySelector('#mainGlossaryTable').getAttribute('data-endpoint-url') && endpoint.searchParams.getAll('xpage').join(',') === 'plain';
-    })), true, 'modification, suppression et import utilisent uniquement COMMANDE en rendu brut');
+    })), true, 'modification, suppression et import utilisent uniquement DATA en rendu brut');
     check(await page.evaluate(() => Array.from(new Set(requests.map(request => request.action))).sort()), ['delete', 'import', 'save'], 'les trois commandes de gestion passent par le même service');
     check(errors, [], 'aucune erreur JavaScript dans le navigateur');
     console.log(checks + ' vérifications navigateur réussies.');
