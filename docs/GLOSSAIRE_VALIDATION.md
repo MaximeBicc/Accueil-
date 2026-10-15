@@ -1,6 +1,6 @@
 # Propositions et validation des acronymes
 
-Le glossaire distingue les lecteurs connectés et les membres du groupe de validation. Un lecteur peut proposer un terme et suivre ses propositions. Les membres du groupe conservent l'ajout direct, la modification, la suppression et l'import Excel. Leur bouton **Propositions** porte un badge en haut à droite indiquant le nombre de demandes en attente.
+Le glossaire distingue les lecteurs connectés et les membres du groupe de validation. Un lecteur connecté peut proposer un terme, importer un fichier Excel sous forme de propositions et suivre ses demandes. Les membres du groupe conservent l'ajout et l'import directs, la modification et la suppression. Leur bouton **Propositions** porte un badge en haut à droite indiquant le nombre de demandes en attente.
 
 Dans la liste d'attente, un validateur peut corriger l'acronyme, le libellé et la définition puis valider, ou refuser en indiquant un motif obligatoire. Seule une validation crée une fiche visible dans le tableau public. Le statut et le motif du refus restent consultables par le proposant dans **Mes propositions**.
 
@@ -38,6 +38,32 @@ Créer la classe `TestPage.PAGE.Glossaire.CODE.glossaireConfigurationClass.WebHo
 Créer `TestPage.PAGE.Glossaire.CODE.Configuration.WebHome`, y ajouter un objet de cette classe et renseigner `reviewGroup`, par exemple `XWiki.GlossaireValidateurs`. Une référence qualifiée telle que `monwiki:XWiki.Validateurs` est aussi possible. Les membres des sous-groupes sont pris en compte.
 
 Sans configuration, le groupe par défaut est **`XWiki.GlossaireValidateurs`**. Créer ce groupe ou renseigner le groupe existant dans la configuration, puis y ajouter les validateurs. Les droits de modération reposent sur l'appartenance au groupe ; le rôle d'administrateur ne la remplace pas automatiquement.
+
+## Devenir validateur
+
+Avec un compte administrateur du wiki :
+
+1. Ouvrir **Administration du wiki → Utilisateurs et groupes → Groupes**.
+2. Ouvrir le groupe **GlossaireValidateurs** ou le créer avec ce nom technique. Sa référence attendue par défaut est `XWiki.GlossaireValidateurs`.
+3. Ajouter le compte utilisateur dans les membres du groupe et enregistrer.
+4. Si `reviewGroup` a été renseigné dans la configuration du glossaire, utiliser ce groupe configuré à la place du groupe par défaut.
+5. Recharger le glossaire : le bouton **Propositions** et la colonne **Actions** doivent apparaître.
+
+Le compte doit aussi disposer, via ce groupe, des droits d'ajout/modification sur les fiches enfants de DATA pour publier, et du droit de suppression pour supprimer. Les droits de la page de traitement DATA.WebHome restent réservés aux personnes qui maintiennent les scripts. Être administrateur ne rend pas automatiquement le bouton de validation visible si le compte ne fait pas partie du groupe configuré.
+
+## Importer selon son rôle
+
+Le bouton d'import Excel est disponible pour tous les utilisateurs connectés :
+
+| Utilisateur | Résultat de chaque ligne acceptée |
+| --- | --- |
+| Hors du groupe de validation | Une proposition distincte en attente, visible dans **Mes propositions** ; aucune fiche publique créée |
+| Membre du groupe de validation | Une fiche ajoutée directement au glossaire |
+| Visiteur non connecté | Consultation du glossaire, sans import ni proposition |
+
+Le rôle est vérifié de nouveau côté serveur à chaque import. Un paramètre fourni par le navigateur ne peut pas autoriser une publication directe pour une personne hors du groupe.
+
+L'import conserve l'aperçu, la correction des lignes et les options de doublons par acronyme/libellé. Les fiches publiées et les doublons du fichier sont pris en compte ; pour un proposant, ses propres propositions encore en attente sont aussi reconnues. Les propositions des autres personnes restent privées. Une ligne invalide ou ignorée ne bloque pas les lignes valides du fichier. Les résultats distinguent les fiches publiées, les propositions envoyées et les lignes ignorées.
 
 ## Classe des propositions
 
@@ -80,12 +106,13 @@ L'identité du proposant vient du compte connecté, et les décisions restent en
 
 ## Vérification du parcours
 
-1. Avec un utilisateur connecté hors du groupe, vérifier l'absence de la colonne Actions et des boutons d'import/suppression. Envoyer une proposition : elle apparaît dans **Mes propositions**, sans créer de fiche DATA.
+1. Avec un utilisateur connecté hors du groupe, vérifier l'absence de la colonne Actions et des boutons de suppression, puis la présence de l'import de propositions. Envoyer une proposition : elle apparaît dans **Mes propositions**, sans créer de fiche DATA.
 2. Avec un membre du groupe, vérifier le badge puis ouvrir la liste. Modifier les champs et valider : la fiche apparaît dans le tableau, la demande sort de la liste et le compteur diminue.
 3. Envoyer une autre proposition. Un refus sans motif doit être bloqué ; un refus motivé doit être visible par son auteur et ne créer aucune fiche DATA.
 4. Recharger les deux sessions et vérifier la persistance des états. Un autre lecteur ne doit pas voir les propositions de cet auteur.
-5. Vérifier qu'une requête directe de modification, suppression, import ou validation est refusée pour un utilisateur hors du groupe. Vérifier aussi POST, CSRF et les droits natifs DATA/PROPOSITIONS.
-6. Tester une décision à partir d'une ancienne version de la proposition : elle doit être refusée et inviter au rechargement. La référence publiée est déterministe par proposition pour éviter les doublons lors des nouvelles tentatives.
+5. Vérifier qu'une requête directe de modification, suppression ou validation est refusée pour un utilisateur hors du groupe. Son import doit uniquement créer des propositions, même si une publication directe est demandée dans des paramètres forgés. Vérifier aussi POST, CSRF et les droits natifs DATA/PROPOSITIONS.
+6. Importer plusieurs lignes hors du groupe : vérifier une proposition en attente par ligne acceptée, aucune nouvelle fiche publique et des refus explicites pour les lignes invalides/doublons. Vérifier qu'un membre du groupe importe toujours directement.
+7. Tester une décision à partir d'une ancienne version de la proposition : elle doit être refusée et inviter au rechargement. La référence publiée est déterministe par proposition pour éviter les doublons lors des nouvelles tentatives.
 
 La validation automatisée exécute les vrais templates avec une API XWiki simulée, puis les extensions dans Chromium. Un essai après installation sur l'instance XWiki reste nécessaire pour ses droits, groupes et versions d'extensions.
 
@@ -100,7 +127,7 @@ node tests/GlossaireWorkflow.browser.test.js /tmp
 node tests/Accueil-Tracking.test.js
 ```
 
-Résultat : **99 vérifications Velocity**, **20 vérifications navigateur du glossaire**, **42 vérifications navigateur du circuit de validation**, et le test d'accueil passent. **13 contrôles du vrai parseur XWiki 16.10.17 puis de Velocity passent aussi**, avec détection d'un `#end` ou d'une fermeture de macro manquants. Les vérifications Java ont été exécutées avec les moteurs Velocity 1.7 et 2.3 ; ne mettre qu'un seul moteur à la fois dans le classpath. Le test de parsing exige le JAR `org.xwiki.rendering:xwiki-rendering-wikimodel:16.10.17` en plus des dépendances Velocity. Les **16 fichiers JavaScript** de `xwiki/` et `preview/` passent la vérification de syntaxe.
+Résultat : **116 vérifications Velocity**, **20 vérifications navigateur du glossaire**, **58 vérifications navigateur du circuit de validation**, et le test d'accueil passent. **13 contrôles du vrai parseur XWiki 16.10.17 puis de Velocity passent aussi**, avec détection d'un `#end` ou d'une fermeture de macro manquants. Les vérifications Java ont été exécutées avec les moteurs Velocity 1.7 et 2.3 ; ne mettre qu'un seul moteur à la fois dans le classpath. Le test de parsing exige le JAR `org.xwiki.rendering:xwiki-rendering-wikimodel:16.10.17` en plus des dépendances Velocity. Les **16 fichiers JavaScript** de `xwiki/` et `preview/` passent la vérification de syntaxe.
 
 Les tests comprennent les trois profils, les requêtes de gestion forgées, les droits natifs, le CSRF, l'absence de publication avant validation, les corrections, les refus motivés, le compteur, les décisions périmées et la reprise après un échec partiel. Les captures sont enregistrées à côté des fixtures HTML.
 

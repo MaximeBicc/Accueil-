@@ -243,6 +243,17 @@ public class GlossaireVelocityTest {
     String data(String action, String... pairs) throws Exception { return render("DATA/WebHome.xwiki", action, pairs); }
     String create(String acronym, String label) throws Exception { return data("create", "acronym", acronym, "label", label, "definition", "Définition créée"); }
     Doc proposal() { return wiki.docs.values().stream().filter(d -> d.ref.parent.equals(PROPOSAL_SPACE)).findFirst().orElseThrow(); }
+    List<Doc> proposals() { return wiki.docs.values().stream().filter(d -> d.ref.parent.equals(PROPOSAL_SPACE)).toList(); }
+    String importRows(boolean acronymDuplicates, boolean labelDuplicates, String[]... rows) throws Exception {
+      request.params.keySet().removeIf(key -> key.matches("(acronym|label|definition)_[0-9]+"));
+      List<String> pairs = new ArrayList<>(List.of("allowAcronymDuplicates", String.valueOf(acronymDuplicates), "allowLabelDuplicates", String.valueOf(labelDuplicates)));
+      for (int i = 0; i < rows.length; i++) {
+        for (int field = 0; field < rows[i].length; field++) {
+          pairs.add(List.of("acronym_", "label_", "definition_").get(field) + i); pairs.add(rows[i][field]);
+        }
+      }
+      return data("import", pairs.toArray(String[]::new));
+    }
     List<Doc> published() { return wiki.docs.values().stream().filter(d -> d.ref.parent.equals(SPACE)).toList(); }
   }
   static String velocityBody(String source) {
@@ -265,7 +276,7 @@ public class GlossaireVelocityTest {
     check(error(f.save(source.getFullName(), "HACK")) && source.obj.getValue("acronyme").equals("API"), "non-membre : modification refusée côté serveur");
     check(error(f.delete(source.getFullName())) && !source.isNew() && f.refactoring.calls == 0, "non-membre : suppression refusée côté serveur");
     String result = f.data("import", "acronym_0", "HACK", "label_0", "Interdit");
-    check(error(result) && f.published().size() == 1 && f.wiki.normalSaves == saves, "non-membre : import refusé côté serveur");
+    check(result.contains("ROW_PROPOSED|0|") && f.proposals().size() == 1 && f.published().size() == 1 && f.wiki.normalSaves == saves, "non-membre : import proposé sans publication directe");
     String html = f.render("WebHome.xwiki", "checkAndCreate", "acronyme", "HACK", "libelle", "Interdit");
     check(f.published().size() == 1 && f.wiki.normalSaves == saves, "non-membre : ancien ajout direct sans mutation sur la page d’affichage");
     check(error(f.create("HACK", "Interdit")) && f.published().size() == 1 && f.wiki.normalSaves == saves, "non-membre : création forcée refusée par DATA");
@@ -377,6 +388,64 @@ public class GlossaireVelocityTest {
     check(approve(f, proposal, "HTTP", "Interface", "").startsWith("GLOSSAIRE_APPROVED|"), "groupe configuré contrôle aussi la validation des propositions");
     f = new Fixture(); f.userContext.user = null; html = f.render("WebHome.xwiki", "");
     check(!html.contains("glossary-col-actions") && !html.contains("glossaryProposalsModal") && !html.contains("id=\"glossaryModal\""), "visiteur sans actions ni formulaire de proposition");
+  }
+  static void importChecks() throws Exception {
+    Fixture f = new Fixture(); f.ordinary(); f.wiki.allowed = false; f.userContext.user = new Ref("XWiki", "Importateur");
+    f.request.params.put("author", "XWiki.Victime"); f.request.params.put("status", "approved");
+    f.request.params.put("canReview", "true"); f.request.params.put("canManage", "true");
+    String result = f.importRows(false, false, new String[]{"API|+%", "Interface importée", "Première définition"},
+        new String[]{"HTTP", "Protocole", "Définition HTTP"}, new String[]{"DNS", "Noms", "Définition DNS"});
+    check(result.split("ROW_PROPOSED\\|", -1).length == 4 && result.contains("GLOSSAIRE_IMPORT_OK|0|0|3|3") && f.proposals().size() == 3 && f.published().isEmpty(),
+        "import contributeur : trois lignes produisent exactement trois propositions et aucune fiche publiée");
+    check(f.proposals().stream().allMatch(d -> d.getObject(CLASS) == null && d.obj.getValue("status").equals("pending")
+        && d.obj.getValue("author").equals("XWiki.Importateur") && d.obj.getValue("submittedAt") instanceof Date
+        && d.obj.getValue("reviewer").equals("") && d.obj.getValue("publishedRef").equals("")),
+        "import contributeur : auteur authentifié et état en attente fixés côté serveur malgré les paramètres forgés");
+    check(f.wiki.normalSaves == 0 && f.wiki.authorSaves == 3 && f.proposals().get(0).obj.getValue("definition").equals("Première définition"),
+        "import contributeur : stockage des champs sans droit natif d’édition de DATA");
+    Doc imported = f.proposals().get(0); f.manager(); f.wiki.allowed = true;
+    check(approve(f, imported, "CORRIGÉ", "Correction import", "Relu").startsWith("GLOSSAIRE_APPROVED|")
+        && f.published().size() == 1 && imported.obj.getValue("status").equals("approved"), "proposition importée validable avec correction par le circuit existant");
+
+    f = new Fixture(); f.wiki.add("API", "API"); f.ordinary(); f.wiki.allowed = false;
+    result = f.importRows(false, false, new String[]{"api", "Autre libellé", "Déjà publié"}, new String[]{"NOUVEAU", "Nouveau libellé", "Définition"},
+        new String[]{"nouveau", "Nouveau libellé", "Doublon du fichier"}, new String[]{"A/B", "Invalide", "Interdit"},
+        new String[]{"SANS_LIBELLE"}, new String[]{"DERNIER", "Dernier libellé"});
+    check(result.contains("ROW_SKIP|0|ACRONYM_DUPLICATE") && result.contains("ROW_PROPOSED|1|")
+        && result.contains("ROW_SKIP|2|ACRONYM_AND_LABEL_DUPLICATE") && result.contains("ROW_ERROR|3|") && result.contains("ROW_ERROR|4|")
+        && result.contains("ROW_PROPOSED|5|") && result.contains("GLOSSAIRE_IMPORT_OK|0|4|6|2")
+        && f.proposals().size() == 2 && f.published().size() == 1, "import partiel : doublons publiés et dans le fichier ignorés, lignes invalides isolées, lignes suivantes proposées");
+    check(f.proposals().get(1).obj.getValue("acronyme").equals("DERNIER") && f.proposals().get(1).obj.getValue("definition").equals(""),
+        "import partiel : une définition absente ne réutilise pas le texte de la ligne précédente");
+    result = f.importRows(false, false, new String[]{"NOUVEAU", "Nouveau libellé"});
+    check(result.contains("ROW_SKIP|0|ACRONYM_AND_LABEL_DUPLICATE") && f.proposals().size() == 2,
+        "import contributeur : les propres propositions en attente sont reconnues comme doublons");
+    result = f.importRows(true, true, new String[]{"NOUVEAU", "Nouveau libellé"});
+    check(result.contains("ROW_PROPOSED|0|") && f.proposals().size() == 3 && f.published().size() == 1,
+        "import contributeur : acceptation explicite des deux types de doublons crée une proposition supplémentaire");
+    for (boolean allowAcronym : List.of(false, true)) {
+      for (boolean allowLabel : List.of(false, true)) {
+        f = new Fixture(); f.wiki.add("API", "API"); f.ordinary(); f.wiki.allowed = false;
+        result = f.importRows(allowAcronym, allowLabel, new String[]{"API", "Libellé API"});
+        boolean accepted = allowAcronym && allowLabel;
+        check(result.contains(accepted ? "ROW_PROPOSED|0|" : "ROW_SKIP|0|") && f.proposals().size() == (accepted ? 1 : 0) && f.published().size() == 1,
+            "import contributeur : options de doublons acronymes=" + allowAcronym + ", libellés=" + allowLabel);
+      }
+    }
+    f = new Fixture(); f.ordinary(); f.wiki.addProposal("Autre", "SECRET", "pending", "XWiki.Autre", ""); f.wiki.allowed = false;
+    result = f.importRows(false, false, new String[]{"SECRET", "Libellé SECRET"});
+    check(result.contains("ROW_PROPOSED|0|") && f.proposals().size() == 2 && f.published().isEmpty(),
+        "import contributeur : les propositions privées d’autrui ne sont pas révélées par les doublons");
+    for (String denied : List.of("guest", "GET", "csrf")) {
+      f = new Fixture(); f.ordinary();
+      if (denied.equals("guest")) f.userContext.user = null;
+      if (denied.equals("GET")) f.request.method = "GET";
+      if (denied.equals("csrf")) f.request.params.remove("form_token");
+      check(error(f.importRows(false, false, new String[]{"API", "Interface"})) && f.wiki.docs.isEmpty(), "import bloqué sans création : " + denied);
+    }
+    f = new Fixture(); f.wiki.allowed = false;
+    result = f.importRows(false, false, new String[]{"API", "Interface"});
+    check(result.contains("ROW_ERROR|0|") && f.wiki.docs.isEmpty(), "import validateur : les droits natifs de publication restent obligatoires");
   }
   static void inertPageChecks() throws Exception {
     for (String filename : List.of("WebHome.xwiki")) {
@@ -497,6 +566,7 @@ public class GlossaireVelocityTest {
     result = f.data("import", "acronym_0", "A.B", "label_0", "Interface", "definition_0", "<texte>", "acronym_1", "A.B", "label_1", "Interface");
     check(result.contains("ROW_OK|0|") && result.contains("ROW_SKIP|1|") && f.wiki.docs.size() == 1, "import et doublons : " + result);
     dataChecks();
+    importChecks();
     inertPageChecks();
     if (args.length > 0) writeWorkflowFixtures(Path.of(args[0]).toAbsolutePath().getParent());
     System.out.println(checks + " vérifications Velocity réussies.");

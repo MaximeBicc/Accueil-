@@ -42,6 +42,42 @@
   #end
 #end
 
+## Le proposant et l'état initial sont toujours déterminés par le serveur.
+## Seule cette écriture dans PROPOSITIONS utilise les droits de l'auteur.
+#macro(createGlossaireProposal $proposalAcronym $proposalLabel $proposalDefinition $proposalSaveComment)
+  #set($proposalCreationError = '')
+  #set($createdProposalRef = '')
+  #set($proposalName = $xwiki.getUniquePageName($proposalSpace))
+  #set($proposalReference = $services.model.createDocumentReference('', $proposalSpaces, $proposalName))
+  #set($proposalDoc = false)
+  #set($proposalDoc = $xwiki.getDocumentAsAuthor($proposalReference))
+  #if(!$proposalDoc)
+    #set($proposalCreationError = "La file de propositions n'est pas accessible à l'auteur du service")
+  #elseif(!$proposalDoc.isNew())
+    #set($proposalCreationError = 'Ce nom de proposition est déjà utilisé ; réessayez')
+  #else
+    #set($proposalObject = false)
+    #set($proposalObject = $proposalDoc.newObject($proposalClassPath))
+    #if(!$proposalObject)
+      #set($proposalCreationError = "La classe des propositions n'est pas installée")
+    #else
+      #set($proposalAuthor = $services.model.serialize($currentUserReference))
+      #set($discard = $proposalObject.set('acronyme', $proposalAcronym))
+      #set($discard = $proposalObject.set('libelle', $proposalLabel))
+      #set($discard = $proposalObject.set('definition', $proposalDefinition))
+      #set($discard = $proposalObject.set('author', $proposalAuthor))
+      #set($discard = $proposalObject.set('submittedAt', $datetool.date))
+      #set($discard = $proposalObject.set('status', 'pending'))
+      #set($discard = $proposalObject.set('reviewComment', ''))
+      #set($discard = $proposalObject.set('reviewer', ''))
+      #set($discard = $proposalObject.set('publishedRef', ''))
+      #set($discard = $proposalDoc.setTitle($proposalAcronym))
+      #set($discard = $proposalDoc.saveAsAuthor($proposalSaveComment, true))
+      #set($createdProposalRef = $proposalDoc.getFullName())
+    #end
+  #end
+#end
+
 #set($action = "$!request.getParameter('action')")
 #set($csrfToken = $request.getParameter('form_token'))
 #if($action != 'save' && $action != 'delete' && $action != 'import' && $action != 'create' && $action != 'propose' && $action != 'approve' && $action != 'reject')
@@ -52,7 +88,7 @@
   #set($errorMessage = 'Jeton CSRF invalide ou absent')
 #elseif(!$isAuthenticated)
   #set($errorMessage = 'Connectez-vous pour proposer un acronyme')
-#elseif($action != 'propose' && !$canReview)
+#elseif($action != 'propose' && $action != 'import' && !$canReview)
   #set($errorMessage = 'Seuls les membres du groupe de validation peuvent modifier le glossaire et traiter les propositions')
 #else
   ## ========================================================================
@@ -202,10 +238,34 @@
     #set($allowAcronymDuplicates = "$!request.getParameter('allowAcronymDuplicates')" == "true")
     #set($allowLabelDuplicates = "$!request.getParameter('allowLabelDuplicates')" == "true")
     #set($createdCount = 0)
+    #set($proposedCount = 0)
     #set($skippedCount = 0)
     #set($processedCount = 0)
     #set($importLines = [])
     #set($isImportResponse = true)
+    #set($pendingAcronyms = [])
+    #set($pendingLabels = [])
+
+    ## Les doublons des contributeurs incluent uniquement leurs propositions
+    ## en attente. Les propositions des autres auteurs ne changent aucun résultat.
+    #if(!$canReview)
+      #set($currentAuthor = $services.model.serialize($currentUserReference))
+      #foreach($pendingName in $xwiki.getSpaceDocsName($proposalSpace))
+        #set($pendingReference = $services.model.createDocumentReference('', $proposalSpaces, $pendingName))
+        #set($pendingDoc = false)
+        #set($pendingObject = false)
+        #set($pendingDoc = $xwiki.getDocumentAsAuthor($pendingReference))
+        #if($pendingDoc)
+          #set($pendingObject = $pendingDoc.getObject($proposalClassPath))
+        #end
+        #if($pendingObject && $pendingObject.getValue('status') == 'pending' && $pendingObject.getValue('author') == $currentAuthor)
+          #set($pendingAcronym = "$!pendingObject.getValue('acronyme')")
+          #set($pendingLabel = "$!pendingObject.getValue('libelle')")
+          #set($discard = $pendingAcronyms.add($pendingAcronym))
+          #set($discard = $pendingLabels.add($pendingLabel))
+        #end
+      #end
+    #end
 
     ## XWiki utilise lui-même cette forme dans ses macros internes :
     ## $request.parameterMap.entrySet(). Elle évite de dépendre de keySet()
@@ -219,6 +279,10 @@
         #set($labelParameterName = "label_$i")
         #set($definitionParameterName = "definition_$i")
 
+        ## Une valeur absente ne doit pas réutiliser la valeur de la ligne précédente.
+        #set($importAcronymRaw = '')
+        #set($importLabelRaw = '')
+        #set($importDefinitionRaw = '')
         #set($importAcronymRaw = $request.getParameter($parameterName))
         #set($importLabelRaw = $request.getParameter($labelParameterName))
         #set($importDefinitionRaw = $request.getParameter($definitionParameterName))
@@ -264,6 +328,17 @@
             #end
           #end
 
+          #foreach($pendingAcronym in $pendingAcronyms)
+            #if($pendingAcronym.equalsIgnoreCase($importAcronym))
+              #set($acronymExists = true)
+            #end
+          #end
+          #foreach($pendingLabel in $pendingLabels)
+            #if($pendingLabel.equalsIgnoreCase($importLabel))
+              #set($labelExists = true)
+            #end
+          #end
+
           #set($blockedByAcronym = $acronymExists && !$allowAcronymDuplicates)
           #set($blockedByLabel = $labelExists && !$allowLabelDuplicates)
 
@@ -276,6 +351,19 @@
               #set($discard = $importLines.add("ROW_SKIP|$i|LABEL_DUPLICATE"))
             #end
             #set($skippedCount = $skippedCount + 1)
+          #elseif(!$canReview)
+            ## Le groupe connecté décide du traitement ; aucun rôle, auteur,
+            ## état ou mode de publication reçu du client n'est pris en compte.
+            #createGlossaireProposal($importAcronym $importLabel $importDefinition 'Proposition par import Excel via interface Glossaire')
+            #if($proposalCreationError != '')
+              #set($discard = $importLines.add("ROW_ERROR|$i|$escapetool.url($proposalCreationError)"))
+              #set($skippedCount = $skippedCount + 1)
+            #else
+              #set($discard = $importLines.add("ROW_PROPOSED|$i|$escapetool.url($createdProposalRef)"))
+              #set($proposedCount = $proposedCount + 1)
+              #set($discard = $pendingAcronyms.add($importAcronym))
+              #set($discard = $pendingLabels.add($importLabel))
+            #end
           #else
             #set($baseCandidateName = $importAcronym)
             #set($candidateName = $baseCandidateName)
@@ -337,7 +425,7 @@
       #set($errorMessage = "Aucune ligne d'import reçue par le serveur")
       #set($discard = $importLines.add("GLOSSAIRE_ERROR|$escapetool.url($errorMessage)"))
     #else
-      #set($discard = $importLines.add("GLOSSAIRE_IMPORT_OK|$createdCount|$skippedCount|$processedCount"))
+      #set($discard = $importLines.add("GLOSSAIRE_IMPORT_OK|$createdCount|$skippedCount|$processedCount|$proposedCount"))
     #end
 
     ## ========================================================================
@@ -435,32 +523,11 @@
     #if($action == 'propose')
       #validateGlossaireProposal()
       #if($errorMessage == '')
-        #set($proposalName = $xwiki.getUniquePageName($proposalSpace))
-        #set($proposalReference = $services.model.createDocumentReference('', $proposalSpaces, $proposalName))
-        #set($proposalDoc = $xwiki.getDocumentAsAuthor($proposalReference))
-        #if(!$proposalDoc)
-          #set($errorMessage = "La file de propositions n'est pas accessible à l'auteur du service")
-        #elseif(!$proposalDoc.isNew())
-          #set($errorMessage = 'Ce nom de proposition est déjà utilisé ; réessayez')
+        #createGlossaireProposal($acronym $label $definition 'Proposition via interface Glossaire')
+        #if($proposalCreationError != '')
+          #set($errorMessage = $proposalCreationError)
         #else
-          #set($proposalObject = $proposalDoc.newObject($proposalClassPath))
-          #if(!$proposalObject)
-            #set($errorMessage = "La classe des propositions n'est pas installée")
-          #else
-            #set($discard = $proposalObject.set('acronyme', $acronym))
-            #set($discard = $proposalObject.set('libelle', $label))
-            #set($discard = $proposalObject.set('definition', $definition))
-            #set($discard = $proposalObject.set('author', $currentUser))
-            #set($discard = $proposalObject.set('submittedAt', $datetool.date))
-            #set($discard = $proposalObject.set('status', 'pending'))
-            #set($discard = $proposalObject.set('reviewComment', ''))
-            #set($discard = $proposalObject.set('reviewer', ''))
-            #set($discard = $proposalObject.set('publishedRef', ''))
-            #set($discard = $proposalDoc.setTitle($acronym))
-            #set($discard = $proposalDoc.saveAsAuthor('Proposition via interface Glossaire', true))
-            #set($proposalRef = $proposalDoc.getFullName())
-            #set($resultLine = "GLOSSAIRE_PROPOSED|$escapetool.url($proposalRef)")
-          #end
+          #set($resultLine = "GLOSSAIRE_PROPOSED|$escapetool.url($createdProposalRef)")
         #end
       #end
     #else

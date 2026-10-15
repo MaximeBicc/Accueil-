@@ -16,7 +16,7 @@ Le circuit de proposition, le groupe de validation et ses droits sont décrits d
 
 Conserver la classe `TestPage.PAGE.Glossaire.CODE.glossaireClass.WebHome` et ses champs `acronyme`, `libelle`, `definition`. La page charge explicitement ses extensions. Si les extensions JavaScript sont parsées par Velocity, conserver ce réglage.
 
-La page DATA reçoit les demandes d’ajout, modification, suppression, import, proposition et décision. La page d’affichage reste en lecture seule. Les deux extensions JavaScript existantes suffisent.
+La page DATA reçoit les demandes d’ajout, modification, suppression, import, proposition et décision. La page d’affichage reste en lecture seule. Les deux extensions JavaScript existantes suffisent. L'import est accessible à tous les utilisateurs connectés : il publie pour les validateurs et crée une proposition par ligne acceptée pour les autres.
 
 DATA renvoie du texte brut et encode les références avec `escapetool.url`. Les extensions JavaScript décodent ces références : installer les fichiers serveur et client ensemble, puis recharger le navigateur sans cache.
 
@@ -53,7 +53,7 @@ Le test Velocity exécute les templates du dépôt avec une API XWiki simulée :
 
 Le test d'accueil a été adapté à la version actuelle du suivi (`v5.4`, XMLHttpRequest). Il vérifie le suivi, la limitation des comptages répétés, l'exclusion des prévisualisations et l'affichage de l'historique récent.
 
-Résultat de la validation : **99 vérifications Velocity, 20 vérifications navigateur historiques, 42 vérifications navigateur du circuit de validation et test d'accueil réussis** ; **13 contrôles supplémentaires utilisent le vrai parseur XWiki avant compilation Velocity** ; les **16 fichiers JavaScript** de `xwiki/` et `preview/` passent la vérification de syntaxe. Les captures du navigateur sont enregistrées à côté du HTML généré.
+Résultat de la validation : **116 vérifications Velocity, 20 vérifications navigateur historiques, 58 vérifications navigateur du circuit de validation et test d'accueil réussis** ; **13 contrôles supplémentaires utilisent le vrai parseur XWiki avant compilation Velocity** ; les **16 fichiers JavaScript** de `xwiki/` et `preview/` passent la vérification de syntaxe. Les captures du navigateur sont enregistrées à côté du HTML généré.
 
 Ces tests ne remplacent pas un essai sur l'instance XWiki, notamment pour ses droits et extensions installées.
 

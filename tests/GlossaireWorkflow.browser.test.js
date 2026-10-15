@@ -47,7 +47,9 @@ function check(value, expected, label) { assert.deepEqual(value, expected, label
     check(await reader.locator('#mainGlossaryTable').getAttribute('data-endpoint-url'), dataUrl, 'route DATA fournie par le vrai template');
     check(await reader.locator('#mainGlossaryTable').getAttribute('data-workflow-url'), null, 'aucun service Workflow séparé demandé');
     check(await reader.locator('#mainGlossaryTable thead tr').first().locator('th').count(), 3, 'hors groupe : aucune colonne Actions');
-    check(await reader.locator('.js-edit-row,.js-delete-row,#btnImportExcelGlossary,#btnBulkDeleteModeGlossary,#btnReviewGlossaryProposals').count(), 0, 'hors groupe : aucune commande de gestion');
+    check(await reader.locator('.js-edit-row,.js-delete-row,#btnBulkDeleteModeGlossary,#btnReviewGlossaryProposals').count(), 0, 'hors groupe : aucune commande de gestion');
+    check(await reader.locator('#btnImportExcelGlossary').count(), 1, 'hors groupe : import Excel accessible pour proposer');
+    check(await reader.locator('#excelImportPublicationHint').innerText().then(text => /proposition|validat/i.test(text)), true, 'import contributeur : attente de validation annoncée');
     check(await reader.locator('#glossaryOwnProposals').innerText().then(text => text.includes('Refusée')), true, 'le proposant voit son refus');
     const initialRows = await reader.locator('.main-term-row').count();
     await reader.evaluate(async () => {
@@ -73,11 +75,65 @@ function check(value, expected, label) { assert.deepEqual(value, expected, label
     check(await reader.locator('#glossaryCreateForm [name="libelle"]').inputValue(), 'Conserver cette saisie', 'saisie conservée après échec');
     await reader.evaluate(async () => {
       const count = requests.length;
-      await executeExcelImport([], false, false);
       await executeBulkGlossaryDelete();
       if (requests.length !== count) throw new Error('Une commande de gestion a été envoyée hors groupe');
     });
     check(await reader.locator('#glossaryCreateForm [type="submit"]').isDisabled(), false, 'bouton réactivé après erreur');
+    const ownCardsBeforeImport = await reader.locator('.glossary-proposal-status-card').count();
+    const readImport = await reader.evaluate(async () => {
+      window.XLSX = {
+        read(buffer, options) {
+          if (!(buffer instanceof ArrayBuffer) || options.type !== 'array') throw new Error('Lecture Excel non appelée avec les octets du fichier');
+          return { SheetNames: ['Acronymes'], Sheets: { Acronymes: {} } };
+        },
+        utils: { sheet_to_json() { return [
+          ['Acronyme', 'Libellé', 'Définition'], ['IMP|+%', '<Libellé importé>', 'Première définition'], ['DEUX', 'Deuxième', 'Suite']
+        ]; } }
+      };
+      await fixedReadGlossaryExcelFile(new File([new Uint8Array([80, 75])], 'acronymes.xlsx'));
+      return excelImportRows.map(row => [row.acronym, row.label, row.definition]);
+    });
+    check(readImport, [['IMP|+%', '<Libellé importé>', 'Première définition'], ['DEUX', 'Deuxième', 'Suite']], 'contributeur : lecture Excel et détection des trois colonnes');
+    check(await reader.locator('#excelImportPreviewBody tr').count(), 2, 'contributeur : les deux lignes Excel sont prévisualisées');
+    check(await reader.locator('#btnExcelImportOnlyNew').innerText().then(text => text.startsWith('Proposer')), true, 'contributeur : bouton de proposition avant import');
+    await reader.evaluate(async () => {
+      reply = { ok: true, text: [
+        'ROW_PROPOSED|0|' + encodeURIComponent('TestPage.PAGE.Glossaire.PROPOSITIONS.import1'),
+        'ROW_PROPOSED|1|' + encodeURIComponent('TestPage.PAGE.Glossaire.PROPOSITIONS.import2'),
+        'GLOSSAIRE_IMPORT_OK|0|0|2|2'
+      ].join('\n') };
+      await executeExcelImport(excelImportRows, false, false);
+    });
+    check(await reader.evaluate(() => [requests.at(-1).values.action, requests.at(-1).values.rowCount, requests.at(-1).values.acronym_0,
+      requests.at(-1).values.label_0, requests.at(-1).values.form_token, requests.at(-1).values.allowAcronymDuplicates, requests.at(-1).values.allowLabelDuplicates]),
+      ['import', '2', 'IMP|+%', '<Libellé importé>', 'test-token', 'false', 'false'], 'contributeur : lignes importées avec jeton CSRF et options de doublons');
+    check(await reader.locator('.glossary-proposal-status-card').count(), ownCardsBeforeImport + 2, 'import contributeur : une proposition de suivi par ligne');
+    check(await reader.locator('#glossaryOwnProposals').innerText().then(text => text.includes('IMP|+% — <Libellé importé>') && text.includes('DEUX — Deuxième')), true, 'import contributeur : suivi des deux lignes avec texte littéral');
+    check(await reader.locator('.main-term-row').count(), initialRows, 'import contributeur : aucune ligne ajoutée au tableau public');
+    check(await reader.locator('.js-edit-row,.js-delete-row,#btnBulkDeleteModeGlossary,#btnReviewGlossaryProposals').count(), 0, 'import contributeur : aucune commande de modification ou validation ajoutée');
+    check(await reader.locator('#glossaryToast').innerText().then(text => text.includes('2 propositions') && text.includes('validateurs')), true, 'import contributeur : confirmation de l’envoi pour validation');
+    check(await reader.locator('#btnExcelImportWithOptions').isDisabled(), false, 'bouton import réactivé après les propositions');
+    const pendingDuplicates = await reader.evaluate(() => fixedAnalyzeExcelRows([
+      ['IMP|+%', '<Libellé importé>', 'Déjà proposé'], ['DEUX', 'Deuxième', 'Déjà proposé']
+    ], { detected: false, map: { acronym: 0, label: 1, definition: 2 } }).map(row => [row.duplicateAcronymGlossary, row.duplicateLabelGlossary]));
+    check(pendingDuplicates, [[true, true], [true, true]], 'les propres propositions importées en attente sont détectées comme doublons au prochain fichier');
+    await reader.evaluate(async () => {
+      reply = { ok: true, text: [
+        'ROW_SKIP|0|ACRONYM_DUPLICATE',
+        'ROW_PROPOSED|1|' + encodeURIComponent('TestPage.PAGE.Glossaire.PROPOSITIONS.importPartiel'),
+        'ROW_ERROR|2|' + encodeURIComponent('Données incomplètes'),
+        'GLOSSAIRE_IMPORT_OK|0|2|3|1'
+      ].join('\n') };
+      await executeExcelImport([
+        { acronym: 'IGNORÉ', label: 'Doublon', definition: '' },
+        { acronym: 'PARTIEL', label: 'Import partiel', definition: 'Conservé' },
+        { acronym: 'INVALIDE', label: '', definition: '' }
+      ], false, false);
+    });
+    check(await reader.locator('.glossary-proposal-status-card').count(), ownCardsBeforeImport + 3, 'import partiel : seule la ligne proposée rejoint le suivi');
+    check(await reader.locator('.main-term-row').count(), initialRows, 'import partiel : aucune publication des propositions, erreurs ou doublons');
+    check(await reader.locator('#glossaryToast').innerText().then(text => text.includes('1 proposition') && text.includes('2 ligne')), true, 'import partiel : bilan des propositions et lignes ignorées');
+
     await reader.screenshot({ path: path.join(fixtureDirectory, 'glossaire-contributeur.png'), fullPage: true });
 
     const reviewer = await openFixture('reviewer');

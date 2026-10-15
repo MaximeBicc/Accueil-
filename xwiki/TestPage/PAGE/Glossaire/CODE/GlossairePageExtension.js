@@ -199,6 +199,7 @@ function fixedAnalyzeExcelRows(rawRows, headerInfo) {
 }
 
 function fixedEditExcelImportRow(rowIndex, field, value) {
+    if (!canImportGlossary() || glossaryImportBusy) return;
     if (!excelImportRows[rowIndex]) return;
     excelImportRows[rowIndex][field] = String(value == null ? '' : value).trim();
     fixedRecomputeExcelDuplicateFlags(excelImportRows);
@@ -206,6 +207,7 @@ function fixedEditExcelImportRow(rowIndex, field, value) {
 }
 
 function fixedDeleteExcelImportRow(rowIndex) {
+    if (!canImportGlossary() || glossaryImportBusy) return;
     if (rowIndex < 0 || rowIndex >= excelImportRows.length) return;
     excelImportRows.splice(rowIndex, 1);
     fixedRecomputeExcelDuplicateFlags(excelImportRows);
@@ -297,9 +299,10 @@ function fixedRenderExcelImportPreview(fileName) {
             var duplicateRow = document.createElement('tr');
             var reasons = [];
 
-            if (row.duplicateAcronymGlossary) reasons.push('Acronyme : glossaire');
+            var existingSource = canManageGlossary() ? 'glossaire' : 'glossaire ou mes propositions en attente';
+            if (row.duplicateAcronymGlossary) reasons.push('Acronyme : ' + existingSource);
             if (row.duplicateAcronymFile) reasons.push('Acronyme : fichier Excel');
-            if (row.duplicateLabelGlossary) reasons.push('Libellé : glossaire');
+            if (row.duplicateLabelGlossary) reasons.push('Libellé : ' + existingSource);
             if (row.duplicateLabelFile) reasons.push('Libellé : fichier Excel');
 
             duplicateRow.innerHTML = '<td>' + row.sourceLine + '</td><td></td><td></td><td></td>';
@@ -334,7 +337,7 @@ function fixedRenderExcelImportPreview(fileName) {
 }
 
 async function fixedReadGlossaryExcelFile(file) {
-    if (!canManageGlossary()) return;
+    if (!canImportGlossary() || glossaryImportBusy) return;
     var xlsxLibrary;
 
     try {
@@ -406,7 +409,7 @@ function createExcelImportUi() {
         toolbarRight.innerHTML =
             '<button type="button" id="btnExcelExampleGlossary" class="btn btn-default">' +
                 eyeIcon + ' Voir un exemple Excel' +
-            '</button>' + (canManageGlossary() ?
+            '</button>' + (canImportGlossary() ?
             '<input type="file" id="excelGlossaryFileInput" accept=".xlsx,.xls,.xlsm,.xlsb" class="glossary-hidden-file-input">' +
             '<button type="button" id="btnImportExcelGlossary" class="btn btn-default">' +
                 downloadIcon + ' Importer un Excel' +
@@ -454,7 +457,8 @@ function createExcelImportUi() {
             jQuery('#excelExampleGlossaryModal').modal('show');
         });
     }
-    if (!canManageGlossary()) return;
+    if (!canImportGlossary()) return;
+    var directImport = canManageGlossary();
 
     var modal = document.createElement('div');
     modal.innerHTML =
@@ -463,9 +467,13 @@ function createExcelImportUi() {
             '<div class="modal-content">' +
               '<div class="modal-header">' +
                 '<button type="button" class="close" data-dismiss="modal" aria-label="Fermer">' + crossIcon + '</button>' +
-                '<h4 class="modal-title">Import Excel du glossaire</h4>' +
+                '<h4 class="modal-title">' + (directImport ? 'Import Excel du glossaire' : 'Proposer des acronymes depuis Excel') + '</h4>' +
               '</div>' +
               '<div class="modal-body">' +
+                '<p id="excelImportPublicationHint" class="alert alert-info">' +
+                  (directImport ? 'Chaque ligne retenue sera ajoutée directement au glossaire.' :
+                    'Chaque ligne retenue sera envoyée comme proposition aux validateurs. Les acronymes apparaîtront dans le glossaire après validation. Vous pourrez suivre chaque proposition dans « Mes propositions ».') +
+                '</p>' +
                 '<div id="excelImportInfo" class="alert alert-info excel-import-info"></div>' +
                 '<div class="row">' +
                   '<div class="col-md-7">' +
@@ -479,7 +487,8 @@ function createExcelImportUi() {
                   '</div>' +
                   '<div class="col-md-5">' +
                     '<h5><strong>Doublons détectés</strong></h5>' +
-                    '<p class="text-muted">Rouge = champ en doublon. Le motif précise s’il existe déjà dans le glossaire ou dans le fichier Excel.</p>' +
+                    '<p class="text-muted">Rouge = champ en doublon. Vérification dans le glossaire' +
+                      (directImport ? '' : ', vos propositions en attente') + ' et le fichier Excel.</p>' +
                     '<div class="excel-import-table-wrap excel-import-duplicates-wrap">' +
                       '<table class="table table-bordered table-condensed excel-import-table">' +
                         '<thead><tr><th>Ligne</th><th>Acronyme</th><th>Libellé</th><th>Motif</th></tr></thead>' +
@@ -496,8 +505,8 @@ function createExcelImportUi() {
               '</div>' +
               '<div class="modal-footer">' +
                 '<button type="button" class="btn btn-default" data-dismiss="modal">Annuler</button>' +
-                '<button type="button" id="btnExcelImportOnlyNew" class="btn btn-primary">Ajouter uniquement les nouveaux</button>' +
-                '<button type="button" id="btnExcelImportWithOptions" class="btn btn-success">Ajouter selon les options</button>' +
+                '<button type="button" id="btnExcelImportOnlyNew" class="btn btn-primary">' + (directImport ? 'Ajouter uniquement les nouveaux' : 'Proposer uniquement les nouveaux') + '</button>' +
+                '<button type="button" id="btnExcelImportWithOptions" class="btn btn-success">' + (directImport ? 'Ajouter selon les options' : 'Proposer selon les options') + '</button>' +
               '</div>' +
             '</div>' +
           '</div>' +
@@ -985,9 +994,16 @@ function showGlossaryWorkflowError(element, message) {
 function appendOwnGlossaryProposal(values, reference) {
     var list = document.getElementById('glossaryOwnProposals');
     if (!list) return;
+    var alreadyDisplayed = Array.from(list.querySelectorAll('.glossary-proposal-status-card')).some(function(card) {
+        return card.getAttribute('data-proposal-ref') === reference;
+    });
+    if (alreadyDisplayed) return;
     var card = document.createElement('article');
     card.className = 'glossary-proposal-status-card';
     card.setAttribute('data-proposal-ref', reference);
+    card.setAttribute('data-proposal-status', 'pending');
+    card.setAttribute('data-proposal-acronym', values.acronym);
+    card.setAttribute('data-proposal-label', values.label);
     var title = document.createElement('h3');
     title.textContent = values.acronym + ' — ' + values.label;
     var date = document.createElement('p');

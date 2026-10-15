@@ -474,7 +474,11 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
       #elseif($proposalStatus == 'rejected')
         #set($proposalStatusLabel = "Refusée")
       #end
-    <article class="glossary-proposal-status-card" data-proposal-ref="$escapetool.xml($proposalDoc.fullName)">
+    <article class="glossary-proposal-status-card"
+             data-proposal-ref="$escapetool.xml($proposalDoc.fullName)"
+             data-proposal-status="$escapetool.xml($!proposalStatus)"
+             data-proposal-acronym="$escapetool.xml($!proposalObject.getValue('acronyme'))"
+             data-proposal-label="$escapetool.xml($!proposalObject.getValue('libelle'))">
       <h3>$escapetool.xml($!proposalObject.getValue('acronyme')) — $escapetool.xml($!proposalObject.getValue('libelle'))</h3>
       <p class="glossary-proposal-meta text-muted">Envoyée le $escapetool.xml($!proposalObject.getValue('submittedAt'))</p>
       <p><strong>$escapetool.xml($proposalStatusLabel)</strong></p>
