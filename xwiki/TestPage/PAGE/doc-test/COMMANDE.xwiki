@@ -481,8 +481,10 @@
       #end
     #end
   #elseif($errorCode == '' && $operation == 'delete')
-    #if(!$xwiki.hasAccessLevel('delete', $xcontext.user, $sourceRef))
-      #docError('ERREUR_DROITS_NATIFS' 'La suppression nécessite le droit XWiki supprimer.')
+    #if(!$canDelete)
+      #docError('ERREUR_DROITS' 'Vous n’avez pas le droit de supprimer cet élément.')
+    #elseif(!$xwiki.hasAccessLevel('delete', $xcontext.user, $sourceRef))
+      #docError('ERREUR_DROITS_NATIFS' 'Vous n’avez pas le droit XWiki de supprimer cet élément.')
     #else
       #set($deleteReferences = [$sourceDoc.documentReference])
       #set($deleteRequest = $services.refactoring.requestFactory.createDeleteRequest($deleteReferences))
@@ -734,6 +736,9 @@
               #end
             #elseif($action == 'valider proposition' && "$!proposalObject.getValue('status')" == 'pending')
               #set($operation = "$!proposalObject.getValue('operation')")
+              #if($operation == 'delete')
+                #docError('ERREUR_ACTION' 'La suppression ne peut pas faire l’objet d’une proposition.')
+              #end
               #set($elementType = "$!proposalObject.getValue('type')")
               #set($title = "$!proposalObject.getValue('title')")
               #set($parentRef = "$!proposalObject.getValue('parentRef')")
@@ -795,13 +800,17 @@
           #docError('ERREUR_ACTION' 'Action inconnue.')
         #end
         #set($mode = "$!request.getParameter('mode')")
-        #set($asProposal = $mode == 'proposal' || !$operationAllowed)
+        ## Le serveur choisit : droit de l’action = publication directe ; sinon droit de proposer.
+        ## Un ancien client peut encore envoyer mode=proposal, sans imposer ce mode à un contributeur autorisé.
+        #set($asProposal = !$operationAllowed && $operation != 'delete')
         #if($mode != '' && $mode != 'proposal' && $mode != 'direct')
           #docError('ERREUR_MODE' 'Mode de modification invalide.')
+        #elseif($operation == 'delete' && !$operationAllowed)
+          #docError('ERREUR_DROITS' 'Vous n’avez pas le droit de supprimer cet élément.')
         #elseif($mode == 'direct' && !$operationAllowed)
-          #docError('ERREUR_DROITS' 'Le droit de modification directe est nécessaire.')
-        #elseif($asProposal && (!$canPropose || $operation == 'delete'))
-          #docError('ERREUR_DROITS' 'Vous ne pouvez pas effectuer ou proposer cette action.')
+          #docError('ERREUR_DROITS' 'Vous n’avez pas le droit d’effectuer cette action directement.')
+        #elseif($asProposal && !$canPropose)
+          #docError('ERREUR_DROITS' 'Vous n’avez pas le droit d’effectuer ou de proposer cette action.')
         #end
         #set($sourceRef = "$!request.getParameter('source_ref')")
         #set($parentRef = "$!request.getParameter('page')")
@@ -980,7 +989,7 @@
     <div id="documentation-error" data-code="#docOutput($errorCode)" data-message="#docOutput($errorMessage)"></div>
     #docOutput($errorCode)
   #else
-    <div id="creation-result" data-page-ref="#docOutput($resultRef)" data-proposal-ref="#docOutput($resultProposalRef)" data-upload-url="" style="display:none"></div>
+    <div id="creation-result" data-code="#docOutput($resultCode)" data-page-ref="#docOutput($resultRef)" data-proposal-ref="#docOutput($resultProposalRef)" data-upload-url="" style="display:none"></div>
     <div id="move-result" data-old-ref="#docOutput($resultOldRef)" data-new-ref="#docOutput($resultRef)" style="display:none"></div>
     <div id="metadata-result" data-modified="$xwiki.formatDate($datetool.date, 'dd/MM/yyyy HH:mm')" style="display:none"></div>
     #docOutput($resultCode)

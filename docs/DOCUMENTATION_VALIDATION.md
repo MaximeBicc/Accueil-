@@ -27,7 +27,7 @@ Les changements GitHub doivent être copiés dans XWiki pour mettre l'instance �
 4. Protéger les espaces privés et les pages techniques avec les droits indiqués plus bas. Enregistrer les pages de traitement et d'affichage avec un **administrateur du wiki disposant du droit Script** et des droits natifs nécessaires sur leurs données. Ce compte doit pouvoir modifier les autorisations des propositions. **Programming n'est pas nécessaire.**
 5. Avec un administrateur du wiki, ouvrir **Paramètres**, attribuer les opérations aux groupes voulus, puis enregistrer. Recharger sans cache avec **Ctrl + F5**.
 
-Si le module est déjà installé et affiche « Vous devez être connecté avec un compte autorisé » pour un administrateur, remplacer les sources complètes de **`TestPage.PAGE.doc-test.WebHome`** et **`TestPage.PAGE.doc-test.COMMANDE`**, puis recharger avec **Ctrl + F5**. Le calcul des droits s'exécute maintenant directement dans ces deux pages, comme dans le glossaire. L'ancienne page `CODE.Permissions` n'est plus utilisée. Les blocs de calcul des autorisations doivent rester identiques dans les deux sources ; les tests du dépôt vérifient cette correspondance.
+Pour mettre à jour une installation existante, remplacer ensemble les sources complètes de **`TestPage.PAGE.doc-test.WebHome`** et **`TestPage.PAGE.doc-test.COMMANDE`**, les extensions JavaScript **`CODE.Propositions`**, **`CODE.LienPerso`**, **`CODE.Popup`** et **`CODE.SidebarPreview`**, ainsi que l'extension CSS **`CODE.Propositions`**, puis recharger avec **Ctrl + F5**. Le calcul des droits s'exécute directement dans les deux pages, comme dans le glossaire, pour éviter le faux refus de connexion lorsque la page auxiliaire n'est pas chargée. L'ancienne page `CODE.Permissions` n'est plus utilisée. Les blocs de calcul des autorisations doivent rester identiques dans les deux sources ; les tests du dépôt vérifient cette correspondance.
 
 Cette version remplace la première implémentation de la PR. Les pages `CODE.WorkflowAPI`, les extensions `CODE.Workflow` et le stockage `TestPage.DocumentationWorkflow` de cette première version ne sont plus utilisés. Si cette version avait été installée sur l'instance, sauvegarder ses éventuelles données avant de retirer ces anciennes pages. Il n'y a pas de migration automatique de ce stockage abandonné.
 
@@ -45,6 +45,16 @@ Cette version remplace la première implémentation de la PR. Les pages `CODE.Wo
 | Proposer | Soumettre une opération à validation |
 | Valider | Examiner toutes les propositions, accepter, refuser et restaurer depuis la corbeille |
 | Supprimer | Supprimer un élément publié |
+
+Le traitement est automatique pour chaque opération :
+
+- Avec le droit correspondant, l'action est effectuée directement. Le droit **Proposer** n'est pas nécessaire.
+- Sans ce droit, un compte possédant **Proposer** soumet une demande en attente de validation ; aucun document publié n'est créé, déplacé ou modifié avant acceptation.
+- Sans aucun de ces droits, l'action est bloquée. La suppression exige toujours **Supprimer** et les droits natifs nécessaires ; elle ne peut pas être proposée.
+
+Le choix « Contribution : Directe / Proposition » est supprimé. Les fenêtres et leurs boutons indiquent **Créer**, **Importer**, **Enregistrer** ou **Proposer** selon l'opération autorisée. Si un compte possède à la fois le droit direct d'une opération et le droit Proposer, cette opération reste directe. Les autres opérations peuvent toujours être proposées selon leurs propres droits. Le serveur refait ces vérifications à chaque requête.
+
+Les refus s'affichent sous forme de messages courts, sans réponse HTML ni trace technique. Un refus de création laisse le formulaire ouvert ; un refus de suppression conserve les éléments et la sélection. L'interface confirme un succès seulement lorsque le traitement renvoie son résultat explicite.
 
 Sans configuration enregistrée, les comptes connectés peuvent proposer ; les opérations directes suivent les droits natifs d'édition et de suppression sur la racine. Les administrateurs conservent toutes les opérations. Après enregistrement, une liste vide ne donne aucun droit par cette opération. Une configuration inaccessible ou de version inconnue n'active pas les anciens droits par défaut.
 
@@ -129,17 +139,18 @@ L'auteur des traitements doit pouvoir lire et modifier la configuration, lire/cr
 
 ## Vérification sur l'instance
 
-1. Vérifier les boutons avec un administrateur, un proposant, un validateur et un compte sans autorisation. Enregistrer les paramètres, recharger, puis contrôler les appartenances à plusieurs groupes et aux sous-groupes.
+1. Vérifier les boutons avec un administrateur, un créateur sans droit Proposer, un proposant sans droit Créer, un validateur et un compte sans autorisation. Contrôler que le créateur publie directement et que le proposant attend une validation, sans sélecteur de mode. Enregistrer les paramètres, recharger, puis contrôler les appartenances à plusieurs groupes et aux sous-groupes.
 2. Proposer un document et un dossier : aucun élément publié avant validation, surlignage au bon endroit dans l'arbre existant.
 3. Importer plusieurs dossiers et fichiers. Accepter le parent puis un enfant ; refuser un autre enfant avec un motif. Vérifier l'aperçu et l'ouverture avant publication.
 4. Vérifier la corbeille, sa restauration en attente et la disparition des refus de plus de sept jours après une visite.
 5. Modifier le document source après avoir proposé une modification ou un déplacement : la validation doit signaler le conflit.
 6. Vérifier avec un tiers qu'une URL native de proposition ou de pièce jointe privée ne donne pas accès au contenu. Tester la création, le déplacement, les métadonnées, le contenu et la suppression des documents déjà publiés.
+7. Retirer le droit Supprimer et essayer depuis l'explorateur et Architecture, sur un document puis un dossier avec enfants. Aucun élément ne doit disparaître. Retirer un droit après l'ouverture de la page pour contrôler aussi le refus du serveur et son message propre. Refaire un ajout interdit : le formulaire doit conserver sa saisie et afficher un message court.
 
 ## Tests du dépôt
 
-- `node tests/DocumentationPropositions.browser.test.js` : 13 parcours Chromium avec les véritables extensions et une page COMMANDE simulée ; nécessite Playwright et Chromium (`CHROMIUM_EXECUTABLE_PATH` facultatif).
-- `java -cp '/chemin/jars/*' tests/DocumentationVelocityTest.java` : 28 scénarios exécutant les sources Velocity avec des API XWiki simulées, dont le démarrage complet de `WebHome` et `COMMANDE` sans préchargement des autorisations. JAR : Velocity 2.3, commons-lang3 et slf4j-api.
+- `node tests/DocumentationPropositions.browser.test.js` : 24 parcours Chromium avec les véritables extensions et une page COMMANDE simulée ; couvre les propositions dans l'arbre, les droits automatiques, les messages propres, les refus de création/import et les suppressions dans les deux vues. Nécessite Playwright et Chromium (`CHROMIUM_EXECUTABLE_PATH` facultatif).
+- `java -cp '/chemin/jars/*' tests/DocumentationVelocityTest.java` : 55 scénarios exécutant les sources Velocity avec des API XWiki simulées, dont le démarrage complet des pages, les droits directs indépendants du droit Proposer, les refus sans mutation et les suppressions de documents ou de dossiers. JAR : Velocity 2.3, commons-lang3 et slf4j-api.
 - `java -cp '/chemin/jars/*' tests/DocumentationXWikiParsingTest.java` : vérification des trois pages avec les parseurs XWiki 2.1 et Velocity ; ajouter xwiki-rendering-wikimodel 16.10.17 aux JAR précédents.
 
 La recette sur l'instance reste nécessaire pour les ACL natives, les pièces jointes, le refactoring XWiki et l'importeur Office.

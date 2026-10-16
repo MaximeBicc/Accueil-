@@ -54,7 +54,8 @@ public class DocumentationVelocityTest {
   public static class Doc {
     final Obj configuration = new Obj();
     final Map<String, List<Obj>> objects = new LinkedHashMap<>();
-    final Wiki owner; final String reference;
+    final Wiki owner; String reference;
+    final Map<String, byte[]> attachments = new LinkedHashMap<>();
     String content = "", title = "", parent = ""; int revision;
     Doc() { this(null, "TestPage.PAGE.doc-test.CODE.Configuration.WebHome"); }
     Doc(Wiki owner, String reference) { this.owner = owner; this.reference = reference; }
@@ -79,7 +80,9 @@ public class DocumentationVelocityTest {
     public String getParent() { return parent; }
     public void setParent(String value) { parent = value; }
     public String getVersion() { return Math.max(1, revision) + ".1"; }
-    public List<Object> getAttachmentList() { return List.of(); }
+    public List<Attachment> getAttachmentList() { return attachments.entrySet().stream().map(entry -> new Attachment(entry.getKey(), entry.getValue())).toList(); }
+    public void addAttachment(String filename, java.io.InputStream stream) throws Exception { attachments.put(filename, stream.readAllBytes()); }
+    public void addAttachment(String filename, byte[] bytes) { attachments.put(filename, bytes); }
     public void saveAsAuthor(String comment, boolean minor) { revision++; owner.docs.put(reference, this); }
     public void deleteAsAuthor() { owner.deleted.add(reference); owner.docs.remove(reference); }
     public String getURL(String action) { return "/xwiki/bin/" + action + "/" + reference; }
@@ -102,10 +105,12 @@ public class DocumentationVelocityTest {
     final Doc config = new Doc(this, "TestPage.PAGE.doc-test.CODE.Configuration.WebHome");
     final Map<String, Doc> docs = new LinkedHashMap<>();
     final List<String> deleted = new ArrayList<>();
+    final Upload upload = new Upload();
     int unique;
     boolean admin, serviceAdmin = true, visible = true, nativeEdit, nativeDelete, readableConfiguration = true;
     public Extensions getJsx() { return new Extensions(); }
     public Extensions getSsx() { return new Extensions(); }
+    public Upload getFileupload() { return upload; }
     public boolean hasWikiAdminRights() { return admin; }
     public boolean hasAccessLevel(String level, String user, String ref) {
       return switch (level) { case "admin" -> user.equals("XWiki.ScriptAuthor") ? serviceAdmin : admin; case "view" -> visible; case "edit" -> nativeEdit; case "delete" -> nativeDelete; default -> false; };
@@ -120,6 +125,67 @@ public class DocumentationVelocityTest {
     public String getUniquePageName(String space) { return "P" + (++unique); }
     public String formatDate(Date value, String format) { return new SimpleDateFormat(format).format(value); }
     public String getURL(String reference, String action) { return "/xwiki/bin/" + action + "/" + reference; }
+  }
+  public static class Attachment {
+    final String filename; final byte[] bytes;
+    Attachment(String filename, byte[] bytes) { this.filename = filename; this.bytes = bytes; }
+    public String getFilename() { return filename; }
+    public byte[] getContent() { return bytes; }
+    public java.io.InputStream getContentInputStream() { return new java.io.ByteArrayInputStream(bytes); }
+  }
+  public static class Upload {
+    int loads;
+    public void loadFileList() { loads++; }
+    public List<FileItem> getFileItems() { return List.of(new FileItem()); }
+  }
+  public static class FileItem {
+    final byte[] bytes = "Fichier de test".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    public String getFieldName() { return "filePath"; }
+    public int getSize() { return bytes.length; }
+    public java.io.InputStream getInputStream() { return new java.io.ByteArrayInputStream(bytes); }
+  }
+  public static class RefactoringRequest {
+    final List<Ref> sources; final Ref target;
+    boolean deep;
+    RefactoringRequest(List<Ref> sources, Ref target) { this.sources = sources; this.target = target; }
+    public void setDeep(boolean value) { deep = value; }
+    public void setUpdateLinks(boolean value) { }
+    public void setAutoRedirect(boolean value) { }
+    public void setUpdateParentField(boolean value) { }
+  }
+  public static class RequestFactory {
+    public RefactoringRequest createDeleteRequest(List<Ref> sources) { return new RefactoringRequest(sources, null); }
+    public RefactoringRequest createRenameRequest(Ref source, Ref target) { return new RefactoringRequest(List.of(source), target); }
+  }
+  public static class Refactoring {
+    final Wiki wiki;
+    int deleteCalls, moveCalls;
+    boolean failDelete;
+    Refactoring(Wiki wiki) { this.wiki = wiki; }
+    public RequestFactory getRequestFactory() { return new RequestFactory(); }
+    public RefactoringJob delete(RefactoringRequest request) { deleteCalls++; return new RefactoringJob(this, request); }
+    public RefactoringJob rename(RefactoringRequest request) { moveCalls++; return new RefactoringJob(this, request); }
+  }
+  public static class RefactoringJob {
+    final Refactoring service; final RefactoringRequest request;
+    RefactoringJob(Refactoring service, RefactoringRequest request) { this.service = service; this.request = request; }
+    public void join() {
+      if (request.target == null && service.failDelete) return;
+      String from = request.sources.get(0).toString(), prefix = from.substring(0, from.length() - 8) + ".";
+      for (Doc value : new ArrayList<>(service.wiki.docs.values())) {
+        if (!value.reference.equals(from) && (!request.deep || !value.reference.startsWith(prefix))) continue;
+        if (request.target == null) value.deleteAsAuthor();
+        else {
+          service.wiki.docs.remove(value.reference);
+          String target = request.target.toString(), targetPrefix = target.substring(0, target.length() - 8) + ".";
+          String targetSpace = target.substring(0, target.length() - 8);
+          String targetParent = targetSpace.substring(0, targetSpace.lastIndexOf('.')) + ".WebHome";
+          value.reference = value.reference.equals(from) ? target : targetPrefix + value.reference.substring(prefix.length());
+          value.parent = value.parent.equals(from) ? target : value.parent.startsWith(prefix) ? targetPrefix + value.parent.substring(prefix.length()) : targetParent;
+          service.wiki.docs.put(value.reference, value);
+        }
+      }
+    }
   }
   public static class Extensions {
     public boolean use(String reference) { return true; }
@@ -180,6 +246,7 @@ public class DocumentationVelocityTest {
     final Users users = new Users();
     final Model model = new Model();
     final Request request = new Request();
+    final Refactoring refactoring = new Refactoring(wiki);
     VelocityContext context;
     VelocityEngine engine;
     String pageOutput;
@@ -195,7 +262,7 @@ public class DocumentationVelocityTest {
       engine.init();
       context = new VelocityContext();
       context.put("xwiki", wiki); context.put("xcontext", user); context.put("datetool", new DateTool());
-      context.put("services", Map.of("model", model, "user", users, "query", new Queries(wiki), "csrf", new Csrf()));
+      context.put("services", Map.of("model", model, "user", users, "query", new Queries(wiki), "csrf", new Csrf(), "refactoring", refactoring));
       context.put("request", request); context.put("escapetool", new Escape());
       context.put("doc", new Doc(wiki, page.equals("WebHome.xwiki") ? MAIN : "TestPage.PAGE.doc-test.COMMANDE"));
       context.put("stringtool", new Strings());
@@ -253,6 +320,28 @@ public class DocumentationVelocityTest {
   static void denyWrites(Fixture f) {
     for (String right : List.of("Create", "Move", "Modify", "Import", "Content", "Propose", "Review", "Delete"))
       check(!f.can(right), "Unexpected permission: " + right);
+  }
+  static final String GUIDE = "TestPage.PAGE.doc-test.Guide.WebHome";
+  static final String TARGET = "TestPage.PAGE.doc-test.Cible.WebHome";
+  record OperationCase(String label, String grant, String action, String expected, String[] parameters) { }
+  static Fixture operationFixture(String... grants) {
+    Fixture f = new Fixture(); f.configured(); f.wiki.nativeEdit = true; f.wiki.nativeDelete = true;
+    for (String grant : grants) f.group(grant, "XWiki." + grant);
+    f.document(MAIN, "root", "Documentation");
+    f.document(TARGET, "folder", "Cible");
+    Doc source = f.document(GUIDE, "document", "Guide"); source.content = "Contenu original";
+    source.getObject(DOCUMENT_CLASS).set("nom", "Guide");
+    return f;
+  }
+  static String[] withMode(OperationCase operation, String mode) {
+    List<String> values = new ArrayList<>(Arrays.asList(operation.parameters));
+    if (!mode.isEmpty()) { values.add("mode"); values.add(mode); }
+    return values.toArray(String[]::new);
+  }
+  static Map<String, Integer> revisions(Fixture f) {
+    Map<String, Integer> values = new LinkedHashMap<>();
+    f.wiki.docs.forEach((reference, value) -> values.put(reference, value.revision));
+    return values;
   }
   public static void main(String[] args) throws Exception {
     String homeSource = Files.readString(ROOT.resolve("WebHome.xwiki"));
@@ -446,6 +535,124 @@ public class DocumentationVelocityTest {
     result = f.post("purger corbeille", "form_token", "invalid");
     check(result.equals("ERREUR_CSRF"), "Mutation must validate the CSRF token");
     done("Real mutation dispatcher enforces direct permissions and CSRF before writing");
+
+    List<OperationCase> operations = List.of(
+      new OperationCase("folder creation", "createGroups", "ajouter un fichier", "LIEN_AJOUTE_OK",
+        new String[]{"type", "folder", "page", MAIN, "nom_fichier", "Nouveau dossier"}),
+      new OperationCase("document creation", "createGroups", "ajouter un document", "LIEN_AJOUTE_OK",
+        new String[]{"type", "document", "page", MAIN, "nom_fichier", "Nouveau document", "content", "Contenu créé"}),
+      new OperationCase("file import", "importGroups", "ajouter un document", "LIEN_AJOUTE_OK",
+        new String[]{"type", "document", "page", MAIN, "nom_fichier", "Fichier", "intent", "import", "source_kind", "file", "source_filename", "guide.txt"}),
+      new OperationCase("metadata update", "modifyGroups", "modifier metadonnees document", "METADONNEES_OK",
+        new String[]{"source_ref", GUIDE, "description", "Description modifiée", "tags", "Nouveau"}),
+      new OperationCase("content update", "contentGroups", "modifier contenu document", "CONTENU_OK",
+        new String[]{"source_ref", GUIDE, "content", "Texte modifié"}),
+      new OperationCase("document move", "moveGroups", "deplacer element", "DEPLACEMENT_OK",
+        new String[]{"source_ref", GUIDE, "target_parent_ref", TARGET})
+    );
+    for (OperationCase operation : operations) {
+      for (String mode : List.of("", "direct", "proposal")) {
+        f = operationFixture(operation.grant);
+        result = f.post(operation.action, withMode(operation, mode));
+        check(result.equals(operation.expected), operation.label + " must be direct with its own grant and no proposal grant, even with legacy mode=" + mode + ": " + result);
+        check(!f.can("Propose") && String.valueOf(f.context.get("resultProposalRef")).isEmpty(), "Direct rights must not require or create proposals");
+        check(f.wiki.docs.keySet().stream().noneMatch(reference -> reference.startsWith(PROPOSALS + ".")), "Direct execution cannot save a proposal page");
+        check(f.pageOutput.contains("id=\"creation-result\" data-code=\"" + operation.expected + "\""), "Success must expose an explicit structured result code");
+        if (operation.grant.equals("importGroups")) {
+          Doc imported = f.wiki.docs.get(String.valueOf(f.context.get("resultRef")));
+          check(imported.attachments.containsKey("guide.txt") && f.wiki.upload.loads == 1, "An import-only group must directly save its uploaded file without create rights");
+        }
+      }
+      f = operationFixture(operation.grant, "proposeGroups");
+      result = f.post(operation.action, withMode(operation, "proposal"));
+      check(result.equals(operation.expected), "Having both rights must still execute " + operation.label + " directly");
+      done("Automatic direct " + operation.label + " needs only its own group and ignores a legacy proposal mode");
+
+      f = operationFixture("proposeGroups"); Map<String, Integer> before = revisions(f);
+      result = f.post(operation.action, operation.parameters);
+      check(result.equals("PROPOSITION_OK"), "A proposer without " + operation.grant + " must stage " + operation.label + ": " + result);
+      check(f.wiki.docs.size() == before.size() + 1 && f.wiki.docs.containsKey(GUIDE), "Proposing cannot publish, move, or delete an existing source");
+      for (String reference : before.keySet()) check(f.wiki.docs.get(reference).revision == before.get(reference), "Proposing cannot save a published page: " + reference);
+      check(f.wiki.docs.get(GUIDE).content.equals("Contenu original"), "Proposing must preserve published source content");
+      Doc proposal = f.wiki.docs.get(String.valueOf(f.context.get("resultProposalRef")));
+      check(proposal.getObject(PROPOSAL_CLASS).getValue("status").equals("pending"), "Automatic proposal must await a validator");
+      if (operation.grant.equals("importGroups")) check(proposal.attachments.containsKey("guide.txt"), "An imported proposal must keep its uploaded file private until validation");
+      done("Proposer-only " + operation.label + " automatically creates a pending private proposal");
+
+      f = operationFixture(); before = revisions(f);
+      result = f.post(operation.action, operation.parameters);
+      check(result.equals("ERREUR_DROITS"), "No direct or proposal grant must refuse " + operation.label + ": " + result);
+      check(revisions(f).equals(before) && f.wiki.upload.loads == 0 && f.refactoring.moveCalls == 0, "Refusal must happen before published mutations, upload processing, or refactoring");
+      check(f.pageOutput.contains("id=\"documentation-error\"") && f.pageOutput.contains("data-message=\"Vous n’avez pas le droit") && !f.pageOutput.contains("id=\"creation-result\""), "Permission refusal must expose a short structured error without a success marker");
+      done("Missing direct and proposal rights refuse " + operation.label + " before any published change");
+    }
+
+    f = operationFixture("createGroups", "proposeGroups");
+    OperationCase importOperation = operations.get(2);
+    result = f.post(importOperation.action, importOperation.parameters);
+    check(result.equals("PROPOSITION_OK") && !f.can("Import") && f.can("Create"), "Create permission must not silently grant direct import");
+    result = f.post("ajouter un fichier", "type", "folder", "page", MAIN, "nom_fichier", "Mode invalide", "mode", "unexpected");
+    check(result.equals("ERREUR_MODE"), "Unknown legacy modes must still be rejected");
+    done("Mixed creator and proposer rights still require separate import permission, and invalid modes fail closed");
+
+    for (String type : List.of("document", "attached-document", "folder")) {
+      for (String[] grants : List.of(new String[]{}, new String[]{"proposeGroups"}, new String[]{"createGroups", "reviewGroups"})) {
+        f = operationFixture(grants); Doc protectedSource = f.wiki.docs.get(GUIDE);
+        protectedSource.getObject(DOCUMENT_CLASS).set("type", type.equals("folder") ? "folder" : "document");
+        if (type.equals("attached-document")) protectedSource.addAttachment("guide.txt", new byte[]{1, 2, 3});
+        if (type.equals("folder")) {
+          Doc descendant = f.document("TestPage.PAGE.doc-test.Guide.Enfant.WebHome", "document", "Enfant"); descendant.parent = GUIDE;
+        }
+        Map<String, Integer> before = revisions(f);
+        for (String mode : List.of("", "direct", "proposal")) {
+          result = f.post("supprimer element", "source_ref", GUIDE, "mode", mode);
+          check(result.equals("ERREUR_DROITS"), "Deletion requires its own application grant for " + type + ": " + result);
+          check(revisions(f).equals(before) && f.wiki.deleted.isEmpty() && f.refactoring.deleteCalls == 0, "Forbidden deletion cannot touch a source, attachment or descendant, nor start a native delete job");
+          check(f.pageOutput.contains("data-message=\"Vous n’avez pas le droit de supprimer cet élément.\"") && !f.pageOutput.contains("SUPPRESSION_OK") && !f.pageOutput.contains("id=\"creation-result\""), "Forbidden deletion must expose its own concise error and never a success marker");
+        }
+      }
+      done("Forbidden " + type + " deletion is blocked for readers, proposers and other writers, regardless of legacy mode");
+    }
+
+    f = operationFixture("deleteGroups"); f.wiki.nativeDelete = false;
+    result = f.post("supprimer element", "source_ref", GUIDE);
+    check(result.equals("ERREUR_DROITS_NATIFS") && f.refactoring.deleteCalls == 0 && f.wiki.docs.containsKey(GUIDE), "The application delete grant cannot bypass XWiki native source permission");
+    done("Deletion also requires native XWiki permission before a delete job starts");
+
+    for (boolean nativeAdministrator : List.of(false, true)) {
+      f = operationFixture(nativeAdministrator ? new String[]{} : new String[]{"deleteGroups"}); f.wiki.admin = nativeAdministrator;
+      f.wiki.docs.get(GUIDE).getObject(DOCUMENT_CLASS).set("type", "folder");
+      Doc descendant = f.document("TestPage.PAGE.doc-test.Guide.Enfant.WebHome", "document", "Enfant"); descendant.parent = GUIDE;
+      result = f.post("supprimer element", "source_ref", GUIDE, "mode", "proposal");
+      check(result.equals("SUPPRESSION_OK") && !f.wiki.docs.containsKey(GUIDE) && !f.wiki.docs.containsKey(descendant.reference), "Authorized deletion must directly remove the native folder and descendant even with a legacy proposal mode: " + result);
+      check(f.refactoring.deleteCalls == 1 && f.can("Propose") == nativeAdministrator, "Delete-only group needs no proposal permission");
+    }
+    done("Delete-only groups and native administrators directly delete folders and descendants without a proposal");
+
+    f = operationFixture("deleteGroups"); f.refactoring.failDelete = true;
+    result = f.post("supprimer element", "source_ref", GUIDE);
+    check(result.equals("ERREUR_SUPPRESSION") && f.wiki.docs.containsKey(GUIDE) && !f.pageOutput.contains("SUPPRESSION_OK") && !f.pageOutput.contains("id=\"creation-result\""), "A failed native delete cannot report success");
+    done("Native deletion failure preserves the source and returns an error rather than success");
+
+    f = operationFixture("proposeGroups");
+    result = f.post("ajouter un document", "type", "document", "page", MAIN, "nom_fichier", "À valider", "content", "Texte à valider");
+    String reviewable = String.valueOf(f.context.get("resultProposalRef"));
+    f.wiki.config.configuration.set("proposeGroups", ""); f.group("reviewGroups", "XWiki.Validators");
+    result = f.post("valider proposition", "proposal_ref", reviewable, "version", f.wiki.docs.get(reviewable).getVersion());
+    check(result.equals("PROPOSITION_VALIDEE_OK") && f.can("Review") && !f.can("Create") && !f.can("Propose"), "A validator may accept a proposal without direct create or propose permission: " + result);
+    done("Validator-only groups can publish accepted proposals without create or propose grants");
+
+    f = operationFixture("proposeGroups");
+    f.post("ajouter un document", "type", "document", "page", MAIN, "nom_fichier", "Proposition altérée", "content", "Brouillon");
+    String invalidDeletion = String.valueOf(f.context.get("resultProposalRef"));
+    Doc invalidProposal = f.wiki.docs.get(invalidDeletion);
+    invalidProposal.getObject(PROPOSAL_CLASS).set("operation", "delete");
+    invalidProposal.getObject(PROPOSAL_CLASS).set("sourceRef", GUIDE);
+    f.wiki.admin = true;
+    result = f.post("valider proposition", "proposal_ref", invalidDeletion, "version", invalidProposal.getVersion());
+    check(result.equals("ERREUR_ACTION") && f.refactoring.deleteCalls == 0 && f.wiki.docs.containsKey(GUIDE), "Even administrators cannot validate a malformed deletion proposal");
+    check(invalidProposal.getObject(PROPOSAL_CLASS).getValue("status").equals("pending"), "Invalid deletion validation cannot mark a proposal as accepted");
+    done("The validator endpoint rejects a malformed deletion proposal before any published mutation");
 
     f = new Fixture(); f.configured(); f.group("proposeGroups", "XWiki.Contributors");
     String sourceRef = "TestPage.PAGE.doc-test.Guide.WebHome";

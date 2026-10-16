@@ -57,7 +57,9 @@ async function setup(browser, options = {}) {
       return { ok: true, text: async () => testState.architecture.map(item => html('architecture-node-data', item)).join('') };
     };
     window.DocPropositions = {
-      can: right => right === 'review' && testState.reviewer,
+      ready: Promise.resolve(),
+      can: right => right === 'review' ? testState.reviewer : ['move', 'delete'].includes(right),
+      modeFor: right => ['move', 'delete'].includes(right) ? 'direct' : '',
       request: async mode => {
         testState.requests.push(mode);
         return new DOMParser().parseFromString(testState.proposals
@@ -107,32 +109,96 @@ async function workflowPage(browser, permissions = {}) {
     <div id="notification"></div><div id="box"></div>
     <button id="doc-settings" hidden>Paramètres</button><button id="doc-add-folder">Ajouter un dossier</button>
     <button id="doc-add-document">Ajouter un document</button>
-    <select id="doc-contribution-mode"><option value="direct">Direct</option><option value="proposal">Proposer</option></select>
   </body></html>`);
   await page.evaluate(granted => {
     window.urlCommande = '/xwiki/bin/view/COMMANDE';
-    window.testWorkflow = { granted, requests: [], fail: '' };
+    window.testWorkflow = { granted, requests: [], fail: '', responses: {}, alerts: [], confirmations: [], refreshes: 0 };
+    window.alert = message => testWorkflow.alerts.push(String(message));
+    window.confirm = message => { testWorkflow.confirmations.push(String(message)); return true; };
     window.fetch = async (url, options = {}) => {
       const parsedURL = new URL(url, location.href);
       const values = Object.fromEntries(options.body || parsedURL.searchParams);
       const action = values.action;
       testWorkflow.requests.push({ action, method: options.method || 'GET', values,
         credentials: options.credentials });
-      let body = '';
-      if (testWorkflow.fail === action) body = '<div id="documentation-error" data-message="Action refusée">ERREUR_DROITS</div>';
+      let body = '', status = 200;
+      if (testWorkflow.responses[action]) {
+        body = testWorkflow.responses[action].body;
+        status = testWorkflow.responses[action].status || 200;
+      } else if (testWorkflow.fail === action) body = '<div id="documentation-error" data-message="Action refusée">ERREUR_DROITS</div>';
       else if (action === 'workflow') {
         body = '<div id="documentation-permissions" data-settings-version="4.2" ' +
           Object.entries(granted).map(([right, value]) => 'data-can-' + right + '="' + value + '"').join(' ') + '></div>' +
           '<div class="doc-group-data" data-ref="XWiki.Contributors" data-title="Contributeurs"></div>' +
           '<div class="doc-grant-data" data-right="propose" data-group="XWiki.Contributors"></div>';
       } else if (action === 'contenu document') body = '<div id="documentation-content" data-version="3.7"></div><textarea id="documentation-source">' + (testWorkflow.source || 'Contenu initial') + '</textarea>';
-      else body = 'PROPOSITION_OK';
-      return { ok: true, text: async () => body };
+      else if (action === 'modifier metadonnees document') body = values.mode === 'proposal' ? 'PROPOSITION_OK' :
+        '<div id="creation-result" data-code="METADONNEES_OK"></div><div id="metadata-result" data-modified="16/10/2026 12:00"></div>METADONNEES_OK';
+      else body = ({
+        'enregistrer parametres': 'PARAMETRES_OK', 'purger corbeille': 'CORBEILLE_PURGEE_OK',
+        'modifier contenu document': values.mode === 'direct' ? 'CONTENU_OK' : 'PROPOSITION_OK',
+        'modifier informations': values.mode === 'direct' ? 'METADONNEES_OK' : 'PROPOSITION_OK',
+        'valider proposition': 'PROPOSITION_VALIDEE_OK', 'refuser proposition': 'PROPOSITION_REFUSEE_OK',
+        'restaurer proposition': 'PROPOSITION_RESTAUREE_OK', 'supprimer element': 'SUPPRESSION_OK'
+      })[action] || 'PROPOSITION_OK';
+      return { ok: status >= 200 && status < 300, status, text: async () => body };
     };
   }, { view: true, ...permissions });
   await page.addScriptTag({ path: path.join(codeDir, 'Propositions.js') });
   await page.evaluate(() => DocPropositions.ready);
   return page;
+}
+
+async function addCreationUI(page) {
+  await page.evaluate(parent => {
+    const host = document.createElement('div');
+    host.innerHTML = '<div id="pageData" parent-page="' + parent + '"></div>' +
+      '<div id="popup" style="display:none"><form id="formulairePopup"><input name="form_token" value="test-csrf">' +
+      '<div id="popupContent"></div><button id="btn-popup-valide" type="button" onclick="popupValider()">Valider</button></form></div>';
+    document.body.appendChild(host);
+    window.LienPerso = () => { testWorkflow.refreshes++; };
+    window.openDocumentationProposals = () => {};
+    window.testWorkflow.responses['ajouter un fichier'] = {
+      body: '<div id="creation-result" data-code="LIEN_AJOUTE_OK" data-page-ref="' + parent + '.Nouveau.WebHome"></div>LIEN_AJOUTE_OK'
+    };
+  }, root);
+  await page.addScriptTag({ path: path.join(codeDir, 'Popup.js') });
+}
+
+async function addExplorerUI(page) {
+  await page.evaluate(({ root, folder, existing }) => {
+    window.initialPageRef = root;
+    const esc = value => String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+    const nodes = [
+      { ref: root, type: 'root', title: 'Documentation', 'parent-ref': '' },
+      { ref: folder, type: 'folder', title: 'RH', 'parent-ref': root },
+      { ref: existing, type: 'document', title: 'Guide existant', 'parent-ref': folder }
+    ];
+    testWorkflow.responses.architecture = { body: nodes.map(node => '<div class="architecture-node-data" ' +
+      Object.entries(node).map(([key, value]) => 'data-' + key + '="' + esc(value) + '"').join(' ') + '></div>').join('') };
+    const box = document.getElementById('box');
+    box.innerHTML = '<div id="pageData" parent-page="' + root + '"></div><form id="formulairePopup"><input name="form_token" value="test-csrf"></form>' +
+      '<button id="explorer-delete-btn">Supprimer</button>' +
+      '<div class="explorer-row" data-ref="' + existing + '"><input type="checkbox" checked class="explorer-select-input" ' +
+      'data-ref="' + existing + '" data-title="Guide existant" data-type="document"></div>';
+  }, { root, folder, existing });
+  await page.addScriptTag({ path: path.join(codeDir, 'LienPerso.js') });
+  await page.evaluate(() => {
+    window.LienPerso = () => { testWorkflow.refreshes++; };
+    DocPropositions.applyPermissions();
+  });
+}
+
+async function deleteInUI(page, mode) {
+  if (mode === 'architecture') {
+    await open(page, '');
+    await page.evaluate(ref => { architectureState.selected[ref] = true; renderArchitectureTree(); }, existing);
+    await page.evaluate(() => deleteArchitectureSelection(document.getElementById('box')));
+  } else {
+    await page.evaluate(ref => deleteExplorerItems(document.getElementById('box'), [
+      { ref, title: 'Guide existant', type: 'document' }
+    ]), existing);
+  }
 }
 
 (async () => {
@@ -271,7 +337,7 @@ async function workflowPage(browser, permissions = {}) {
         await page.evaluate(() => DocPropositions.openSettings());
         assert.equal(await page.locator('dialog').count(), 0);
         assert.equal(await page.evaluate(() => DocPropositions.modeFor('content')), 'proposal');
-        assert.equal(await page.locator('#doc-contribution-mode').inputValue(), 'proposal');
+        assert.equal(await page.locator('#doc-contribution-mode').count(), 0);
       } finally { await page.close(); }
     });
 
@@ -303,9 +369,9 @@ async function workflowPage(browser, permissions = {}) {
       const page = await workflowPage(browser, { propose: true, content: false });
       try {
         await page.evaluate(() => DocPropositions.openContentEditor('TestPage.PAGE.doc-test.RH.Guide.WebHome'));
-        const dialog = page.getByRole('dialog', { name: 'Modifier le contenu du document' });
+        const dialog = page.getByRole('dialog', { name: /^(Modifier le contenu du document|Proposer une modification du contenu)$/ });
         await dialog.locator('textarea').fill('**Contenu proposé**');
-        await dialog.getByRole('button', { name: 'Enregistrer / proposer' }).click();
+        await dialog.getByRole('button', { name: 'Proposer les modifications' }).click();
         await page.waitForFunction(() => !document.querySelector('dialog'));
         const saved = await page.evaluate(() => testWorkflow.requests.find(request => request.action === 'modifier contenu document'));
         assert.equal(saved.values.mode, 'proposal');
@@ -368,7 +434,7 @@ async function workflowPage(browser, permissions = {}) {
         }, root);
         await page.addScriptTag({ path: path.join(codeDir, 'Popup.js') });
         await page.evaluate(async () => {
-          ajouterFichier();
+          await ajouterFichier();
           const file = new File(['pdf-content'], 'contrat.pdf', { type: 'application/pdf' });
           Object.defineProperty(file, 'webkitRelativePath', { value: 'Archive/Sous/contrat.pdf' });
           const branch = buildBranchTreeFromFiles([file]);
@@ -407,10 +473,10 @@ async function workflowPage(browser, permissions = {}) {
           testWorkflow.source = 'Le guide contient le code ERREUR_CSRF en exemple.';
           await DocPropositions.openContentEditor('TestPage.PAGE.doc-test.RH.Guide.WebHome');
         });
-        const dialog = page.getByRole('dialog', { name: 'Modifier le contenu du document' });
+        const dialog = page.getByRole('dialog', { name: /^(Modifier le contenu du document|Proposer une modification du contenu)$/ });
         assert.match(await dialog.locator('textarea').inputValue(), /ERREUR_CSRF/);
         await dialog.locator('input[type="file"]').setInputFiles({ name: 'Remplacement.pdf', mimeType: 'application/pdf', buffer: Buffer.from('new-pdf') });
-        await dialog.getByRole('button', { name: 'Enregistrer / proposer' }).click();
+        await dialog.getByRole('button', { name: 'Proposer les modifications' }).click();
         await page.waitForFunction(() => !document.querySelector('dialog'));
         const submitted = await page.evaluate(async () => {
           const request = testWorkflow.requests.find(value => value.action === 'modifier contenu document');
@@ -424,6 +490,277 @@ async function workflowPage(browser, permissions = {}) {
         assert.match(submitted.content, /ERREUR_CSRF/);
         assert.deepEqual(submitted.file, { name: 'Remplacement.pdf', contents: 'new-pdf' });
       } finally { await page.close(); }
+    });
+
+    await check('Each operation chooses direct rights before proposing, without a contribution selector or deletion proposals', async () => {
+      for (const grants of [
+        { create: true, import: true, content: true, propose: false },
+        { create: true, import: false, content: true, propose: true },
+        { create: false, import: false, content: false, propose: true },
+        { create: false, import: false, content: false, propose: false }
+      ]) {
+        const page = await workflowPage(browser, grants);
+        try {
+          assert.equal(await page.locator('#doc-contribution-mode').count(), 0);
+          const actual = await page.evaluate(() => ['create', 'import', 'content', 'delete'].map(right => DocPropositions.modeFor(right)));
+          const expected = grants.create ? ['direct', grants.import ? 'direct' : 'proposal', 'direct', ''] :
+            grants.propose ? ['proposal', 'proposal', 'proposal', ''] : ['', '', '', ''];
+          assert.deepEqual(actual, expected);
+          if (!grants.create && !grants.propose) {
+            assert.equal(await page.locator('#doc-add-folder').isVisible(), false);
+            assert.equal(await page.locator('#doc-add-document').isVisible(), false);
+          }
+        } finally { await page.close(); }
+      }
+    });
+
+    await check('Manual folder creation publishes directly for creators and submits only a proposal for proposers', async () => {
+      for (const grants of [{ create: true, propose: false }, { create: true, propose: true }, { create: false, propose: true }]) {
+        const page = await workflowPage(browser, grants);
+        try {
+          await addCreationUI(page);
+          if (!grants.create) await page.evaluate(() => {
+            testWorkflow.responses['ajouter un fichier'] = {
+              body: '<div id="creation-result" data-code="PROPOSITION_OK" data-proposal-ref="TestPage.PAGE.doc-test.PROPOSITIONS.P1"></div>PROPOSITION_OK'
+            };
+          });
+          await page.evaluate(() => ajouterFichier());
+          await page.locator('#folder-name-input').fill('Nouveau');
+          assert.match(await page.locator('#btn-popup-valide').innerText(), grants.create ? /créer/i : /proposer/i);
+          await page.locator('#btn-popup-valide').click();
+          await page.waitForFunction(() => document.getElementById('popup').style.display === 'none');
+          const requests = await page.evaluate(() => testWorkflow.requests.filter(request => request.action === 'ajouter un fichier'));
+          assert.equal(requests.length, 1);
+          assert.equal(requests[0].method, 'POST');
+          assert.equal(requests[0].values.mode, grants.create ? 'direct' : 'proposal');
+          assert.equal(requests[0].values.form_token, 'test-csrf');
+          assert.deepEqual(await page.evaluate(() => testWorkflow.alerts), []);
+        } finally { await page.close(); }
+      }
+    });
+
+    await check('Manual calls cannot open creation or submit an import when the required rights are absent', async () => {
+      const page = await workflowPage(browser, { create: false, import: false, propose: false });
+      try {
+        await addCreationUI(page);
+        await page.evaluate(async () => { await ajouterFichier(); await ajouterDocument(); });
+        assert.equal(await page.locator('#popup').isVisible(), false);
+        assert.equal(await page.evaluate(() => testWorkflow.requests.filter(request => /^ajouter un /.test(request.action)).length), 0);
+        const messages = await page.locator('#notification').innerText();
+        assert.ok(messages.length > 0 && messages.length < 300);
+        assert.doesNotMatch(messages, /ERREUR_|Exception|<[^>]+>|\bat org\./);
+      } finally { await page.close(); }
+    });
+
+    await check('Structured refusals, raw rights codes and HTML exceptions become short readable request errors', async () => {
+      const page = await workflowPage(browser, { content: true });
+      try {
+        for (const response of [
+          { status: 200, body: '<div id="documentation-error" data-message="Vous ne pouvez pas ajouter de document.">ERREUR_DROITS</div>', expected: /Vous ne pouvez pas ajouter de document\./ },
+          { status: 200, body: 'ERREUR_DROITS', expected: /droit|autoris/i },
+          { status: 403, body: '<html><h1>Forbidden</h1><pre>org.xwiki.security.AuthorizationException: secret</pre></html>', expected: /droit|autoris|refus/i },
+          { status: 500, body: '<html><h1>Failed to execute Velocity macro</h1><pre>org.xwiki.rendering.MacroExecutionException\n at org.xwiki.secret.run(Secret.java:63)</pre></html>', expected: /échou|erreur|impossible|indisponible/i }
+        ]) {
+          const message = await page.evaluate(async response => {
+            testWorkflow.responses['modifier contenu document'] = response;
+            try { await DocPropositions.request('modifier contenu document', { source_ref: 'source' }); return ''; }
+            catch (error) { return error.message; }
+          }, response);
+          assert.match(message, response.expected);
+          assert.ok(message.length < 300);
+          assert.doesNotMatch(message, /ERREUR_|Exception|<[^>]+>|org\.xwiki|Secret\.java/);
+        }
+      } finally { await page.close(); }
+    });
+
+    await check('Creation refusal stays in the popup with a clean message and no false successful refresh', async () => {
+      const page = await workflowPage(browser, { create: true, propose: false });
+      try {
+        await addCreationUI(page);
+        await page.evaluate(() => {
+          testWorkflow.responses['ajouter un fichier'] = {
+            status: 403, body: '<html><h1>Failed Velocity</h1><pre>org.xwiki.AccessDeniedException\n at internal.Wiki.save(Wiki.java:33)</pre></html>'
+          };
+        });
+        await page.evaluate(() => ajouterFichier());
+        await page.locator('#folder-name-input').fill('Nouveau');
+        await page.locator('#btn-popup-valide').click();
+        await page.waitForFunction(() => !document.getElementById('btn-popup-valide').disabled);
+        assert.equal(await page.locator('#popup').isVisible(), true);
+        const displayed = await page.evaluate(() => [document.getElementById('popup').innerText,
+          document.getElementById('notification').innerText, ...testWorkflow.alerts].join('\n'));
+        assert.match(displayed, /droit|autoris|refus/i);
+        assert.doesNotMatch(displayed, /ERREUR_|Exception|org\.xwiki|Wiki\.java|Failed Velocity/);
+        assert.equal(await page.evaluate(() => testWorkflow.refreshes), 0);
+      } finally { await page.close(); }
+    });
+
+    await check('A refused multipart file import keeps the selected file and shows only a short inline error', async () => {
+      for (const response of [
+        { status: 200, body: '<div id="documentation-error" data-message="Votre groupe ne peut plus importer de fichiers.">ERREUR_DROITS</div>' },
+        { status: 200, body: 'ERREUR_DROITS' },
+        { status: 500, body: '<html><h1>Failed Velocity macro</h1><pre>org.xwiki.MacroExecutionException at Importer.java:87</pre></html>' }
+      ]) {
+        const page = await workflowPage(browser, { create: false, import: true, propose: false });
+        try {
+          await addCreationUI(page);
+          await page.evaluate(response => { testWorkflow.responses['ajouter un document'] = response; }, response);
+          await page.evaluate(() => ajouterDocument());
+          await page.locator('#document-file-input').setInputFiles({ name: 'contrat.pdf', mimeType: 'application/pdf', buffer: Buffer.from('pdf-file') });
+          assert.equal(await page.locator('#btn-popup-valide').innerText(), 'Importer');
+          await page.locator('#btn-popup-valide').click();
+          await page.waitForFunction(() => !document.getElementById('btn-popup-valide').disabled);
+          const state = await page.evaluate(() => ({
+            message: document.getElementById('documentation-popup-status').textContent,
+            uploads: testWorkflow.requests.filter(request => request.action === 'ajouter un document'),
+            refreshes: testWorkflow.refreshes, selected: documentImportSelection.length
+          }));
+          assert.equal(state.uploads.length, 1);
+          assert.equal(state.uploads[0].values.mode, 'direct');
+          assert.equal(state.uploads[0].values.intent, 'import');
+          assert.equal(state.selected, 1);
+          assert.equal(state.refreshes, 0);
+          assert.ok(state.message.length > 0 && state.message.length < 300);
+          assert.doesNotMatch(state.message, /ERREUR_|Exception|org\.xwiki|Importer\.java|Failed Velocity/);
+          assert.equal(await page.locator('#popup').isVisible(), true);
+        } finally { await page.close(); }
+      }
+    });
+
+    await check('Explorer and Architecture reject every deletion entry point without delete rights, even for proposers', async () => {
+      for (const mode of ['explorer', 'architecture']) {
+        const page = await workflowPage(browser, { create: true, propose: true, delete: false, move: true });
+        try {
+          await addExplorerUI(page);
+          await deleteInUI(page, mode);
+          const directError = await page.evaluate(async ref => {
+            try { await postExplorerAction({ action: 'supprimer element', source_ref: ref }); return ''; }
+            catch (error) { return error.message; }
+          }, existing);
+          assert.match(directError, /droit|autoris|refus/i);
+          assert.equal(await page.evaluate(() => testWorkflow.requests.filter(request => request.action === 'supprimer element').length), 0);
+          assert.equal(await page.evaluate(() => testWorkflow.confirmations.length), 0);
+          assert.equal(await page.locator(mode === 'explorer' ? '#explorer-delete-btn' : '#architecture-delete-btn').isVisible(), false);
+          assert.equal(await page.evaluate(() => testWorkflow.refreshes), 0);
+          if (mode === 'architecture') assert.equal(await page.evaluate(ref => !!architectureState.nodes[ref], existing), true);
+        } finally { await page.close(); }
+      }
+    });
+
+    await check('A server deletion refusal preserves both views and never displays a successful deletion or raw exception', async () => {
+      for (const mode of ['explorer', 'architecture']) {
+        for (const response of [
+          { status: 200, body: '<div id="documentation-error" data-message="Vous ne disposez pas du droit de suppression.">ERREUR_DROITS</div>' },
+          { status: 200, body: 'ERREUR_DROITS' },
+          { status: 500, body: '<html><h1>Failed Velocity macro</h1><pre>org.xwiki.MacroExecutionException at Wiki.delete(Wiki.java:13)</pre></html>' }
+        ]) {
+          const page = await workflowPage(browser, { delete: true, propose: false, move: true });
+          try {
+            await addExplorerUI(page);
+            await page.evaluate(response => { testWorkflow.responses['supprimer element'] = response; }, response);
+            await deleteInUI(page, mode);
+            const result = await page.evaluate(() => ({ alerts: testWorkflow.alerts, refreshes: testWorkflow.refreshes,
+              requests: testWorkflow.requests.filter(request => request.action === 'supprimer element'),
+              notification: document.getElementById('notification').innerText }));
+            assert.equal(result.requests.length, 1);
+            assert.equal(result.requests[0].values.mode, 'direct');
+            assert.equal(result.refreshes, 0);
+            const messages = [...result.alerts, result.notification].join('\n');
+            assert.ok(messages.length > 0 && messages.length < 500);
+            assert.doesNotMatch(messages, /ERREUR_|Exception|org\.xwiki|Wiki\.java|Failed Velocity|1 élément\(s\) supprimé|suppression réussie/i);
+            if (mode === 'architecture') assert.equal(await page.evaluate(ref => !!architectureState.nodes[ref] && architectureState.selected[ref], existing), true);
+            else assert.equal(await page.locator('.explorer-row').count(), 1);
+          } finally { await page.close(); }
+        }
+      }
+    });
+
+    await check('Allowed deletions in both views post their CSRF token and source version in direct mode', async () => {
+      for (const mode of ['explorer', 'architecture']) {
+        const page = await workflowPage(browser, { delete: true, propose: true, move: true });
+        try {
+          await addExplorerUI(page);
+          await deleteInUI(page, mode);
+          const result = await page.evaluate(() => ({ requests: testWorkflow.requests.filter(request => request.action === 'supprimer element'),
+            alerts: testWorkflow.alerts, refreshes: testWorkflow.refreshes }));
+          assert.equal(result.requests.length, 1);
+          assert.equal(result.requests[0].method, 'POST');
+          assert.equal(result.requests[0].credentials, 'same-origin');
+          assert.equal(result.requests[0].values.form_token, 'test-csrf');
+          assert.equal(result.requests[0].values.base_version, '3.7');
+          assert.equal(result.requests[0].values.source_ref, existing);
+          assert.equal(result.requests[0].values.mode, 'direct');
+          assert.equal(result.refreshes, 1);
+          assert.deepEqual(result.alerts, []);
+        } finally { await page.close(); }
+      }
+    });
+
+    await check('Content editors distinguish direct saving from proposing when the same user can also propose', async () => {
+      const page = await workflowPage(browser, { content: true, propose: true });
+      try {
+        await page.evaluate(() => DocPropositions.openContentEditor('TestPage.PAGE.doc-test.RH.Guide.WebHome'));
+        const dialog = page.getByRole('dialog', { name: /^(Modifier le contenu du document|Proposer une modification du contenu)$/ });
+        assert.equal(await dialog.getByRole('button', { name: 'Proposer les modifications' }).count(), 0);
+        await dialog.locator('textarea').fill('Modification autorisée');
+        await dialog.getByRole('button', { name: 'Enregistrer les modifications' }).click();
+        await page.waitForFunction(() => !document.querySelector('dialog'));
+        const request = await page.evaluate(() => testWorkflow.requests.find(request => request.action === 'modifier contenu document'));
+        assert.equal(request.values.mode, 'direct');
+      } finally { await page.close(); }
+    });
+
+    await check('Metadata controls and manual tag calls respect reader rights, while authorized users get the correct initial action', async () => {
+      for (const grants of [{ modify: false, propose: false }, { modify: false, propose: true }, { modify: true, propose: true }]) {
+        const page = await workflowPage(browser, grants);
+        try {
+          await page.evaluate(() => {
+            const sidebar = document.createElement('div');
+            sidebar.id = 'preview-sidebar';
+            sidebar.innerHTML = '<textarea id="sidebar-desc-input">Description</textarea><div id="sidebar-tags-list"></div>' +
+              '<input id="sidebar-tag-input"><button id="sidebar-tag-add">Ajouter</button>' +
+              '<button id="sidebar-metadata-save">Enregistrer</button><div id="sidebar-metadata-status"></div>';
+            document.body.appendChild(sidebar);
+          });
+          await page.addScriptTag({ path: path.join(codeDir, 'SidebarPreview.js') });
+          await page.evaluate(ref => {
+            sidebarCurrentDocumentRef = ref;
+            sidebarCurrentTags = ['Initial'];
+            sidebarMetadataDirty = false;
+            renderSidebarTags();
+            initSidebarPreview(document);
+            DocPropositions.applyPermissions();
+          }, existing);
+          if (!grants.modify && !grants.propose) {
+            assert.equal(await page.locator('.sidebar-tag-remove:visible').count(), 0);
+            assert.equal(await page.locator('#sidebar-tag-input').isDisabled(), true);
+            assert.equal(await page.locator('#sidebar-metadata-save').isVisible(), false);
+            await page.evaluate(async () => {
+              document.getElementById('sidebar-tag-input').value = 'Interdit';
+              addSidebarTagsFromInput();
+              removeSidebarTag(0);
+              markSidebarMetadataDirty();
+              await saveSidebarMetadata();
+            });
+            assert.deepEqual(await page.evaluate(() => sidebarCurrentTags), ['Initial']);
+            assert.equal(await page.evaluate(() => sidebarMetadataDirty), false);
+            assert.equal(await page.evaluate(() => testWorkflow.requests.filter(request => request.action === 'modifier metadonnees document').length), 0);
+          } else {
+            assert.equal(await page.locator('#sidebar-metadata-save').innerText(), grants.modify ? 'Enregistrer' : 'Proposer la modification');
+            await page.locator('#sidebar-tag-input').fill('Nouveau');
+            await page.locator('#sidebar-tag-add').click();
+            await page.locator('.sidebar-tag-remove').first().click();
+            assert.deepEqual(await page.evaluate(() => sidebarCurrentTags), ['Nouveau']);
+            await page.locator('#sidebar-metadata-save').click();
+            await page.waitForFunction(() => !document.getElementById('sidebar-metadata-save').disabled);
+            const request = await page.evaluate(() => testWorkflow.requests.find(request => request.action === 'modifier metadonnees document'));
+            assert.ok(request);
+            assert.equal(request.values.mode, grants.modify ? 'direct' : 'proposal');
+            assert.equal(request.values.tags, 'Nouveau');
+            assert.equal(request.values.base_version, '3.7');
+          }
+        } finally { await page.close(); }
+      }
     });
   } finally { await browser.close(); }
   console.log(passed + ' browser scenarios passed (COMMANDE simulated).');

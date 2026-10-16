@@ -22,14 +22,73 @@
     }
     function can(right) { return permissions[right] === true; }
     function modeFor(right) {
-        var select = document.getElementById("doc-contribution-mode");
-        if (select && select.value === "proposal" && can("propose")) return "proposal";
-        return can(right) ? "direct" : can("propose") ? "proposal" : "";
+        if (can(right)) return "direct";
+        var proposable = ["create", "import", "move", "modify", "content"].indexOf(right) !== -1;
+        return proposable && can("propose") ? "proposal" : "";
+    }
+    var errorMessages = {
+        ERREUR_DROITS:"Vous n’avez pas le droit d’effectuer cette action.",
+        ERREUR_DROITS_NATIFS:"Les droits XWiki nécessaires à cette action sont manquants.",
+        ERREUR_CSRF:"Votre session a expiré. Rechargez la page avant de réessayer.",
+        ERREUR_CONFLIT_VERSION:"Cet élément a changé. Rechargez-le avant de réessayer.",
+        ERREUR_PAGE_EXISTE:"Un élément portant ce nom existe déjà à cet emplacement.",
+        ERREUR_SOURCE_INTROUVABLE:"Cet élément n’existe plus. Rechargez la documentation.",
+        ERREUR_DESTINATION_EXISTE:"Un élément portant ce nom existe déjà dans la destination.",
+        ERREUR_DESTINATION_DANS_SOURCE:"Un dossier ne peut pas être déplacé dans lui-même.",
+        ERREUR_DEPLACEMENT_IDENTIQUE:"Cet élément se trouve déjà dans ce dossier.",
+        ERREUR_DEPENDANCE_PROPOSITION:"Le dossier proposé doit d’abord être validé.",
+        ERREUR_IMPORT_OFFICE:"Le fichier Word n’a pas pu être converti. Contactez un administrateur.",
+        ERREUR_DOCUMENT_MANQUANT:"Choisissez un fichier non vide de moins de 50 Mo.",
+        ERREUR_FORMAT_DOCUMENT:"Le format du fichier n’est pas accepté.",
+        ERREUR_SUPPRESSION:"La suppression n’a pas abouti. Rechargez la documentation.",
+        ERREUR_DEPLACEMENT:"Le déplacement n’a pas abouti. Rechargez la documentation."
+    };
+    function errorMessage(error, fallback) {
+        var generic = fallback || "La commande documentaire a échoué. Rechargez la page avant de réessayer.";
+        var value = error && typeof error.message === "string" ? error.message : typeof error === "string" ? error : "";
+        value = value.replace(/\s+/g, " ").trim();
+        if (errorMessages[value]) return errorMessages[value];
+        if (/^(Failed to fetch|NetworkError|Load failed)/i.test(value)) return "La connexion au serveur a échoué. Réessayez dans un instant.";
+        // Une page d’erreur XWiki ou une trace Java ne doit jamais devenir le message affiché.
+        if (!value || value.length > 320 || /[<>{}]|\bERREUR_[A-Z_]+\b|Exception|\bat [\w.$]+\(|org\.xwiki|com\.xpn/.test(value)) return generic;
+        return value;
+    }
+    function responseError(text, fallback, status) {
+        var generic = fallback || "La commande documentaire a échoué. Rechargez la page avant de réessayer.";
+        var parsed = new DOMParser().parseFromString(String(text || ""), "text/html");
+        var marker = parsed.getElementById("documentation-error");
+        if (marker) {
+            var code = marker.getAttribute("data-code") || marker.textContent.trim();
+            return errorMessage(marker.getAttribute("data-message"), errorMessages[code] || generic);
+        }
+        var plain = parsed.body.textContent.trim();
+        if (/^ERREUR_[A-Z_]+$/.test(plain)) return errorMessages[plain] || generic;
+        if (status === 401) return "Connectez-vous puis rechargez la documentation.";
+        if (status === 403) return errorMessages.ERREUR_DROITS;
+        if (status >= 400 || parsed.querySelector(".xwiki-rendering-error,.xwikirenderingerror,.xwiki-exception,.macro-error,.errormessage")) return generic;
+        return "";
+    }
+    var successCodes = {
+        "ajouter un fichier":["LIEN_AJOUTE_OK", "PROPOSITION_OK"],
+        "ajouter un document":["LIEN_AJOUTE_OK", "PROPOSITION_OK"],
+        "deplacer element":["DEPLACEMENT_OK", "PROPOSITION_OK"],
+        "supprimer element":["SUPPRESSION_OK"],
+        "modifier metadonnees document":["METADONNEES_OK", "PROPOSITION_OK"],
+        "modifier contenu document":["CONTENU_OK", "PROPOSITION_OK"],
+        "enregistrer parametres":["PARAMETRES_OK"],
+        "valider proposition":["PROPOSITION_VALIDEE_OK"],
+        "refuser proposition":["PROPOSITION_REFUSEE_OK"],
+        "restaurer proposition":["PROPOSITION_RESTAUREE_OK"],
+        "purger corbeille":["CORBEILLE_PURGEE_OK"]
+    };
+    function resultCode(parsed) {
+        var marker = parsed.getElementById("creation-result");
+        return marker && marker.getAttribute("data-code") || parsed.body.textContent.trim();
     }
     function notify(text, error) {
         var host = document.getElementById("notification");
         if (!host) return;
-        host.replaceChildren(node("div", text, error ? "alert alert-danger" : "alert alert-success"));
+        host.replaceChildren(node("div", error ? errorMessage(text) : text, error ? "alert alert-danger" : "alert alert-success"));
     }
     async function request(action, parameters, files) {
         var url = new URL(window.urlCommande, window.location.href);
@@ -47,16 +106,16 @@
             options.method = "POST";
             options.body = data;
         }
-        var response = await fetch(url.href, options);
-        var text = await response.text();
+        var response, text;
+        try { response = await fetch(url.href, options); text = await response.text(); }
+        catch (error) { throw new Error(errorMessage(error, "La connexion au serveur a échoué. Réessayez dans un instant.")); }
         var parsed = new DOMParser().parseFromString(text, "text/html");
         parsed.rawText = text;
-        var error = parsed.querySelector("#documentation-error");
-        var code = parsed.body.textContent.trim().match(/^(ERREUR_[A-Z_]+)$/);
-        if (!response.ok || error || code) {
-            throw new Error(error && (error.getAttribute("data-message") || error.textContent.trim()) ||
-                (code ? code[0] : "La commande documentaire a échoué."));
-        }
+        var message = responseError(text, undefined, response.status);
+        if (message || !response.ok) throw new Error(message || "La commande documentaire a échoué.");
+        parsed.resultCode = resultCode(parsed);
+        if (!readOnly && successCodes[action] && successCodes[action].indexOf(parsed.resultCode) === -1)
+            throw new Error("L’action n’a pas pu être confirmée. Rechargez la documentation avant de réessayer.");
         return parsed;
     }
     function beginBatch() {
@@ -68,7 +127,7 @@
     async function postActionParameters(right, parameters) {
         await ready;
         var mode = modeFor(right);
-        if (!mode) throw new Error("Votre groupe ne dispose pas de ce droit.");
+        if (!mode) throw new Error(right === "delete" ? "Vous n’avez pas le droit de supprimer des documents ou des dossiers." : "Vous n’avez pas le droit d’effectuer cette action ni de la proposer.");
         var result = Object.assign({}, parameters, {mode:mode});
         if (batch) result.batch_id = batch;
         if (result.source_ref && !result.base_version) {
@@ -91,7 +150,11 @@
         var settings = document.getElementById("doc-settings");
         if (settings) settings.hidden = !can("configure");
         var creation = !!modeFor("create") || !!modeFor("import");
-        document.querySelectorAll("#doc-add-folder, #doc-add-document").forEach(function (item) { item.hidden = !creation; });
+        document.querySelectorAll("#doc-add-folder, #doc-add-document").forEach(function (item) {
+            item.hidden = !creation;
+            var proposalOnly = !can("create") && !can("import") && can("propose");
+            item.textContent = (proposalOnly ? "Proposer un " : "Ajouter un ") + (item.id === "doc-add-folder" ? "dossier" : "document");
+        });
         var mapping = {"#explorer-move-btn,#explorer-move-here-btn,#architecture-validate-btn":"move",
             "#explorer-delete-btn,#architecture-delete-btn":"delete", "#sidebar-metadata-save,#sidebar-tag-add":"modify",
             "#doc-content-edit":"content"};
@@ -99,16 +162,17 @@
             document.querySelectorAll(selector).forEach(function (item) { item.hidden = !modeFor(mapping[selector]); });
         });
         document.querySelectorAll("#sidebar-desc-input,#sidebar-tag-input").forEach(function (item) { item.disabled = !modeFor("modify"); });
+        document.querySelectorAll(".sidebar-tag-remove").forEach(function (item) {
+            item.hidden = !modeFor("modify");
+            item.disabled = !modeFor("modify");
+        });
+        var metadataSave = document.getElementById("sidebar-metadata-save");
+        var metadataStatus = document.getElementById("sidebar-metadata-status");
+        if (metadataSave && (!metadataStatus || !metadataStatus.classList.contains("is-saving")))
+            metadataSave.textContent = modeFor("modify") === "proposal" ? "Proposer la modification" : "Enregistrer";
         document.querySelectorAll("#branch-folder-picker-btn,#branch-folder-input,#document-file-picker-btn,#document-file-input").forEach(function (item) { item.disabled = !modeFor("import"); });
-        var select = document.getElementById("doc-contribution-mode");
-        if (select) {
-            var direct = rights.some(function (right) { return ["propose","review"].indexOf(right[0]) === -1 && can(right[0]); });
-            select.querySelector('[value="direct"]').disabled = !direct;
-            select.querySelector('[value="proposal"]').disabled = !can("propose");
-            if (!direct && can("propose")) select.value = "proposal";
-            if (!can("propose") && direct) select.value = "direct";
-            select.disabled = !direct || !can("propose");
-        }
+        var content = document.getElementById("doc-content-edit");
+        if (content) content.textContent = can("content") ? "Modifier le contenu" : "Proposer une modification du contenu";
     }
     async function loadPermissions() {
         workflowDocument = await request("workflow");
@@ -158,6 +222,7 @@
             }); body.appendChild(row);
         });
         table.appendChild(body); view.body.appendChild(table);
+        view.body.appendChild(node("p", "Chaque opération autorisée s’effectue directement. Le droit Proposer permet de soumettre les autres opérations à validation, sauf la suppression.", "help-block"));
         var save = node("button","Enregistrer les autorisations","btn btn-primary"); save.type="button";
         save.onclick = async function () {
             save.disabled=true;
@@ -166,14 +231,15 @@
                 parameters[right[0]+"_groups"] = Array.from(body.querySelectorAll('input[data-right="'+right[0]+'"]:checked')).map(function (input) { return input.dataset.group; }).join("\n");
             });
             try { await request("enregistrer parametres", parameters); await loadPermissions(); view.close(); notify("Les autorisations des groupes ont été enregistrées."); }
-            catch (error) { view.status.textContent=error.message; save.disabled=false; }
+            catch (error) { view.status.textContent=errorMessage(error); save.disabled=false; }
         };
         view.footer.appendChild(save);
     }
     async function openContentEditor(ref) {
         await ready;
-        if (!modeFor("content")) return;
-        var view = dialog("Modifier le contenu du document");
+        var mode = modeFor("content");
+        if (!mode) { notify("Vous n’avez pas le droit de modifier le contenu ni de proposer une modification.", true); return; }
+        var view = dialog(mode === "direct" ? "Modifier le contenu du document" : "Proposer une modification du contenu");
         try {
             var result = await request("contenu document", {source_ref:ref, ref:ref});
             var source = result.querySelector("#documentation-source");
@@ -186,7 +252,7 @@
             var replacement=node("input");replacement.type="file";replacement.className="form-control";
             replacementLabel.appendChild(replacement);view.body.appendChild(replacementLabel);
             view.body.appendChild(node("p","La mise en forme XWiki est conservée. Les macros de script sont désactivées dans ce contenu.","help-block"));
-            var save=node("button","Enregistrer / proposer","btn btn-primary"); save.type="button";
+            var save=node("button",mode === "direct" ? "Enregistrer les modifications" : "Proposer les modifications","btn btn-primary"); save.type="button";
             save.onclick=async function () {
                 save.disabled=true;
                 try {
@@ -199,23 +265,23 @@
                         files.filePath=file;
                     }
                     var answer=await request("modifier contenu document",params,files);
-                    var proposed=answer.rawText.indexOf("PROPOSITION_OK")!==-1;
+                    var proposed=answer.resultCode === "PROPOSITION_OK";
                     view.close(); notify(proposed ? "La modification de contenu a été proposée." : "Le contenu a été enregistré.");
                     if (proposed && typeof window.openDocumentationProposals === "function") window.openDocumentationProposals(document.getElementById("box"));
-                } catch (error) { view.status.textContent=error.message; save.disabled=false; }
+                } catch (error) { view.status.textContent=errorMessage(error); save.disabled=false; }
             }; view.footer.appendChild(save);
-        } catch(error) { view.status.textContent=error.message; }
+        } catch(error) { view.status.textContent=errorMessage(error); }
     }
     window.DocPropositions = {ready:ready,can:can,modeFor:modeFor,request:request,proposalAction:proposalAction,
         postActionParameters:postActionParameters,beginBatch:beginBatch,endBatch:endBatch,batchId:function(){return batch;},
-        applyPermissions:applyPermissions,openSettings:openSettings,openContentEditor:openContentEditor,notify:notify};
+        applyPermissions:applyPermissions,openSettings:openSettings,openContentEditor:openContentEditor,notify:notify,
+        responseError:responseError,errorMessage:errorMessage};
     async function init() {
         if (!window.urlCommande) { resolveReady(); return; }
         applyPermissions();
-        document.addEventListener("change",function(event){if(event.target.id==="doc-contribution-mode")applyPermissions();});
         document.addEventListener("click",function(event){
             var button=event.target.closest("#doc-settings,#doc-proposals,#doc-trash,#doc-content-edit"); if(!button)return;
-            if(button.id==="doc-settings")openSettings().catch(function(error){notify(error.message,true);});
+            if(button.id==="doc-settings")openSettings().catch(function(error){notify(errorMessage(error),true);});
             else if(button.id==="doc-content-edit") {
                 var ref=typeof sidebarCurrentDocumentRef!=="undefined" ? sidebarCurrentDocumentRef : button.dataset.ref;
                 if(ref)openContentEditor(ref);

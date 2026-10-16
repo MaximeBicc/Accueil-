@@ -4,7 +4,75 @@ let branchImportNextNodeId = 1;
 let documentImportSelection = [];
 let documentationCreationContext = null;
 
-function ajouterFichier() {
+function documentationPopupMessage(message, error) {
+    const content = document.getElementById("popupContent");
+    if (!content || !document.getElementById("popup") || document.getElementById("popup").style.display === "none") {
+        if (window.DocPropositions) {
+            DocPropositions.notify(message, error);
+        } else {
+            const host = document.getElementById("notification");
+            if (host) {
+                const status = document.createElement("div");
+                status.className = "alert alert-danger";
+                status.setAttribute("role", "alert");
+                status.textContent = message;
+                host.replaceChildren(status);
+            }
+        }
+        return;
+    }
+    let status = document.getElementById("documentation-popup-status");
+    if (!status) {
+        status = document.createElement("div");
+        status.id = "documentation-popup-status";
+        status.setAttribute("role", "alert");
+        content.appendChild(status);
+    }
+    status.className = error ? "alert alert-danger" : "alert alert-success";
+    status.textContent = message;
+}
+
+async function documentationCreationModes() {
+    if (!window.DocPropositions) throw new Error("Les autorisations ne sont pas disponibles. Recharge la page.");
+    await DocPropositions.ready;
+    const modes = {create: DocPropositions.modeFor("create"), import: DocPropositions.modeFor("import")};
+    if (!modes.create && !modes.import) {
+        throw new Error("Vous n’avez pas l’autorisation de créer ou d’importer des éléments.");
+    }
+    return modes;
+}
+
+function updateDocumentationCreationLabels() {
+    if (!window.DocPropositions) return;
+    const importing = !!(branchImportSelection && branchImportSelection.root) ||
+        documentImportSelection.some(function (item) { return item.enabled && item.file; });
+    const mode = DocPropositions.modeFor(importing ? "import" : "create");
+    const action = document.querySelector('#popupContent input[name="type"]');
+    const isFolder = action && action.value === "folder";
+    const title = document.getElementById("documentation-creation-title");
+    if (title) {
+        title.textContent = importing ? (mode === "proposal" ? "Proposer un import" : "Importer des éléments") :
+            mode === "proposal" ? (isFolder ? "Proposer un dossier" : "Proposer un document") :
+            isFolder ? "Créer un dossier" : "Créer un document";
+    }
+    const button = document.getElementById("btn-popup-valide");
+    if (button && !button.disabled) button.textContent = mode === "proposal" ? "Proposer" : importing ? "Importer" : "Créer";
+    const note = document.getElementById("documentation-creation-note");
+    if (note) {
+        note.textContent = mode === "proposal" ? "Ces éléments seront ajoutés après validation de la proposition." :
+            mode ? "Ces éléments seront ajoutés directement à la documentation." : "Sélectionnez un fichier à importer.";
+    }
+}
+
+async function ajouterFichier() {
+    let modes;
+    try {
+        modes = await documentationCreationModes();
+    } catch (error) {
+        documentationPopupMessage(window.DocPropositions ? DocPropositions.errorMessage(error, "Impossible d’ouvrir la création de dossier.") :
+            "Les autorisations ne sont pas disponibles. Recharge la page.", true);
+        return;
+    }
     const pageData = document.getElementById("pageData");
     const parentPage = pageData.getAttribute("parent-page");
     const content = document.getElementById("popupContent");
@@ -13,23 +81,24 @@ function ajouterFichier() {
     documentImportSelection = [];
 
     content.innerHTML = `
-<h4>Ajouter un dossier</h4>
+<h4 id="documentation-creation-title">Ajouter un dossier</h4>
+<p id="documentation-creation-note" class="help-block"></p>
 <input type="hidden" name="action" value="ajouter un fichier" />
 <input type="hidden" name="type" value="folder" />
 <input type="hidden" name="page" value="${escapeDocumentText(parentPage)}" />
 
-<div class="form-group">
-    <label for="folder-name-input">Créer un dossier vide</label>
+<div class="form-group" id="folder-empty-page-group"${modes.create ? "" : ' style="display:none;"'}>
+    <label for="folder-name-input">${modes.create === "proposal" ? "Proposer" : "Créer"} un dossier vide</label>
     <input id="folder-name-input" class="form-control" type="text" name="nom_fichier"
         placeholder="Nom du dossier" />
 </div>
 
-<div class="branch-import-separator">
+<div class="branch-import-separator"${modes.create && modes.import ? "" : ' style="display:none;"'}>
     <span>ou</span>
 </div>
 
-<div class="form-group">
-    <label>Importer une arborescence depuis l'ordinateur</label>
+<div class="form-group"${modes.import ? "" : ' style="display:none;"'}>
+    <label>${modes.import === "proposal" ? "Proposer une arborescence" : "Importer une arborescence"} depuis l'ordinateur</label>
     <div class="branch-import-actions">
         <button id="branch-folder-picker-btn" type="button" class="btn btn-default">
             Parcourir un dossier
@@ -92,7 +161,8 @@ function ajouterFichier() {
     }
 
     document.getElementById("popup").style.display = "block";
-    if (window.DocPropositions) DocPropositions.ready.then(function(){DocPropositions.applyPermissions();});
+    DocPropositions.applyPermissions();
+    updateDocumentationCreationLabels();
 }
 
 async function chooseBranchDirectory() {
@@ -157,6 +227,7 @@ function clearBranchImportSelection() {
     if (clearButton) {
         clearButton.style.display = "none";
     }
+    updateDocumentationCreationLabels();
 }
 
 function createBranchFolderNode(name) {
@@ -439,6 +510,7 @@ function renderBranchImportPreview() {
         return;
     }
 
+    updateDocumentationCreationLabels();
     const stats = getBranchStats(branchImportSelection.root);
     const emptyFolderNote = branchImportSelection.sourceMode === "webkitdirectory"
         ? '<p class="branch-import-note">Le navigateur utilise le mode de compatibilité : les dossiers totalement vides peuvent ne pas être détectés.</p>'
@@ -665,7 +737,15 @@ function renderBranchTreeNode(node, isRoot) {
 `;
 }
 
-function ajouterDocument() {
+async function ajouterDocument() {
+    let modes;
+    try {
+        modes = await documentationCreationModes();
+    } catch (error) {
+        documentationPopupMessage(window.DocPropositions ? DocPropositions.errorMessage(error, "Impossible d’ouvrir la création de document.") :
+            "Les autorisations ne sont pas disponibles. Recharge la page.", true);
+        return;
+    }
     const pageData = document.getElementById("pageData");
     const parentPage = pageData.getAttribute("parent-page");
     const content = document.getElementById("popupContent");
@@ -674,18 +754,19 @@ function ajouterDocument() {
     documentImportSelection = [];
 
     content.innerHTML = `
-<h4>Ajouter un ou plusieurs documents</h4>
+<h4 id="documentation-creation-title">Ajouter un document</h4>
+<p id="documentation-creation-note" class="help-block"></p>
 <input type="hidden" name="action" value="ajouter un document" />
 <input type="hidden" name="type" value="document" />
 <input type="hidden" name="page" value="${escapeDocumentText(parentPage)}" />
 
-<div class="form-group" id="document-empty-page-group">
-    <label for="document-name-input">Créer une page vide</label>
+<div class="form-group" id="document-empty-page-group"${modes.create ? "" : ' style="display:none;"'}>
+    <label for="document-name-input">${modes.create === "proposal" ? "Proposer" : "Créer"} une page vide</label>
     <input id="document-name-input" class="form-control" type="text" name="nom_fichier"
         placeholder="Nom de la page si aucun fichier n'est sélectionné" />
 </div>
 
-<div class="form-group">
+<div class="form-group"${modes.import ? "" : ' style="display:none;"'}>
     <label>Documents PDF ou Word</label>
 
     <div class="branch-import-actions">
@@ -728,7 +809,7 @@ function ajouterDocument() {
             }
 
             if (emptyPageGroup) {
-                emptyPageGroup.style.display = "";
+                emptyPageGroup.style.display = DocPropositions.modeFor("create") ? "" : "none";
             }
 
             clearButton.style.display = "none";
@@ -750,7 +831,7 @@ function ajouterDocument() {
             });
 
             if (emptyPageGroup) {
-                emptyPageGroup.style.display = files.length > 0 ? "none" : "";
+                emptyPageGroup.style.display = files.length > 0 || !DocPropositions.modeFor("create") ? "none" : "";
             }
 
             if (clearButton) {
@@ -763,10 +844,12 @@ function ajouterDocument() {
     }
 
     document.getElementById("popup").style.display = "block";
-    if (window.DocPropositions) DocPropositions.ready.then(function(){DocPropositions.applyPermissions();});
+    DocPropositions.applyPermissions();
+    updateDocumentationCreationLabels();
 }
 
 function renderDocumentSelectionPreview() {
+    updateDocumentationCreationLabels();
     const selectionInfo = document.getElementById("document-selection-info");
 
     if (!selectionInfo) {
@@ -953,23 +1036,6 @@ function getSelectedDocumentImports() {
     });
 }
 
-async function uploadImportedDocument(uploadUrl, file, safeName, formToken) {
-    const uploadData = new FormData();
-    uploadData.append("filepath", file, safeName);
-    uploadData.append("form_token", formToken);
-
-    const response = await fetch(uploadUrl, {
-        method: "POST",
-        body: uploadData,
-        credentials: "same-origin",
-        headers: { "X-Requested-With": "XMLHttpRequest" }
-    });
-
-    if (!response.ok) {
-        throw new Error("UPLOAD_DOCUMENT_ECHOUE_" + response.status);
-    }
-}
-
 async function sendCreationRequest(formulaire, parentPage, importInfo, formToken, creationType) {
     await DocPropositions.ready;
     const formData = new FormData(formulaire);
@@ -992,18 +1058,24 @@ async function sendCreationRequest(formulaire, parentPage, importInfo, formToken
     formData.set("source_filename", importInfo.safeName || "");
     formData.set("source_kind", importInfo.kind || "");
     if (importInfo.file) formData.append("filePath", importInfo.file, importInfo.safeName || importInfo.file.name);
-    const response = await fetch(urlCommande, {
+    const commandURL = new URL(urlCommande, window.location.href);
+    commandURL.searchParams.set("xpage", "plain");
+    const response = await fetch(commandURL.href, {
         method: "POST", body: formData, credentials: "same-origin",
         headers: {"X-Requested-With": "XMLHttpRequest"}
     });
     const result = await response.text();
-    const proposed = result.includes("PROPOSITION_OK");
-    if (!response.ok || (!proposed && !result.includes("LIEN_AJOUTE_OK"))) throw new Error(result);
+    const fallback = "L’ajout n’a pas pu être enregistré. Réessayez ou rechargez la page.";
+    const failure = DocPropositions.responseError(result, fallback, response.status);
+    if (!response.ok || failure) throw new Error(failure || fallback);
     const parsed = new DOMParser().parseFromString(result, "text/html");
     const creation = parsed.getElementById("creation-result");
+    const code = creation && creation.getAttribute("data-code") || parsed.body.textContent.trim();
+    const proposed = code === "PROPOSITION_OK";
+    if (!creation || (!proposed && code !== "LIEN_AJOUTE_OK")) throw new Error(fallback);
     const proposalRef = creation ? creation.getAttribute("data-proposal-ref") || "" : "";
     const pageRef = proposalRef || (creation ? creation.getAttribute("data-page-ref") : "");
-    if (!pageRef) throw new Error("REFERENCE_PAGE_INTROUVABLE");
+    if (!pageRef) throw new Error("La référence de l’élément ajouté est introuvable. Rechargez la page.");
     if (proposed) {
         context.proposalRefs.add(pageRef);
         context.proposedCount = (context.proposedCount || 0) + 1;
@@ -1013,25 +1085,7 @@ async function sendCreationRequest(formulaire, parentPage, importInfo, formToken
 }
 
 function formatDocumentImportError(error, pageName) {
-    const message = error && error.message ? error.message : String(error || "");
-
-    if (message.indexOf("ERREUR_PAGE_EXISTE") !== -1) {
-        return pageName + " : une page avec ce nom existe déjà.";
-    }
-
-    if (message.indexOf("ERREUR_IMPORT_OFFICE") !== -1) {
-        return pageName + " : la conversion Word vers XWiki a échoué.";
-    }
-
-    if (message.indexOf("ERREUR_DOCUMENT_MANQUANT") !== -1) {
-        return pageName + " : le fichier Word n'a pas été reçu.";
-    }
-
-    if (message.indexOf("ERREUR_CSRF") !== -1) {
-        return pageName + " : la session de sécurité a expiré.";
-    }
-
-    return pageName + " : " + message.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ");
+    return pageName + " : " + DocPropositions.errorMessage(error, "L’élément n’a pas pu être ajouté.");
 }
 
 function countBranchNodes(node) {
@@ -1171,6 +1225,8 @@ async function popupValider() {
     if (!formulaire || !parentPage || !box || !actionInput || (button && button.disabled)) return;
 
     try {
+        const status = document.getElementById("documentation-popup-status");
+        if (status) status.remove();
         if (button) {
             button.disabled = true;
         }
@@ -1203,9 +1259,10 @@ async function popupValider() {
                 }
 
                 if (result.failures.length > 0) {
-                    alert(
-                        result.successCount + " élément(s) créé(s) sur " + result.total + ".\n\n" +
-                        "Échecs :\n" + result.failures.join("\n")
+                    documentationCreationContext.failureCount = result.failures.length;
+                    documentationPopupMessage(
+                        result.successCount + " élément(s) " + (documentationCreationContext.mode === "proposal" ? "proposé(s)" : "ajouté(s)") +
+                        " sur " + result.total + ". " + result.failures.join(" ; "), true
                     );
                 }
 
@@ -1281,9 +1338,10 @@ async function popupValider() {
         }
 
         if (failures.length > 0) {
-            alert(
-                successCount + " document(s) créé(s) sur " + imports.length + ".\n\n" +
-                "Échecs :\n" + failures.join("\n")
+            documentationCreationContext.failureCount = failures.length;
+            documentationPopupMessage(
+                successCount + " document(s) " + (documentationCreationContext.mode === "proposal" ? "proposé(s)" : "ajouté(s)") +
+                " sur " + imports.length + ". " + failures.join(" ; "), true
             );
         }
     } catch (error) {
@@ -1292,29 +1350,32 @@ async function popupValider() {
         const message = error && error.message ? error.message : String(error || "");
 
         if (message.indexOf("FORMAT_DOCUMENT_NON_SUPPORTE:") === 0) {
-            alert(
+            documentationPopupMessage(
                 "Format non supporté pour " +
                 message.substring("FORMAT_DOCUMENT_NON_SUPPORTE:".length) +
-                ". Choisis uniquement des fichiers PDF, DOC ou DOCX."
+                ". Choisis uniquement des fichiers PDF, DOC ou DOCX.", true
             );
         } else if (message === "NOM_DOCUMENT_MANQUANT") {
-            alert("Entre un nom de page ou sélectionne au moins un document.");
+            documentationPopupMessage("Entre un nom de page ou sélectionne au moins un document.", true);
         } else if (message === "AUCUN_DOCUMENT_SELECTIONNE") {
-            alert("Sélectionne au moins un document à importer.");
+            documentationPopupMessage("Sélectionne au moins un document à importer.", true);
         } else if (message === "AUCUN_ELEMENT_SELECTIONNE") {
-            alert("Active au moins un élément de l'arborescence à copier.");
+            documentationPopupMessage("Active au moins un élément de l’arborescence à copier.", true);
         } else if (message === "NOM_DOSSIER_MANQUANT") {
-            alert("Entre un nom de dossier ou sélectionne une arborescence à importer.");
+            documentationPopupMessage("Entre un nom de dossier ou sélectionne une arborescence à importer.", true);
         } else {
-            alert("Erreur lors de la création : " + message);
+            documentationPopupMessage(window.DocPropositions ? DocPropositions.errorMessage(error, "L’ajout n’a pas pu être enregistré.") :
+                "Les autorisations ne sont pas disponibles. Recharge la page.", true);
         }
     } finally {
         const proposedCount = documentationCreationContext ? documentationCreationContext.proposedCount : 0;
+        const failureCount = documentationCreationContext ? documentationCreationContext.failureCount : 0;
         documentationCreationContext = null;
         if (window.DocPropositions) DocPropositions.endBatch();
-        if (button) { button.disabled = false; button.textContent = "Valider"; }
+        if (button) button.disabled = false;
+        updateDocumentationCreationLabels();
         if (proposedCount && document.getElementById("popup").style.display === "none") {
-            DocPropositions.notify(proposedCount + " élément(s) proposé(s), en attente de validation.");
+            if (!failureCount) DocPropositions.notify(proposedCount + " élément(s) proposé(s), en attente de validation.");
             if (typeof openDocumentationProposals === "function") openDocumentationProposals(box);
         }
     }

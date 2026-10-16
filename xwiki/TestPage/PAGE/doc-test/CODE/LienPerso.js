@@ -452,6 +452,9 @@ function createSpan(box) {
     initExplorerSidebarAccordion(box);
     initExplorerSearch(box);
     initExplorerManagement(box);
+    if (window.DocPropositions && typeof window.DocPropositions.applyPermissions === "function") {
+        window.DocPropositions.applyPermissions();
+    }
 }
 
 function getExplorerFormToken() {
@@ -588,72 +591,86 @@ function filterTopLevelSelection(items) {
     return kept;
 }
 
-async function postExplorerAction(parameters) {
-    if (parameters.action === "deplacer element" && window.DocPropositions && window.DocPropositions.postActionParameters) {
-        parameters = await window.DocPropositions.postActionParameters("move", parameters);
+function getExplorerActionError(result, fallback, status) {
+    const api = window.DocPropositions;
+    const message = fallback || "L’opération documentaire n’a pas pu être effectuée.";
+    if (api && typeof api.responseError === "function") {
+        return api.responseError(String(result || ""), message, status) || message;
     }
-    const data = new FormData();
-    data.set("form_token", getExplorerFormToken());
-
-    Object.keys(parameters).forEach(function(key) {
-        data.set(key, parameters[key]);
-    });
-
-    const response = await fetch(urlCommande, {
-        method: "POST",
-        body: data,
-        credentials: "same-origin",
-        headers: {
-            "X-Requested-With": "XMLHttpRequest"
-        }
-    });
-
-    return response.text();
+    // Une réponse XWiki peut contenir une page d’exception entière : ne jamais
+    // l’afficher telle quelle dans les messages destinés à l’utilisateur.
+    const codes = {
+        ERREUR_DROITS_SERVICE: "La page COMMANDE doit être enregistrée par un administrateur XWiki.",
+        ERREUR_DROITS: "Vous n’avez pas les droits nécessaires pour cette opération.",
+        ERREUR_DESTINATION_EXISTE: "Un élément portant le même nom existe déjà dans la destination.",
+        ERREUR_DESTINATION_DANS_SOURCE: "Un dossier ne peut pas être déplacé dans lui-même ou dans un de ses descendants.",
+        ERREUR_DEPLACEMENT_IDENTIQUE: "Cet élément se trouve déjà dans ce dossier.",
+        ERREUR_RACINE_PROTEGEE: "La racine doc-test ne peut pas être déplacée ou supprimée.",
+        ERREUR_SOURCE_INTROUVABLE: "L’élément source n’existe plus.",
+        ERREUR_DESTINATION_INTROUVABLE: "Le dossier de destination n’existe plus.",
+        ERREUR_SUPPRESSION: "La suppression a échoué.",
+        ERREUR_DEPLACEMENT: "Le déplacement a échoué."
+    };
+    const code = String(result || "").match(/\bERREUR_[A-Z_]+\b/);
+    return code && codes[code[0]] ? codes[code[0]] : message;
 }
 
-function getExplorerActionError(result) {
-    const plain = String(result || "")
-        .replace(/<[^>]*>/g, " ")
-        .replace(/\s+/g, " ")
-        .trim();
-
-    if (plain.indexOf("ERREUR_DROITS") !== -1) {
-        return "Tu n'as pas les droits nécessaires pour cette opération.";
+function getExplorerErrorMessage(error, fallback) {
+    const api = window.DocPropositions;
+    if (api && typeof api.errorMessage === "function") {
+        return api.errorMessage(error, fallback);
     }
-
-    if (plain.indexOf("ERREUR_DESTINATION_EXISTE") !== -1) {
-        return "Un élément portant le même nom existe déjà dans la destination.";
+    const message = error && typeof error.message === "string" ? error.message : "";
+    if (!message || message.length > 240 || /[<>{}]|ERREUR_|Exception|\bat [\w.$]+\(/.test(message)) {
+        return getExplorerActionError(message, fallback);
     }
+    return message;
+}
 
-    if (plain.indexOf("ERREUR_DESTINATION_DANS_SOURCE") !== -1) {
-        return "Un dossier ne peut pas être déplacé dans lui-même ou dans un de ses descendants.";
+async function requireExplorerRight(right) {
+    const api = window.DocPropositions;
+    if (api && api.ready) await api.ready;
+    if (!api || typeof api.can !== "function" || typeof api.modeFor !== "function") {
+        throw new Error("Les autorisations n’ont pas pu être chargées. Rechargez la page avant de réessayer.");
     }
-
-    if (plain.indexOf("ERREUR_DEPLACEMENT_IDENTIQUE") !== -1) {
-        return "Cet élément se trouve déjà dans ce dossier.";
+    if (right === "delete" ? !api.can("delete") : !api.modeFor(right)) {
+        throw new Error(right === "delete"
+            ? "Vous n’avez pas le droit de supprimer des documents ou des dossiers."
+            : "Vous n’avez pas le droit de déplacer des éléments ni de proposer leur déplacement.");
     }
+    return api;
+}
 
-    if (plain.indexOf("ERREUR_RACINE_PROTEGEE") !== -1) {
-        return "La racine doc-test ne peut pas être déplacée ou supprimée.";
+function documentationCanMove() {
+    const api = window.DocPropositions;
+    return !!(api && typeof api.modeFor === "function" && api.modeFor("move"));
+}
+
+async function postExplorerAction(parameters) {
+    const right = parameters.action === "supprimer element" ? "delete" :
+        parameters.action === "deplacer element" ? "move" : "";
+    if (!right) throw new Error("Cette opération documentaire est inconnue.");
+    const api = await requireExplorerRight(right);
+    if (typeof api.postActionParameters !== "function" || typeof api.request !== "function") {
+        throw new Error("Rechargez la page pour charger les commandes et les autorisations de la documentation.");
     }
-
-    if (plain.indexOf("ERREUR_SOURCE_INTROUVABLE") !== -1) {
-        return "L'élément source n'existe plus.";
+    // Les suppressions, comme les déplacements, vérifient la version du
+    // document avant le POST ; aucune mutation ne part sans autorisation.
+    const values = await api.postActionParameters(right, parameters);
+    const response = await api.request(values.action, values);
+    const result = typeof response === "string" ? response : response && response.rawText || "";
+    if (typeof api.responseError === "function") {
+        const error = api.responseError(result, "L’opération documentaire n’a pas pu être effectuée.");
+        if (error) throw new Error(error);
     }
+    return result;
+}
 
-    if (plain.indexOf("ERREUR_DESTINATION_INTROUVABLE") !== -1) {
-        return "Le dossier de destination n'existe plus.";
-    }
-
-    if (plain.indexOf("ERREUR_SUPPRESSION") !== -1) {
-        return "La suppression a échoué.";
-    }
-
-    if (plain.indexOf("ERREUR_DEPLACEMENT") !== -1) {
-        return "Le déplacement a échoué.";
-    }
-
-    return plain || "Une erreur inconnue s'est produite.";
+function explorerActionSucceeded(result, code) {
+    const parsed = new DOMParser().parseFromString(String(result || ""), "text/html");
+    if (parsed.querySelector("#documentation-error,.xwikirenderingerror,.xwikirenderingerrordescription,.box.errormessage")) return false;
+    const text = parsed.body ? parsed.body.textContent : "";
+    return text.split(/\s+/).indexOf(code) !== -1;
 }
 
 async function moveExplorerItem(sourceRef, destinationRef) {
@@ -663,7 +680,7 @@ async function moveExplorerItem(sourceRef, destinationRef) {
         target_parent_ref: destinationRef
     });
 
-    if (result.indexOf("PROPOSITION_OK") !== -1) {
+    if (explorerActionSucceeded(result, "PROPOSITION_OK")) {
         const proposal = new DOMParser().parseFromString(result, "text/html").getElementById("creation-result");
         return {
             oldRef: sourceRef, newRef: sourceRef, proposed: true,
@@ -671,7 +688,7 @@ async function moveExplorerItem(sourceRef, destinationRef) {
         };
     }
 
-    if (result.indexOf("DEPLACEMENT_OK") === -1) {
+    if (!explorerActionSucceeded(result, "DEPLACEMENT_OK")) {
         throw new Error(getExplorerActionError(result));
     }
 
@@ -689,6 +706,12 @@ async function moveExplorerItem(sourceRef, destinationRef) {
 }
 
 async function deleteExplorerItems(box, items) {
+    try {
+        await requireExplorerRight("delete");
+    } catch (error) {
+        alert(getExplorerErrorMessage(error, "Vous n’avez pas le droit de supprimer ces éléments."));
+        return;
+    }
     const filtered = filterTopLevelSelection(items);
 
     if (filtered.length === 0) {
@@ -734,7 +757,7 @@ async function deleteExplorerItems(box, items) {
                 source_ref: item.ref
             });
 
-            if (result.indexOf("SUPPRESSION_OK") === -1) {
+            if (!explorerActionSucceeded(result, "SUPPRESSION_OK")) {
                 throw new Error(getExplorerActionError(result));
             }
 
@@ -742,17 +765,18 @@ async function deleteExplorerItems(box, items) {
         } catch (error) {
             failures.push(
                 item.title + " : " +
-                (error && error.message ? error.message : String(error))
+                getExplorerErrorMessage(error, "L’opération documentaire a échoué.")
             );
         }
     }
 
-    explorerSelectionMode = false;
-
-    const currentRef = getCurrentExplorerPageRef(box);
-
-    if (currentRef) {
-        LienPerso(currentRef, box);
+    if (deleteButton) deleteButton.textContent = "Supprimer";
+    if (successCount > 0) {
+        explorerSelectionMode = false;
+        const currentRef = getCurrentExplorerPageRef(box);
+        if (currentRef) LienPerso(currentRef, box);
+    } else {
+        updateExplorerSelectionState(box);
     }
 
     if (failures.length > 0) {
@@ -761,10 +785,18 @@ async function deleteExplorerItems(box, items) {
             filtered.length + ".\n\nÉchecs :\n" +
             failures.join("\n")
         );
+    } else if (window.DocPropositions && typeof window.DocPropositions.notify === "function") {
+        window.DocPropositions.notify(successCount + " élément(s) supprimé(s).");
     }
 }
 
-function startDirectExplorerMove(box) {
+async function startDirectExplorerMove(box) {
+    try {
+        await requireExplorerRight("move");
+    } catch (error) {
+        alert(getExplorerErrorMessage(error, "Vous n’avez pas le droit de déplacer ces éléments."));
+        return;
+    }
     const selected = filterTopLevelSelection(
         getSelectedExplorerItems(box)
     );
@@ -827,6 +859,12 @@ function updateMoveDestinationBar(box) {
 }
 
 async function confirmDirectExplorerMove(box) {
+    try {
+        await requireExplorerRight("move");
+    } catch (error) {
+        alert(getExplorerErrorMessage(error, "Vous n’avez pas le droit de déplacer ces éléments."));
+        return;
+    }
     const items = getPendingMoveItems();
 
     if (items.length === 0) {
@@ -889,13 +927,15 @@ async function confirmDirectExplorerMove(box) {
         } catch (error) {
             failures.push(
                 item.title + " : " +
-                (error && error.message ? error.message : String(error))
+                getExplorerErrorMessage(error, "L’opération documentaire a échoué.")
             );
         }
     }
 
-    explorerPendingMove = null;
-    LienPerso(destinationRef, box);
+    if (successCount > 0) {
+        explorerPendingMove = null;
+        LienPerso(destinationRef, box);
+    }
 
     if (failures.length > 0) {
         alert(
@@ -1882,11 +1922,11 @@ function renderArchitectureBranch(nodeRef) {
         row.classList.toggle("architecture-row-rejected", node.status === "rejected");
     }
 
-    if (node.type !== "root" && !architectureState.overlayMode) {
+    if (node.type !== "root" && !architectureState.overlayMode && documentationCanMove()) {
         row.draggable = true;
     }
 
-    if (!architectureState.overlayMode && (node.type === "root" || node.type === "folder")) {
+    if (!architectureState.overlayMode && documentationCanMove() && (node.type === "root" || node.type === "folder")) {
         row.classList.add("architecture-drop-target");
     }
 
@@ -2219,6 +2259,9 @@ function renderArchitectureTree() {
 
     tree.appendChild(list);
     updateArchitectureSummary();
+    if (window.DocPropositions && typeof window.DocPropositions.applyPermissions === "function") {
+        window.DocPropositions.applyPermissions();
+    }
 }
 
 function bindArchitectureDragAndDrop() {
@@ -2318,7 +2361,7 @@ function bindArchitectureDragAndDrop() {
             ? architectureState.nodes[ref]
             : null;
 
-        if (!node || node.type === "root" || node.proposed || architectureState.overlayMode) {
+        if (!node || node.type === "root" || node.proposed || architectureState.overlayMode || !documentationCanMove()) {
             event.preventDefault();
             return;
         }
@@ -2378,6 +2421,11 @@ function bindArchitectureDragAndDrop() {
         }
 
         event.preventDefault();
+        if (!documentationCanMove()) {
+            architectureDraggedRef = null;
+            alert("Vous n’avez pas le droit de déplacer des éléments ni de proposer leur déplacement.");
+            return;
+        }
 
         const targetRef = target.getAttribute(
             "data-architecture-ref"
@@ -2501,6 +2549,12 @@ async function deleteArchitectureSelection(box) {
     if (!architectureState) {
         return;
     }
+    try {
+        await requireExplorerRight("delete");
+    } catch (error) {
+        alert(getExplorerErrorMessage(error, "Vous n’avez pas le droit de supprimer ces éléments."));
+        return;
+    }
 
     const changed = getArchitectureChangedNodes();
 
@@ -2559,7 +2613,7 @@ async function deleteArchitectureSelection(box) {
                 source_ref: item.ref
             });
 
-            if (result.indexOf("SUPPRESSION_OK") === -1) {
+            if (!explorerActionSucceeded(result, "SUPPRESSION_OK")) {
                 throw new Error(getExplorerActionError(result));
             }
 
@@ -2567,23 +2621,23 @@ async function deleteArchitectureSelection(box) {
         } catch (error) {
             failures.push(
                 item.title + " : " +
-                (error && error.message ? error.message : String(error))
+                getExplorerErrorMessage(error, "L’opération documentaire a échoué.")
             );
         }
     }
 
-    try {
-        architectureState = await fetchArchitectureState();
-        renderArchitectureTree();
-    } catch (error) {
-        closeArchitectureEditor();
-    }
-
-    explorerSelectionMode = false;
-    explorerPendingMove = null;
-
-    if (typeof initialPageRef !== "undefined") {
-        LienPerso(initialPageRef, box);
+    if (successCount > 0) {
+        try {
+            architectureState = await fetchArchitectureState();
+            renderArchitectureTree();
+        } catch (error) {
+            closeArchitectureEditor();
+        }
+        explorerSelectionMode = false;
+        explorerPendingMove = null;
+        if (typeof initialPageRef !== "undefined") LienPerso(initialPageRef, box);
+    } else {
+        updateArchitectureSummary();
     }
 
     if (failures.length > 0) {
@@ -2592,11 +2646,19 @@ async function deleteArchitectureSelection(box) {
             selected.length + ".\n\nÉchecs :\n" +
             failures.join("\n")
         );
+    } else if (window.DocPropositions && typeof window.DocPropositions.notify === "function") {
+        window.DocPropositions.notify(successCount + " élément(s) supprimé(s).");
     }
 }
 
 async function validateArchitectureChanges(box) {
     if (!architectureState) {
+        return;
+    }
+    try {
+        await requireExplorerRight("move");
+    } catch (error) {
+        alert(getExplorerErrorMessage(error, "Vous n’avez pas le droit de déplacer ces éléments."));
         return;
     }
 
@@ -2683,22 +2745,20 @@ async function validateArchitectureChanges(box) {
         } catch (error) {
             failures.push(
                 node.title + " : " +
-                (
-                    error && error.message
-                        ? error.message
-                        : String(error)
-                )
+                getExplorerErrorMessage(error, "Le déplacement a échoué.")
             );
         }
     }
 
-    closeArchitectureEditor();
-
-    explorerPendingMove = null;
-    explorerSelectionMode = false;
-
-    if (typeof initialPageRef !== "undefined") {
-        LienPerso(initialPageRef, box);
+    if (successCount > 0) {
+        closeArchitectureEditor();
+        explorerPendingMove = null;
+        explorerSelectionMode = false;
+        if (typeof initialPageRef !== "undefined") LienPerso(initialPageRef, box);
+    } else if (validateButton) {
+        validateButton.disabled = false;
+        validateButton.textContent = documentationMovesAreProposals()
+            ? "Proposer les déplacements" : "Valider les déplacements";
     }
 
     if (failures.length > 0) {

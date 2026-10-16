@@ -110,11 +110,6 @@
   <button id="doc-add-folder" type="button" class="btn btn-primary" onclick="ajouterFichier()">Ajouter un dossier</button>
   <button id="doc-add-document" type="button" class="btn btn-primary" onclick="ajouterDocument()">Ajouter un document</button>
 #end
-  <label for="doc-contribution-mode">Contribution</label>
-  <select id="doc-contribution-mode" class="form-control">
-    <option value="direct">Directe selon mes droits</option>
-    <option value="proposal">Proposer pour validation</option>
-  </select>
   <button id="doc-proposals" type="button" class="btn btn-default">Propositions</button>
   <button id="doc-trash" type="button" class="btn btn-default">Corbeille</button>
 #if($canConfigure)
