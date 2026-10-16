@@ -10,7 +10,6 @@ Les traitements restent dans `TestPage.PAGE.doc-test.COMMANDE`. Les données sui
 | --- | --- |
 | `TestPage.PAGE.doc-test.WebHome` | Explorateur et boutons |
 | `TestPage.PAGE.doc-test.COMMANDE` | Traitements et réponses de l'explorateur, en Velocity |
-| `TestPage.PAGE.doc-test.CODE.Permissions` | Macro commune de calcul des autorisations |
 | `TestPage.PAGE.doc-test.CODE.DocumentContent` | Affichage contrôlé du contenu documentaire |
 | `TestPage.PAGE.doc-test.CODE.Configuration.WebHome` | Objet de configuration créé lors du premier enregistrement |
 | `TestPage.PAGE.doc-test.PROPOSITIONS` | Une page par élément proposé, avec son objet et ses pièces jointes |
@@ -22,17 +21,19 @@ Les pages proposées ne sont pas publiées dans l'arborescence documentaire avan
 
 Les changements GitHub doivent être copiés dans XWiki pour mettre l'instance à jour.
 
-1. Sauvegarder les pages actuelles. Installer les sources complètes de `WebHome.xwiki`, `COMMANDE.xwiki`, `CODE/Permissions.xwiki` et `CODE/DocumentContent.xwiki` en syntaxe **XWiki 2.1**, aux destinations du tableau ci-dessus.
+1. Sauvegarder les pages actuelles. Installer les sources complètes de `WebHome.xwiki`, `COMMANDE.xwiki` et `CODE/DocumentContent.xwiki` en syntaxe **XWiki 2.1**, aux destinations du tableau ci-dessus.
 2. Installer `CODE/Propositions.js` et `CODE/Propositions.css` dans les objets JavaScript Extension et StyleSheet Extension de `TestPage.PAGE.doc-test.CODE.Propositions`. Mettre à jour ensemble les extensions JavaScript `CODE.LienPerso`, `CODE.Popup`, `CODE.Post` et `CODE.SidebarPreview`, ainsi que les extensions CSS `CODE.FileExplorer`, `CODE.Popup`, `CODE.SidebarPreview` et `CODE.Breadcrumb`, depuis les fichiers correspondants. Les sources vont dans les objets d'extension, sans balise `<script>` ou `<style>` ajoutée ; configurer les extensions à la demande et sans analyse Velocity (`parse=false`).
 3. Créer les classes ci-dessous et les conteneurs `TestPage.PAGE.doc-test.PROPOSITIONS.WebHome` et `TestPage.PAGE.doc-test.CORBEILLE.WebHome`.
 4. Protéger les espaces privés et les pages techniques avec les droits indiqués plus bas. Enregistrer les pages de traitement et d'affichage avec un **administrateur du wiki disposant du droit Script** et des droits natifs nécessaires sur leurs données. Ce compte doit pouvoir modifier les autorisations des propositions. **Programming n'est pas nécessaire.**
 5. Avec un administrateur du wiki, ouvrir **Paramètres**, attribuer les opérations aux groupes voulus, puis enregistrer. Recharger sans cache avec **Ctrl + F5**.
 
+Si le module est déjà installé et affiche « Vous devez être connecté avec un compte autorisé » pour un administrateur, remplacer les sources complètes de **`TestPage.PAGE.doc-test.WebHome`** et **`TestPage.PAGE.doc-test.COMMANDE`**, puis recharger avec **Ctrl + F5**. Le calcul des droits s'exécute maintenant directement dans ces deux pages, comme dans le glossaire. L'ancienne page `CODE.Permissions` n'est plus utilisée. Les blocs de calcul des autorisations doivent rester identiques dans les deux sources ; les tests du dépôt vérifient cette correspondance.
+
 Cette version remplace la première implémentation de la PR. Les pages `CODE.WorkflowAPI`, les extensions `CODE.Workflow` et le stockage `TestPage.DocumentationWorkflow` de cette première version ne sont plus utilisés. Si cette version avait été installée sur l'instance, sauvegarder ses éventuelles données avant de retirer ces anciennes pages. Il n'y a pas de migration automatique de ce stockage abandonné.
 
 ## Autorisations par groupe
 
-**Paramètres** est visible seulement par les administrateurs du wiki ; le serveur vérifie aussi ce droit à l'enregistrement. Les opérations sont indépendantes et les appartenances aux groupes sont vérifiées côté serveur, avec les sous-groupes et les groupes qualifiés d'un autre wiki.
+**Paramètres** est visible seulement par les administrateurs du wiki ; le serveur vérifie aussi ce droit à l'enregistrement. La vérification utilise les droits natifs XWiki, y compris ceux hérités d'un groupe comme `IVQ_Gestionnaires`. Les opérations sont indépendantes et les appartenances aux groupes sont vérifiées côté serveur, avec les sous-groupes et les groupes qualifiés d'un autre wiki.
 
 | Autorisation | Opération directe permise |
 | --- | --- |
@@ -138,7 +139,7 @@ L'auteur des traitements doit pouvoir lire et modifier la configuration, lire/cr
 ## Tests du dépôt
 
 - `node tests/DocumentationPropositions.browser.test.js` : 13 parcours Chromium avec les véritables extensions et une page COMMANDE simulée ; nécessite Playwright et Chromium (`CHROMIUM_EXECUTABLE_PATH` facultatif).
-- `java -cp '/chemin/jars/*' tests/DocumentationVelocityTest.java` : 22 scénarios exécutant les sources Velocity avec des API XWiki simulées. JAR : Velocity 2.3, commons-lang3 et slf4j-api.
-- `java -cp '/chemin/jars/*' tests/DocumentationXWikiParsingTest.java` : vérification des quatre pages avec les parseurs XWiki 2.1 et Velocity ; ajouter xwiki-rendering-wikimodel 16.10.17 aux JAR précédents.
+- `java -cp '/chemin/jars/*' tests/DocumentationVelocityTest.java` : 28 scénarios exécutant les sources Velocity avec des API XWiki simulées, dont le démarrage complet de `WebHome` et `COMMANDE` sans préchargement des autorisations. JAR : Velocity 2.3, commons-lang3 et slf4j-api.
+- `java -cp '/chemin/jars/*' tests/DocumentationXWikiParsingTest.java` : vérification des trois pages avec les parseurs XWiki 2.1 et Velocity ; ajouter xwiki-rendering-wikimodel 16.10.17 aux JAR précédents.
 
 La recette sur l'instance reste nécessaire pour les ACL natives, les pièces jointes, le refactoring XWiki et l'importeur Office.

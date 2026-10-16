@@ -47,7 +47,7 @@ public class DocumentationXWikiParsingTest {
   public static void main(String[] args) throws Exception {
     VELOCITY.init();
     int count = 0;
-    for (String name : List.of("WebHome.xwiki", "COMMANDE.xwiki", "CODE/Permissions.xwiki", "CODE/DocumentContent.xwiki")) {
+    for (String name : List.of("WebHome.xwiki", "COMMANDE.xwiki", "CODE/DocumentContent.xwiki")) {
       String source = Files.readString(ROOT.resolve(name));
       List<Macro> values = macros(source);
       long expected = name.equals("COMMANDE.xwiki") ? 2 : 1;

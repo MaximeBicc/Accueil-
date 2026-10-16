@@ -6,7 +6,7 @@ import java.util.*;
 import org.apache.velocity.VelocityContext;
 import org.apache.velocity.app.VelocityEngine;
 
-/** Executes the actual permissions template with a small simulated XWiki API.
+/** Executes complete, unmodified documentation templates with a small simulated XWiki API.
  * Run from the repository root: java -cp '/path/to/velocity-jars/*' tests/DocumentationVelocityTest.java
  * Required jars: Velocity 2.3, commons-lang3, slf4j-api.
  * This exercises Velocity and permission decisions, not a deployed XWiki server.
@@ -20,7 +20,8 @@ public class DocumentationVelocityTest {
   static final String PROPOSALS = "TestPage.PAGE.doc-test.PROPOSITIONS";
   static final String TRASH = "TestPage.PAGE.doc-test.CORBEILLE";
   static final long NOW = 1792137600000L, WEEK = 604800000L;
-  static final VelocityEngine ENGINE = new VelocityEngine();
+  static final String POLICY_START = "## Début du calcul des autorisations (identique dans WebHome et COMMANDE).";
+  static final String POLICY_END = "## Fin du calcul des autorisations.";
   static int scenarios;
 
   public static class WikiRef {
@@ -98,11 +99,13 @@ public class DocumentationVelocityTest {
     public String getURL(String action, String query) { return getURL(action) + "?" + query; }
   }
   public static class Wiki {
-    final Doc config = new Doc();
+    final Doc config = new Doc(this, "TestPage.PAGE.doc-test.CODE.Configuration.WebHome");
     final Map<String, Doc> docs = new LinkedHashMap<>();
     final List<String> deleted = new ArrayList<>();
     int unique;
     boolean admin, serviceAdmin = true, visible = true, nativeEdit, nativeDelete, readableConfiguration = true;
+    public Extensions getJsx() { return new Extensions(); }
+    public Extensions getSsx() { return new Extensions(); }
     public boolean hasWikiAdminRights() { return admin; }
     public boolean hasAccessLevel(String level, String user, String ref) {
       return switch (level) { case "admin" -> user.equals("XWiki.ScriptAuthor") ? serviceAdmin : admin; case "view" -> visible; case "edit" -> nativeEdit; case "delete" -> nativeDelete; default -> false; };
@@ -116,6 +119,10 @@ public class DocumentationVelocityTest {
     public Doc getDocument(Ref ref) { return getDocumentAsAuthor(ref); }
     public String getUniquePageName(String space) { return "P" + (++unique); }
     public String formatDate(Date value, String format) { return new SimpleDateFormat(format).format(value); }
+    public String getURL(String reference, String action) { return "/xwiki/bin/" + action + "/" + reference; }
+  }
+  public static class Extensions {
+    public boolean use(String reference) { return true; }
   }
   public static class UserContext {
     Ref user = new Ref("xwiki", "XWiki.Alice");
@@ -156,11 +163,13 @@ public class DocumentationVelocityTest {
   public static class Escape {
     public String xml(Object value) { return String.valueOf(value).replace("&", "&amp;").replace("\"", "&quot;").replace("<", "&lt;"); }
     public String velocity(String value) { return value.replace("$", "${escapetool.d}").replace("#", "${escapetool.h}"); }
+    public String javascript(String value) { return value.replace("\\", "\\\\").replace("\"", "\\\""); }
     public String getD() { return "$"; }
     public String getH() { return "#"; }
   }
   public static class Csrf {
     public boolean isTokenValid(String value) { return value.equals("test-token"); }
+    public String getToken() { return "test-token"; }
   }
   public static class Strings {
     public String join(Collection<?> values, String separator) { return String.join(separator, values.stream().map(String::valueOf).toList()); }
@@ -172,52 +181,60 @@ public class DocumentationVelocityTest {
     final Model model = new Model();
     final Request request = new Request();
     VelocityContext context;
+    VelocityEngine engine;
+    String pageOutput;
     void configured() { wiki.config.configuration.set("schemaVersion", "1"); }
     void group(String field, String reference) {
       wiki.config.configuration.set(field, reference);
       users.group.members.add(model.resolveDocument(reference));
     }
-    void render() throws Exception {
+    void initContext(String page) {
+      // Each page/request starts with no preloaded macro library or previous request state.
+      engine = new VelocityEngine();
+      engine.setProperty("velocimacro.library", "");
+      engine.init();
       context = new VelocityContext();
       context.put("xwiki", wiki); context.put("xcontext", user); context.put("datetool", new DateTool());
       context.put("services", Map.of("model", model, "user", users, "query", new Queries(wiki), "csrf", new Csrf()));
       context.put("request", request); context.put("escapetool", new Escape());
-      context.put("doc", new Doc(wiki, "TestPage.PAGE.doc-test.COMMANDE")); context.put("stringtool", new Strings());
-      String source = Files.readString(ROOT.resolve("CODE/Permissions.xwiki"));
-      int first = source.indexOf("}}") + 2, last = source.lastIndexOf("{{/velocity}}");
-      StringWriter output = new StringWriter();
-      ENGINE.evaluate(context, output, "documentation permissions", source.substring(first, last) + "\n#documentationPermissions()\n");
+      context.put("doc", new Doc(wiki, page.equals("WebHome.xwiki") ? MAIN : "TestPage.PAGE.doc-test.COMMANDE"));
+      context.put("stringtool", new Strings());
     }
+    String renderPage(String page) throws Exception {
+      initContext(page);
+      String source = Files.readString(ROOT.resolve(page));
+      java.util.regex.Matcher blocks = java.util.regex.Pattern.compile("\\{\\{velocity([^}]*)}}(.*?)\\{\\{/velocity}}", java.util.regex.Pattern.DOTALL).matcher(source);
+      StringBuilder result = new StringBuilder(); int blockCount = 0;
+      while (blocks.find()) {
+        StringWriter output = new StringWriter();
+        // Preserve the shared context between the page's original Velocity blocks.
+        engine.evaluate(context, output, page, blocks.group(2));
+        if (!blocks.group(1).contains("output=\"false\"")) result.append(output);
+        blockCount++;
+      }
+      check(blockCount == (page.equals("COMMANDE.xwiki") ? 2 : 1), "Unexpected Velocity block count in " + page);
+      pageOutput = result.toString();
+      return pageOutput;
+    }
+    void render() throws Exception { renderPage("WebHome.xwiki"); }
     boolean can(String right) { return Boolean.TRUE.equals(context.get("can" + right)); }
     void trash(String ref, String status, Long deletedAt) { wiki.docs.put(ref, new TrashDoc(wiki, ref, status, deletedAt)); }
     void purge() throws Exception {
-      render();
       commandMacros();
-      ENGINE.evaluate(context, new StringWriter(), "documentation purge", "#purgeExpiredProposals()");
+      evaluateCommand("#purgeExpiredProposals()");
     }
     void commandMacros() throws Exception {
-      String command = Files.readString(ROOT.resolve("COMMANDE.xwiki"));
-      int first = command.indexOf("}}") + 2, last = command.indexOf("#if($request.getMethod() == 'POST')");
-      if (last < 0) throw new AssertionError("Cannot find command dispatcher after the real macro definitions");
-      String macros = command.substring(first, last).replace("#includeMacros('TestPage.PAGE.doc-test.CODE.Permissions')", "");
-      ENGINE.evaluate(context, new StringWriter(), "documentation macro registration", macros);
+      renderPage("COMMANDE.xwiki");
     }
+    void evaluateCommand(String source) { engine.evaluate(context, new StringWriter(), "COMMANDE.xwiki", source); }
     String list(String action) throws Exception {
-      request.action = action; request.method = "GET"; render(); commandMacros();
-      String command = Files.readString(ROOT.resolve("COMMANDE.xwiki"));
-      int first = command.indexOf("{{velocity}}") + "{{velocity}}".length(), last = command.lastIndexOf("{{/velocity}}");
-      StringWriter output = new StringWriter();
-      ENGINE.evaluate(context, output, "documentation listing", command.substring(first, last));
-      return output.toString();
+      request.action = action; request.method = "GET";
+      return renderPage("COMMANDE.xwiki");
     }
     String post(String action, String... pairs) throws Exception {
       request.action = action; request.method = "POST"; request.params.clear(); request.params.put("form_token", "test-token");
       for (int index = 0; index < pairs.length; index += 2) request.params.put(pairs[index], pairs[index + 1]);
-      render();
-      String command = Files.readString(ROOT.resolve("COMMANDE.xwiki"));
-      String body = command.substring(command.indexOf("}}") + 2, command.indexOf("{{/velocity}}"))
-          .replace("#includeMacros('TestPage.PAGE.doc-test.CODE.Permissions')", "");
-      ENGINE.evaluate(context, new StringWriter(), "documentation POST", body);
+      renderPage("COMMANDE.xwiki");
       return String.valueOf(context.get("errorCode")).isEmpty() ? String.valueOf(context.get("resultCode")) : String.valueOf(context.get("errorCode"));
     }
     Doc document(String ref, String type, String title) {
@@ -228,12 +245,62 @@ public class DocumentationVelocityTest {
 
   static void check(boolean valid, String label) { if (!valid) throw new AssertionError(label); }
   static void done(String label) { scenarios++; System.out.println("PASS: " + label); }
+  static String policy(String source) {
+    int first = source.indexOf(POLICY_START), last = source.indexOf(POLICY_END);
+    check(first >= 0 && last > first, "The permission calculation must be present directly in each entry page");
+    return source.substring(first, last + POLICY_END.length());
+  }
   static void denyWrites(Fixture f) {
     for (String right : List.of("Create", "Move", "Modify", "Import", "Content", "Propose", "Review", "Delete"))
       check(!f.can(right), "Unexpected permission: " + right);
   }
   public static void main(String[] args) throws Exception {
-    ENGINE.init();
+    String homeSource = Files.readString(ROOT.resolve("WebHome.xwiki"));
+    String commandSource = Files.readString(ROOT.resolve("COMMANDE.xwiki"));
+    check(policy(homeSource).equals(policy(commandSource)), "Home and server must calculate identical permissions");
+    for (String source : List.of(homeSource, commandSource)) {
+      check(!source.contains("CODE.Permissions") && !source.contains("#documentationPermissions") && !source.contains("#includeMacros"),
+        "Permissions must be calculated without an external page or macro prelude");
+    }
+    check(!Files.exists(ROOT.resolve("CODE/Permissions.xwiki")), "The obsolete permissions macro page must not be required for installation");
+    done("Home and COMMANDE contain identical permission calculations with no external macro dependency");
+
+    Fixture boot = new Fixture(); boot.wiki.admin = true;
+    // Membership is evaluated by XWiki's native admin API, not a production group-name special case.
+    boot.users.group.members.add(boot.model.resolveDocument("XWiki.IVQ_Gestionnaires"));
+    boot.render();
+    check(boot.pageOutput.contains("id=\"box\"") && boot.pageOutput.contains("id=\"doc-settings\""), "A native administrator must see the explorer and settings on the real first page render");
+    check(!boot.pageOutput.contains("Vous devez être connecté") && !boot.pageOutput.contains("#documentationPermissions"), "A valid administrator cannot receive the false connection warning");
+    check(boot.pageOutput.contains("value=\"test-token\""), "The complete page must render the real CSRF form token");
+    String workflow = boot.list("workflow");
+    check(workflow.contains("data-can-configure=\"true\"") && workflow.contains("data-can-create=\"true\""), "COMMANDE must bootstrap native administrator permissions independently of WebHome");
+    done("Fresh complete WebHome and COMMANDE renders recognize an IVQ_Gestionnaires native administrator");
+
+    boot = new Fixture(); boot.wiki.nativeEdit = true; boot.render();
+    check(boot.pageOutput.contains("id=\"box\"") && !boot.pageOutput.contains("id=\"doc-settings\""), "An authorized editor must see the explorer without administrator settings");
+    workflow = boot.list("workflow");
+    check(workflow.contains("data-can-configure=\"false\"") && workflow.contains("data-can-create=\"true\""), "Fresh editor workflow must retain native permissions without settings");
+    done("Fresh complete editor renders show the explorer while hiding administrator settings");
+
+    boot = new Fixture(); boot.user.user = new Ref("xwiki", "XWiki.XWikiGuest"); boot.render();
+    check(boot.pageOutput.contains("Vous devez être connecté") && !boot.pageOutput.contains("id=\"box\""), "An anonymous user must still receive the connection warning");
+    check(boot.post("enregistrer parametres", "expectedVersion", "1.1").equals("ERREUR_DROITS"), "Guests cannot modify settings through COMMANDE");
+    done("Fresh anonymous page and server requests retain the connection and write restrictions");
+
+    boot = new Fixture(); boot.wiki.visible = false; boot.render();
+    check(boot.pageOutput.contains("Vous devez être connecté") && !boot.pageOutput.contains("id=\"box\""), "A logged-in user without view permission cannot see the explorer");
+    workflow = boot.list("workflow");
+    check(workflow.contains("ERREUR_DROITS") && !workflow.contains("id=\"documentation-permissions\""), "The server must enforce native view denial independently");
+    done("Fresh complete renders enforce native view denial for authenticated users");
+
+    boot = new Fixture(); boot.wiki.admin = true;
+    String saved = boot.post("enregistrer parametres", "expectedVersion", "1.1");
+    check(saved.equals("PARAMETRES_OK"), "A native administrator must be able to save settings: " + saved);
+    check(boot.pageOutput.contains("PARAMETRES_OK"), "The real complete server response must expose the successful result");
+    boot.wiki.admin = false;
+    check(boot.post("enregistrer parametres", "expectedVersion", boot.wiki.config.getVersion()).equals("ERREUR_DROITS"), "Non-administrators cannot save settings by forging a request");
+    done("Fresh complete settings POST accepts native administrators and rejects ordinary users");
+
     Fixture f = new Fixture(); f.wiki.admin = true; f.configured(); f.render();
     for (String right : List.of("Configure", "Create", "Move", "Modify", "Import", "Content", "Propose", "Review", "Delete"))
       check(f.can(right), "Admin permission missing: " + right);
@@ -426,7 +493,7 @@ public class DocumentationVelocityTest {
     Doc foreign = f.document("Autre.Document.WebHome", "document", "Hors périmètre"); foreign.parent = movedFolder;
     foreign.getObject(DOCUMENT_CLASS).set("id", "à conserver");
     f.context.put("movedRootForTest", movedFolder);
-    ENGINE.evaluate(f.context, new StringWriter(), "moved document identifiers", "#updateMovedDocumentIds($movedRootForTest)");
+    f.evaluateCommand("#updateMovedDocumentIds($movedRootForTest)");
     check(moved.getObject(DOCUMENT_CLASS).getValue("id").equals(movedFolder), "Moved folder id must match its native reference");
     check(child.getObject(DOCUMENT_CLASS).getValue("id").equals(movedChild), "Descendant id must match its native reference");
     check(child.content.equals("Contenu conservé") && foreign.getObject(DOCUMENT_CLASS).getValue("id").equals("à conserver"), "Updating identifiers must preserve content and ignore foreign pages");
