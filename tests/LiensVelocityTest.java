@@ -55,13 +55,15 @@ public class LiensVelocityTest {
     public void set(String key, String value) { if (!key.equals(missingField)) values.put(key, value); }
   }
   public static class Doc {
-    final Wiki wiki; final Ref ref; Obj obj; String objClass = "", title = ""; int saves;
+    final Wiki wiki; final Ref ref; Obj obj; String objClass = "", title = "", content = ""; int saves;
     Doc(Wiki wiki, Ref ref) { this.wiki = wiki; this.ref = ref; }
     public boolean isNew() { return !wiki.docs.containsKey(ref) && !wiki.profiles.containsKey(ref); }
     public Obj getObject(String type) { return objClass.equals(type) || (objClass.equals("") && type.endsWith("lienClass.WebHome")) ? obj : null; }
     public Obj newObject(String type) { obj = new Obj(); objClass = type; obj.missingField = wiki.missingField; return obj; }
     public String getFullName() { return ref.toString(); }
     public String getName() { return ref.name; }
+    public String getContent() { return content; }
+    public void setContent(String value) { content = value; }
     public Ref getDocumentReference() { return ref; }
     public String getURL() { return "/liens"; }
     public String getURL(String name) { return "/liens"; }
@@ -76,6 +78,12 @@ public class LiensVelocityTest {
     final Map<Ref, Doc> docs = new LinkedHashMap<>();
     final Map<Ref, Doc> profiles = new LinkedHashMap<>();
     boolean allowed = true, admin, configurationReadable = true, refuseSave, emptyUserQuery; String missingField = "";
+    final Deque<String> pageNames = new ArrayDeque<>();
+    int uniqueCalls;
+    public String getUniquePageName(String space) {
+      uniqueCalls++;
+      return pageNames.isEmpty() ? String.format("%016x", uniqueCalls) : pageNames.removeFirst();
+    }
     public boolean hasWikiAdminRights() { return admin; }
     public Doc getDocumentAsAuthor(Object ref) { return configurationReadable ? getDocument(ref) : null; }
     public String getURL(String ref, String action) {
@@ -173,7 +181,7 @@ public class LiensVelocityTest {
       return new Job(() -> {
         if (failure.equals("noop")) return;
         Doc source = wiki.getDocument(r.source), dest = wiki.getDocument(r.target);
-        dest.obj = source.obj; dest.objClass = source.objClass; dest.save("", false);
+        dest.obj = source.obj; dest.objClass = source.objClass; dest.content = source.content; dest.title = source.title; dest.save("", false);
         if (!r.autoRedirect && !failure.equals("retain")) wiki.docs.remove(r.source);
       });
     }
@@ -387,7 +395,7 @@ public class LiensVelocityTest {
     check(result.equals("ERREUR_AUTEUR_DROITS"), "un profil existant sans écriture commune est refusé");
     f.groups.addMembers("XWiki.IVQ_Gestionnaires", "XWiki.AdeleMartin");
     result = f.render("DATA/WebHome.xwiki", "create", "proprietaire", "AdeleMartin");
-    check(result.startsWith("GLOSSAIRE_OK|") && f.wiki.getDocument("TestPage.PAGE.Liens.DATA.LIENDATA.AdeleMartin.IMPORT").obj.getValue("proprietaire").equals("AdeleMartin"), "membre d'un groupe d'écriture commune accepté à l'import");
+    check(result.startsWith("GLOSSAIRE_OK|") && savedDoc(f, result).obj.getValue("proprietaire").equals("AdeleMartin"), "membre d'un groupe d'écriture commune accepté à l'import");
     f = new Fixture(); f.groups.manager = true; Doc source = common(f);
     result = f.render("DATA/WebHome.xwiki", "save", "targetRef", source.getFullName(), "acronym", "COMMUN", "label", "Libellé", "definition", "Définition", "type", "commun", "proprietaire", "Inconnu");
     check(result.equals("ERREUR_AUTEUR_DROITS") && f.refactoring.calls == 0 && source.obj.getValue("proprietaire").equals("Test"), "édition refuse un auteur hors groupes sans déplacer la fiche");
@@ -441,7 +449,7 @@ public class LiensVelocityTest {
     f.userContext.user = "XWiki.Test";
     result = f.render("DATA/WebHome.xwiki", "create", "acronym", "GLOBAL", "label", "Libellé", "definition", "Définition", "type", "commun", "proprietaire", "autre:XWiki.Auteur");
     check(result.startsWith("GLOSSAIRE_OK|"), "création avec un membre qualifié d'un autre wiki");
-    check(f.wiki.getDocument("TestPage.PAGE.Liens.DATA.LIENDATA.Auteur.GLOBAL").obj.getValue("proprietaire").equals("Auteur"), "référence qualifiée jamais utilisée comme dossier ou propriétaire");
+    check(savedDoc(f, result).obj.getValue("proprietaire").equals("Auteur"), "référence qualifiée jamais utilisée comme dossier ou propriétaire");
     f.wiki.profile("NonMembre", "Ancien", "Auteur");
     Doc legacy = f.wiki.getDocument(new Ref("TestPage.PAGE.Liens.DATA.LIENDATA.NonMembre", "HISTORIQUE"));
     legacy.newObject("TestPage.PAGE.Liens.CODE.lienClass.WebHome"); legacy.obj.set("proprietaire", "NonMembre"); legacy.obj.set("type", "commun"); legacy.save("", false);
@@ -458,18 +466,21 @@ public class LiensVelocityTest {
     d.obj.set("proprietaire", owner); d.obj.set("type", type); d.obj.set("nom_lien", name);
     d.obj.set("lien", "Libellé " + name); d.obj.set("definition", "Définition"); d.save("", false); return d;
   }
+  static Doc savedDoc(Fixture f, String result) {
+    return f.wiki.getDocument(java.net.URLDecoder.decode(result.split("\\|", -1)[1], StandardCharsets.UTF_8));
+  }
   static void ownerIdTests() throws Exception {
     for (String owner : List.of("Autre", "XWiki.Autre", "xwiki:XWiki.Autre")) {
       Fixture f = new Fixture(); f.groups.manager = true;
       String result = f.render("DATA/WebHome.xwiki", "create", "acronym", "IMPORT", "label", "Libellé", "definition", "Définition", "type", "commun", "proprietaire", owner);
       check(result.startsWith("GLOSSAIRE_OK|"), "création accepte l'alias " + owner);
-      Doc saved = f.wiki.getDocument("TestPage.PAGE.Liens.DATA.LIENDATA.Autre.IMPORT");
+      Doc saved = savedDoc(f, result);
       check(!saved.isNew() && saved.obj.getValue("proprietaire").equals("Autre"), "propriétaire court enregistré pour " + owner);
       check(f.wiki.docs.size() == 1 && saved.ref.parent.endsWith(".Autre"), "un seul dossier userid pour " + owner);
     }
     Fixture f = new Fixture();
     String result = f.render("DATA/WebHome.xwiki", "create", "acronym", "PERSO", "label", "Libellé", "definition", "Définition", "type", "personnel", "proprietaire", "xwiki:XWiki.Test");
-    check(result.startsWith("GLOSSAIRE_OK|") && f.wiki.getDocument(SPACE + ".PERSO").obj.getValue("proprietaire").equals("Test"), "alias du compte connecté normalisé avec écriture personnelle seule");
+    check(result.startsWith("GLOSSAIRE_OK|") && savedDoc(f, result).obj.getValue("proprietaire").equals("Test"), "alias du compte connecté normalisé avec écriture personnelle seule");
     f = new Fixture(); f.groups.manager = true;
     result = f.render("DATA/WebHome.xwiki", "create", "acronym", "FORGE", "label", "Libellé", "definition", "Définition", "type", "commun", "proprietaire", "autre:XWiki.Autre");
     check(result.equals("ERREUR_AUTEUR_DROITS") && f.wiki.docs.isEmpty(), "une référence d'un autre wiki ne contourne pas la liste des membres");
@@ -481,7 +492,7 @@ public class LiensVelocityTest {
     Doc legacy = oldOwnerLink(f, "xwiki:XWiki.Autre", "ANCIEN", "commun");
     result = f.render("DATA/WebHome.xwiki", "save", "targetRef", legacy.getFullName(), "acronym", "ANCIEN", "label", "Libellé", "definition", "Définition", "type", "commun", "proprietaire", "xwiki:XWiki.Autre");
     check(result.startsWith("GLOSSAIRE_OK|") && legacy.isNew(), "ancien dossier qualifié déplacé lors de l'enregistrement");
-    check(f.wiki.docs.size() == 1 && f.wiki.getDocument("TestPage.PAGE.Liens.DATA.LIENDATA.Autre.ANCIEN").obj.getValue("proprietaire").equals("Autre"), "déplacement conserve une seule fiche sous userid");
+    check(f.wiki.docs.size() == 1 && savedDoc(f, result).obj.getValue("proprietaire").equals("Autre"), "déplacement conserve une seule fiche sous userid");
     f = new Fixture();
     legacy = oldOwnerLink(f, "xwiki:XWiki.Test", "RAWMINE", "personnel");
     oldOwnerLink(f, "xwiki:XWiki.Autre", "RAWSECRET", "personnel");
@@ -491,9 +502,68 @@ public class LiensVelocityTest {
     result = f.render("DATA/WebHome.xwiki", "listVisible");
     check(result.contains("|RAWMINE|") && result.contains("|personnel|Test") && !result.contains("RAWSECRET") && !result.contains("HOMONYME"), "liste visible normalise l'auteur personnel sans ouvrir les autres comptes");
     result = f.render("DATA/WebHome.xwiki", "save", "targetRef", legacy.getFullName(), "acronym", "RAWMINE", "label", "Libellé", "definition", "Définition", "type", "personnel", "proprietaire", "xwiki:XWiki.Test");
-    check(result.startsWith("GLOSSAIRE_OK|") && legacy.isNew() && !f.wiki.getDocument(SPACE + ".RAWMINE").isNew(), "ancien personnel corrigé dans userid à la prochaine modification");
+    check(result.startsWith("GLOSSAIRE_OK|") && legacy.isNew() && !savedDoc(f, result).isNew() && savedDoc(f, result).ref.parent.equals(SPACE), "ancien personnel corrigé dans userid à la prochaine modification");
     f = new Fixture(); legacy = oldOwnerLink(f, "xwiki:XWiki.Test", "SUPPRIMER", "personnel");
     check(f.delete(legacy.getFullName()).equals("GLOSSAIRE_OK") && legacy.isNew(), "suppression d'un ancien personnel qualifié reste possible");
+  }
+  static void stableAddressTests() throws Exception {
+    String homeSource = Files.readString(ROOT.resolve("Lien-test/WebHome.xwiki"));
+    String dataSource = Files.readString(ROOT.resolve("Liens/DATA/WebHome.xwiki"));
+    String begin = "## BEGIN LIENS ADDRESSES", end = "## END LIENS ADDRESSES";
+    check(homeSource.substring(homeSource.indexOf(begin), homeSource.indexOf(end)).equals(dataSource.substring(dataSource.indexOf(begin), dataSource.indexOf(end))), "même gestion des adresses en création manuelle et DATA");
+    Fixture f = new Fixture();
+    String result = f.render("DATA/WebHome.xwiki", "create", "acronym", "SITE", "label", "https://example.org/path?q=test", "definition", "Description");
+    check(result.startsWith("GLOSSAIRE_OK|"), "création DATA avec adresse automatique");
+    Doc first = savedDoc(f, result);
+    Ref firstRef = first.ref;
+    check(first.ref.name.matches("[A-Za-z0-9]{16}") && first.ref.parent.equals(SPACE), "format de 16 caractères du Glossaire sous le userid");
+    check(first.title.equals("SITE") && first.obj.getValue("nom_lien").equals("SITE") && first.obj.getValue("lien").equals("https://example.org/path?q=test"), "titre, acronyme et URL cible conservés indépendamment de l'adresse de la fiche");
+    result = f.render("DATA/WebHome.xwiki", "create");
+    Doc second = savedDoc(f, result);
+    check(!first.ref.equals(second.ref) && f.wiki.docs.size() == 2, "deux créations avec le même acronyme ont deux adresses distinctes");
+    result = f.save(first.getFullName(), "NOM MODIFIÉ");
+    check(result.startsWith("GLOSSAIRE_OK|") && savedDoc(f, result).ref.equals(firstRef) && f.refactoring.calls == 0, "modifier l'acronyme ne renomme plus une fiche stable");
+    check(first.title.equals("NOM MODIFIÉ") && first.obj.getValue("nom_lien").equals("NOM MODIFIÉ"), "titre et acronyme mis à jour sur la même fiche");
+    f.groups.manager = true;
+    result = f.render("DATA/WebHome.xwiki", "save", "targetRef", first.getFullName(), "acronym", "AUTRE AUTEUR", "type", "commun", "proprietaire", "Autre");
+    Doc moved = savedDoc(f, result);
+    check(result.startsWith("GLOSSAIRE_OK|") && moved.ref.name.equals(firstRef.name) && moved.ref.parent.endsWith(".Autre") && first.isNew(), "changer l'auteur conserve l'identifiant et déplace sous son userid");
+    result = f.render("DATA/WebHome.xwiki", "save", "targetRef", moved.getFullName(), "acronym", "ENCORE MODIFIÉ");
+    check(result.startsWith("GLOSSAIRE_OK|") && savedDoc(f, result).ref.equals(moved.ref) && f.refactoring.calls == 1, "l'adresse reste stable après un déplacement");
+
+    f = new Fixture(); Doc legacy = f.wiki.add("ANCIEN", "ANCIEN"); legacy.content = "Contenu existant";
+    result = f.save(legacy.getFullName(), "NOUVEAU"); Doc converted = savedDoc(f, result);
+    check(legacy.isNew() && converted.ref.name.matches("[A-Za-z0-9]{16}") && f.wiki.docs.size() == 1, "ancienne adresse convertie au premier enregistrement sans doublon");
+    check(converted.content.startsWith("Contenu existant") && converted.title.equals("NOUVEAU"), "conversion conserve le contenu et met à jour le titre");
+    result = f.save(converted.getFullName(), "APRÈS CONVERSION");
+    check(savedDoc(f, result).ref.equals(converted.ref) && f.refactoring.calls == 1, "une ancienne fiche ne se convertit qu'une seule fois");
+
+    f = new Fixture();
+    Doc occupied = f.wiki.add("abcdefghijklmnop", "OCCUPÉ");
+    Doc nested = f.wiki.getDocument(new Ref(SPACE + ".ponmlkjihgfedcba", "WebHome")); nested.save("", false);
+    f.wiki.pageNames.addAll(List.of("abcdefghijklmnop", "ponmlkjihgfedcba", "qrstuvwxyzABCDEF"));
+    result = f.render("DATA/WebHome.xwiki", "create", "acronym", "SITE", "label", "https://example.org", "definition", "Description");
+    check(result.startsWith("GLOSSAIRE_OK|") && savedDoc(f, result).ref.name.equals("qrstuvwxyzABCDEF") && f.wiki.docs.size() == 3 && occupied.saves == 1 && nested.saves == 1, "collisions terminales et imbriquées évitées sans écrasement");
+    f = new Fixture();
+    f.wiki.pageNames.addAll(List.of("nom/invalide", "WebHome", "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnop"));
+    result = f.render("DATA/WebHome.xwiki", "create", "acronym", "SITE", "label", "https://example.org", "definition", "Description");
+    check(result.startsWith("GLOSSAIRE_OK|") && savedDoc(f, result).ref.name.equals("abcdefghijklmnop"), "seul un identifiant de 16 caractères alphanumériques est accepté");
+
+    f = new Fixture();
+    f.render("WebHome.xwiki", "checkAndCreate", "acronyme", "MANUEL", "libelle", "https://example.org", "definition", "Description", "type", "personnel");
+    first = f.wiki.docs.values().iterator().next();
+    check(first.ref.name.matches("[A-Za-z0-9]{16}") && first.title.equals("MANUEL") && first.obj.getValue("lien").equals("https://example.org"), "création manuelle avec identifiant automatique et titre lisible");
+    f.render("WebHome.xwiki", "checkAndCreate");
+    check(f.wiki.docs.size() == 2 && "warning".equals(f.request.session.getAttribute("liens_status")), "création manuelle en double : adresse distincte et notification conservée");
+    result = f.save(first.getFullName(), "MODIFIÉ");
+    check(savedDoc(f, result).ref.equals(first.ref) && f.refactoring.calls == 0, "adresse créée manuellement stable en édition");
+
+    f = new Fixture();
+    result = f.render("DATA/WebHome.xwiki", "create", "acronym", "SITE", "label", "https://example.org", "definition", "Description");
+    first = savedDoc(f, result); f.groups.manager = true;
+    Doc conflict = f.wiki.getDocument(new Ref("TestPage.PAGE.Liens.DATA.LIENDATA.Autre", first.ref.name)); conflict.save("", false);
+    result = f.render("DATA/WebHome.xwiki", "save", "targetRef", first.getFullName(), "acronym", "SITE", "proprietaire", "Autre");
+    check(result.equals("ERREUR_NOM_INDISPONIBLE") && !first.isNew() && conflict.saves == 1 && f.refactoring.calls == 0, "déplacement stable refusé en cas de collision sans écraser ni modifier l'identifiant");
   }
   public static void main(String[] args) throws Exception {
     ENGINE.init();
@@ -512,7 +582,8 @@ public class LiensVelocityTest {
       check(f.delete(source.getFullName()).equals("ERREUR_SUPPRESSION") && !source.isNew(), "suppression échouée : " + failure);
     }
     f = new Fixture(); source = f.wiki.add("API", "API"); Doc occupied = f.wiki.add("NOUVEAU", "NOUVEAU");
-    check(f.save(source.getFullName(), "NOUVEAU").endsWith("|NOUVEAU_1") && !occupied.isNew(), "collision conservée");
+    result = f.save(source.getFullName(), "NOUVEAU");
+    check(result.startsWith("GLOSSAIRE_OK|") && savedDoc(f, result).ref.name.matches("[A-Za-z0-9]{16}") && !occupied.isNew(), "acronyme en double conservé sous une adresse distincte");
     f = new Fixture(); source = f.wiki.add("A.B", "A.B");
     check(f.save(source.getFullName(), "C|D\" E").startsWith("GLOSSAIRE_OK|") && source.isNew(), "caractères spéciaux");
     f = new Fixture(); source = f.wiki.add("API", "API"); f.request.method = "GET";
@@ -536,7 +607,7 @@ public class LiensVelocityTest {
       check(!result.startsWith("GLOSSAIRE_OK") && f.wiki.docs.isEmpty(), "création invalide : " + invalid);
     }
     f = new Fixture();
-    for (int i = 0; i < 100; i++) f.wiki.add(i == 0 ? "API" : "API_" + i, "API");
+    for (int i = 1; i <= 100; i++) f.wiki.add(String.format("%016x", i), "API");
     result = f.render("DATA/WebHome.xwiki", "create", "acronym", "API", "label", "Interface", "definition", "Définition");
     check(result.equals("ERREUR_NOM_INDISPONIBLE") && f.wiki.docs.size() == 100, "épuisement des noms : " + result);
     f = new Fixture();
@@ -573,6 +644,7 @@ public class LiensVelocityTest {
     permissionsTests(args.length > 0 ? args[0] : null);
     authorTests();
     ownerIdTests();
+    stableAddressTests();
     System.out.println(checks + " vérifications Velocity réussies.");
   }
 }

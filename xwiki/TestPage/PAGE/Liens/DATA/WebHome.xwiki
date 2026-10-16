@@ -119,6 +119,55 @@
   #end
 #end
 ## END LIENS AUTHORS
+
+## BEGIN LIENS ADDRESSES — même générateur que le Glossaire.
+#macro(liensFindDestination $destinationSpaces $sourcePage)
+  #set($candidateReference = false)
+  #set($candidateDoc = false)
+  #set($destinationRoot = $services.model.createDocumentReference('', $destinationSpaces, 'WebHome'))
+  #set($destinationSpace = $services.model.serialize($destinationRoot.parent))
+  #set($hasStableAddress = false)
+  #if($sourcePage && $sourcePage.name.matches('[A-Za-z0-9]{16}'))
+    #set($stableMarker = "<!-- liens-id:$sourcePage.name -->")
+    #set($hasStableAddress = $sourcePage.content.contains($stableMarker))
+  #end
+  #foreach($addressAttempt in [1..100])
+    #if($hasStableAddress)
+      #set($candidateName = $sourcePage.name)
+    #else
+      #set($candidateName = $xwiki.getUniquePageName($destinationSpace))
+    #end
+    #if($candidateName.matches('[A-Za-z0-9]{16}'))
+      #set($candidate = $services.model.createDocumentReference('', $destinationSpaces, $candidateName))
+      #set($candidateDoc = $xwiki.getDocument($candidate))
+      #if($sourcePage && $candidate.equals($sourcePage.documentReference))
+        #set($candidateReference = $candidate)
+        #break
+      #end
+      ## Ne pas entrer en collision avec une fiche terminale ou une page imbriquée.
+      #set($nestedSpaces = [])
+      #set($discard = $nestedSpaces.addAll($destinationSpaces))
+      #set($discard = $nestedSpaces.add($candidateName))
+      #set($nestedReference = $services.model.createDocumentReference('', $nestedSpaces, 'WebHome'))
+      #if($candidateDoc.isNew() && $xwiki.getDocument($nestedReference).isNew())
+        #set($candidateReference = $candidate)
+        #break
+      #end
+    #end
+    ## Un déplacement d'auteur conserve aussi l'identifiant stable, sans écraser de fiche.
+    #if($hasStableAddress) #break #end
+  #end
+#end
+#macro(liensMarkStableAddress $stablePage)
+  #set($stableMarker = "<!-- liens-id:$stablePage.name -->")
+  #if(!$stablePage.content.contains($stableMarker))
+    #set($markerOpen = '{')
+    #set($markerClose = '}')
+    #set($stableContent = "$!stablePage.content")
+    #set($discard = $stablePage.setContent("${stableContent}${markerOpen}${markerOpen}html${markerClose}${markerClose}${stableMarker}${markerOpen}${markerOpen}/html${markerClose}${markerClose}"))
+  #end
+#end
+## END LIENS ADDRESSES
 #macro(liensSaveSettings)
   #set($settingsError = '')
   #set($expectedVersion = "$!request.getParameter('expectedVersion')")
@@ -376,17 +425,9 @@
     #if($error == '')
       ## Références construites par l'API, sans cleanName ni interpolation de chemins.
       #set($destinationSpaces = ['TestPage', 'PAGE', 'Liens', 'DATA', 'LIENDATA', $requestedOwner])
-      #set($candidateName = $acronym)
-      #set($candidateReference = false)
-      #foreach($n in [1..100])
-        #set($candidate = $services.model.createDocumentReference('', $destinationSpaces, $candidateName))
-        #set($candidateDoc = $xwiki.getDocument($candidate))
-        #if($candidateDoc.isNew() || ($targetDoc && $candidate.equals($targetDoc.documentReference)))
-          #set($candidateReference = $candidate)
-          #break
-        #end
-        #set($candidateName = "$acronym" + '_' + $n)
-      #end
+      ## Création et conversion des anciennes fiches : identifiant aléatoire de 16 caractères.
+      ## Les fiches déjà converties gardent leur identifiant, même si l'acronyme change.
+      #liensFindDestination($destinationSpaces $targetDoc)
       #if(!$candidateReference)
         #set($error = 'ERREUR_NOM_INDISPONIBLE')
       #elseif(!$xwiki.hasAccessLevel('edit', $currentUser, $candidateDoc.fullName))
@@ -426,6 +467,7 @@
         #set($discard = $obj.set('type', $requestedType))
         #set($discard = $obj.set('proprietaire', $requestedOwner))
         #set($discard = $candidateDoc.setTitle($acronym))
+        #liensMarkStableAddress($candidateDoc)
         #set($discard = $candidateDoc.save('Ajout / modification via interface Liens', true))
         #set($resultLine = "GLOSSAIRE_OK|$escapetool.url($candidateDoc.fullName)|$escapetool.url($candidateDoc.name)")
       #end

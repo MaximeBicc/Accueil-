@@ -46,6 +46,7 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
       const alerts = [];
       let mode = '';
       let currentAuthors = authorResponse;
+      let pageCounter = 0;
       const requests = [];
       page.on('pageerror', error => errors.push(error.message));
       page.on('dialog', async dialog => { alerts.push(dialog.message()); await dialog.accept(); });
@@ -61,7 +62,11 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
           let body;
           if (data.action === 'listVisible') body = manager ? list : list.replace('LIEN_LIST_OK|Test|true|true|true|true|true', 'LIEN_LIST_OK|Test|false|true|true|true|false');
           else if (mode === 'refuse') body = 'ERREUR_SUPPRESSION';
-          else if (data.action === 'save') body = 'GLOSSAIRE_OK|' + encode('TestPage.PAGE.Liens.DATA.LIENDATA.Test.' + data.acronym) + '|' + encode(data.acronym);
+          else if (data.action === 'save') {
+            const oldName = data.targetRef.split('.').at(-1);
+            const technicalName = /^[A-Za-z0-9]{16}$/.test(oldName) ? oldName : 'Fiche' + String(++pageCounter).padStart(11, '0');
+            body = 'GLOSSAIRE_OK|' + encode('TestPage.PAGE.Liens.DATA.LIENDATA.' + data.proprietaire + '.' + technicalName) + '|' + technicalName;
+          }
           else body = 'GLOSSAIRE_OK';
           return route.fulfill({ contentType: 'text/plain', body });
         }
@@ -194,6 +199,14 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
     check(await page.locator('#mainGlossaryTable .main-acronym img').count(), 0, 'acronyme traité comme texte');
     await page.fill('#filterAcronym', '<img');
     const changed = page.locator('#mainGlossaryTable .main-term-row:visible').first();
+    const technicalRef = await changed.getAttribute('data-full-ref');
+    check(/\.[A-Za-z0-9]{16}$/.test(technicalRef), true, 'édition personnelle utilise la référence technique retournée par DATA');
+    check(await changed.getAttribute('data-doc-name'), technicalRef.split('.').at(-1), 'nom technique séparé de l’acronyme affiché');
+    await changed.locator('.view-buttons button').first().click();
+    await changed.locator('.edit-definition').fill('Définition sur la même fiche');
+    await changed.locator('.edit-buttons button').first().evaluate(button => saveRowEdition(button));
+    check(state.requests.filter(req => req.action === 'save').at(-1).targetRef, technicalRef, 'édition suivante adresse la fiche par son identifiant');
+    check(await changed.getAttribute('data-full-ref'), technicalRef, 'adresse technique stable après une deuxième édition');
     state.setMode('refuse');
     await changed.locator('.view-buttons button').nth(1).click();
     await page.click('#btnConfirmDelete');
@@ -202,7 +215,8 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
     await changed.locator('.view-buttons button').nth(1).click();
     await page.click('#btnConfirmDelete');
     await page.waitForFunction(() => !Array.from(document.querySelectorAll('#mainGlossaryTable .main-acronym .view-mode')).some(el => el.textContent.includes('<img')));
-    check(await visible('mainGlossaryTable'), 0, 'suppression avec référence spéciale');
+    check(await visible('mainGlossaryTable'), 0, 'suppression avec référence technique');
+    check(state.requests.filter(req => req.action === 'delete').at(-1).targetRef, technicalRef, 'suppression utilise la nouvelle référence de la fiche');
     await page.fill('#filterAcronym', '');
     // Une réponse HTTP en erreur ne valide pas un enregistrement.
     await page.fill('#filterAcronym', 'A00');
@@ -237,6 +251,9 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
     await common.locator('.edit-buttons button').first().evaluate(button => saveRowEdition2(button));
     check(state.requests.filter(request => request.action === 'save').at(-1).proprietaire, 'Login42', 'édition envoie le membre autorisé choisi');
     check(await common.locator('.secondary-proprietaire .view-mode').textContent(), 'Jean Dupont (Login42)', 'édition affiche le nom du membre choisi');
+    const commonRef = await common.getAttribute('data-full-ref');
+    check(/^TestPage\.PAGE\.Liens\.DATA\.LIENDATA\.Login42\.[A-Za-z0-9]{16}$/.test(commonRef), true, 'édition commune utilise un identifiant technique sous le userid');
+    check(await page.locator('#popupCheckTable .term-row').filter({ hasText: 'C00' }).getAttribute('data-full-ref'), commonRef, 'popup de vérification synchronisée avec la nouvelle référence');
     state.setAuthors(authorResponse.split('\n').filter(line => !line.startsWith('LIEN_AUTHOR|Login42|')).join('\n'));
     await common.locator('.view-buttons button').first().click();
     await page.waitForFunction(() => document.querySelector('#secondaryGlossaryTable .secondary-term-row').dataset.authorLoading === 'false' && document.querySelector('#secondaryGlossaryTable .secondary-proprietaire-value').getAttribute('aria-invalid') === 'true');

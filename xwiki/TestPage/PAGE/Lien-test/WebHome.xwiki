@@ -131,6 +131,55 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
   #end
 #end
 ## END LIENS AUTHORS
+
+## BEGIN LIENS ADDRESSES — même générateur que le Glossaire.
+#macro(liensFindDestination $destinationSpaces $sourcePage)
+  #set($candidateReference = false)
+  #set($candidateDoc = false)
+  #set($destinationRoot = $services.model.createDocumentReference('', $destinationSpaces, 'WebHome'))
+  #set($destinationSpace = $services.model.serialize($destinationRoot.parent))
+  #set($hasStableAddress = false)
+  #if($sourcePage && $sourcePage.name.matches('[A-Za-z0-9]{16}'))
+    #set($stableMarker = "<!-- liens-id:$sourcePage.name -->")
+    #set($hasStableAddress = $sourcePage.content.contains($stableMarker))
+  #end
+  #foreach($addressAttempt in [1..100])
+    #if($hasStableAddress)
+      #set($candidateName = $sourcePage.name)
+    #else
+      #set($candidateName = $xwiki.getUniquePageName($destinationSpace))
+    #end
+    #if($candidateName.matches('[A-Za-z0-9]{16}'))
+      #set($candidate = $services.model.createDocumentReference('', $destinationSpaces, $candidateName))
+      #set($candidateDoc = $xwiki.getDocument($candidate))
+      #if($sourcePage && $candidate.equals($sourcePage.documentReference))
+        #set($candidateReference = $candidate)
+        #break
+      #end
+      ## Ne pas entrer en collision avec une fiche terminale ou une page imbriquée.
+      #set($nestedSpaces = [])
+      #set($discard = $nestedSpaces.addAll($destinationSpaces))
+      #set($discard = $nestedSpaces.add($candidateName))
+      #set($nestedReference = $services.model.createDocumentReference('', $nestedSpaces, 'WebHome'))
+      #if($candidateDoc.isNew() && $xwiki.getDocument($nestedReference).isNew())
+        #set($candidateReference = $candidate)
+        #break
+      #end
+    #end
+    ## Un déplacement d'auteur conserve aussi l'identifiant stable, sans écraser de fiche.
+    #if($hasStableAddress) #break #end
+  #end
+#end
+#macro(liensMarkStableAddress $stablePage)
+  #set($stableMarker = "<!-- liens-id:$stablePage.name -->")
+  #if(!$stablePage.content.contains($stableMarker))
+    #set($markerOpen = '{')
+    #set($markerClose = '}')
+    #set($stableContent = "$!stablePage.content")
+    #set($discard = $stablePage.setContent("${stableContent}${markerOpen}${markerOpen}html${markerClose}${markerClose}${stableMarker}${markerOpen}${markerOpen}/html${markerClose}${markerClose}"))
+  #end
+#end
+## END LIENS ADDRESSES
 #liensLoadAuthors()
 #set($urlLiensData = $xwiki.getURL('TestPage.PAGE.Liens.DATA.WebHome', 'view'))
 #if("$!request.getParameter('action')" == 'checkAndCreate')
@@ -153,19 +202,20 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
     #set($createError = 'Vous ne disposez pas du droit d’écriture pour cet onglet.')
   #else
     #set($ownerSpaces = ['TestPage', 'PAGE', 'Liens', 'DATA', 'LIENDATA', $userId])
-    #set($candidateName = $acronymeInput)
-    #set($candidateReference = false)
     #set($alreadyExists = false)
-    #foreach($n in [1..100])
-      #set($candidate = $services.model.createDocumentReference('', $ownerSpaces, $candidateName))
-      #set($newPage = $xwiki.getDocument($candidate))
-      #if($newPage.isNew())
-        #set($candidateReference = $candidate)
+    #set($ownerRoot = $services.model.createDocumentReference('', $ownerSpaces, 'WebHome'))
+    #set($ownerSpace = $services.model.serialize($ownerRoot.parent))
+    #foreach($existingName in $xwiki.getSpaceDocsName($ownerSpace))
+      #set($existingReference = $services.model.createDocumentReference('', $ownerSpaces, $existingName))
+      #set($existingObject = false)
+      #set($existingObject = $xwiki.getDocument($existingReference).getObject($classPath))
+      #if($existingObject && "$!existingObject.getValue('nom_lien')" == $acronymeInput)
+        #set($alreadyExists = true)
         #break
       #end
-      #set($alreadyExists = true)
-      #set($candidateName = "$acronymeInput" + '_' + $n)
     #end
+    #liensFindDestination($ownerSpaces false)
+    #set($newPage = $candidateDoc)
     #if(!$candidateReference)
       #set($createError = 'Impossible de trouver un nom de page disponible.')
     #elseif(!$xwiki.hasAccessLevel('edit', $user, $newPage.fullName))
@@ -178,6 +228,7 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
       #set($discard = $newObj.set('type', $typeInput))
       #set($discard = $newObj.set('proprietaire', $userId))
       #set($discard = $newPage.setTitle($acronymeInput))
+      #liensMarkStableAddress($newPage)
       #set($discard = $newPage.save('Ajout via interface Liens', true))
       #set($status = 'success')
       #if($alreadyExists) #set($status = 'warning') #end
