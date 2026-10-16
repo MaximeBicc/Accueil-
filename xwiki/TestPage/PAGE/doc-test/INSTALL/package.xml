@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<package>
+  <infos>
+    <name>Documentation - Classe des propositions</name>
+    <description>Définition complète de la classe des propositions documentaires, sans document ni proposition.</description>
+    <licence/>
+    <author/>
+    <version>1.0</version>
+    <backupPack>false</backupPack>
+    <preserveVersion>true</preserveVersion>
+  </infos>
+  <files>
+    <file language="" defaultAction="0">TestPage.PAGE.doc-test.CODE.docPropositionClass.WebHome</file>
+  </files>
+</package>
