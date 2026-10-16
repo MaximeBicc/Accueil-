@@ -1567,7 +1567,8 @@ async function readDocumentationProposals(mode) {
             creator: data("author"), created: data("submitted-at"),
             description: data("description"), tags: data("tags"), kind: data("kind"),
             url: data("url"), urlPreview: data("url-preview"), version: data("version"),
-            reviewComment: data("review-comment"), rejectedAt: data("deleted-at"), expiresAt: data("expires-at")
+            reviewComment: data("review-comment"), rejectedAt: data("deleted-at"), expiresAt: data("expires-at"),
+            canRestore: /^(true|1)$/.test(data("can-restore"))
         };
     }).filter(function(node) { return !!node.proposalRef; });
 }
@@ -1710,7 +1711,8 @@ function showDocumentationProposalDetails(node) {
 }
 
 async function decideDocumentationProposal(node, decision) {
-    if (!node || !documentationCanReview() || !window.DocPropositions) return;
+    if (!node || !window.DocPropositions) return;
+    if (!documentationCanReview() && !(decision === "restore" && node.status === "rejected" && node.canRestore)) return;
     let reason = "";
     if (decision === "reject") {
         reason = window.prompt("Motif du refus (obligatoire) :", "");
@@ -2033,7 +2035,7 @@ function renderArchitectureBranch(nodeRef) {
             preview.setAttribute("data-architecture-proposal-preview", nodeRef);
             actions.appendChild(preview);
 
-            if (documentationCanReview()) {
+            if (documentationCanReview() || (node.status === "rejected" && node.canRestore)) {
                 const decisions = node.status === "rejected"
                     ? [["restore", "Restaurer"]]
                     : [["accept", "Valider"], ["reject", "Refuser"]];

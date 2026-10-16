@@ -76,6 +76,8 @@
 #set($proposalRoot = "${proposalSpace}.WebHome")
 #set($trashRoot = "${trashSpace}.WebHome")
 #set($proposalFields = ['operation','type','title','parentRef','parentProposalRef','sourceRef','baseVersion','content','description','tags','author','submittedAt','status','reviewer','reviewComment','reviewedAt','deletedAt','publishedRef','batchId','filename','kind','sourceProposalId'])
+#set($proposalDateFields = ['submittedAt','reviewedAt','deletedAt'])
+#set($proposalTextFields = ['content','description','tags','reviewComment'])
 #set($settingsFields = {'create':'createGroups','move':'moveGroups','modify':'modifyGroups','import':'importGroups','content':'contentGroups','propose':'proposeGroups','review':'reviewGroups','delete':'deleteGroups'})
 #set($action = "$!request.getParameter('action')")
 #set($errorCode = '')
@@ -97,6 +99,32 @@
   #if($errorCode == '')
     #set($errorCode = $code)
     #set($errorMessage = $message)
+  #end
+#end
+
+## Vérifier les définitions, y compris les champs encore vides et les dates de décision.
+## XWiki ignore silencieusement set() lorsqu'un champ n'existe pas dans la classe.
+#macro(checkProposalClass $proposalObject)
+  #set($proposalDefinition = false)
+  #set($proposalDefinition = $proposalObject.getxWikiClass())
+  #foreach($proposalField in $proposalFields)
+    #set($proposalExpectedType = 'String')
+    #if($proposalDateFields.contains($proposalField))
+      #set($proposalExpectedType = 'Date')
+    #elseif($proposalTextFields.contains($proposalField))
+      #set($proposalExpectedType = 'TextArea')
+    #end
+    #set($proposalFieldDefinition = false)
+    #if($proposalDefinition)
+      #set($proposalFieldDefinition = $proposalDefinition.get($proposalField))
+    #end
+    #if(!$proposalFieldDefinition)
+      #docError('ERREUR_CLASSE_PROPOSITION' "Configuration des propositions : champ « ${proposalField} » absent (type ${proposalExpectedType} attendu).")
+    #elseif(!$proposalDefinition.enabledPropertyNames.contains($proposalField))
+      #docError('ERREUR_CLASSE_PROPOSITION' "Configuration des propositions : champ « ${proposalField} » désactivé (type ${proposalExpectedType} attendu).")
+    #elseif($proposalFieldDefinition.classType != $proposalExpectedType)
+      #docError('ERREUR_CLASSE_PROPOSITION' "Configuration des propositions : champ « ${proposalField} » de type incorrect (type ${proposalExpectedType} attendu).")
+    #end
   #end
 #end
 
@@ -692,7 +720,7 @@
             #docError('ERREUR_CONTENU_PROPOSITION' 'Le contenu technique de cette proposition a été modifié.')
           #elseif("$!request.getParameter('version')" != "$proposalDoc.version")
             #docError('ERREUR_CONFLIT_VERSION' 'La proposition a changé. Rechargez l’arborescence.')
-          #elseif($action == 'restaurer proposition' && !$canReview && (!$canPropose || "$!proposalObject.getValue('author')" != $currentUser))
+          #elseif($action == 'restaurer proposition' && !$canReview && ("$!proposalObject.getValue('author')" != $currentUser || (!$canPropose && !($canImport && "$!proposalObject.getValue('operation')" == 'import'))))
             #docError('ERREUR_DROITS' 'Vous ne pouvez pas restaurer cette proposition.')
           #else
             #set($reviewComment = "$!request.getParameter('comment')")
@@ -761,9 +789,9 @@
         #if($action == 'ajouter un fichier' || $action == 'ajouter un document')
           #set($operation = 'create')
           #set($operationAllowed = $canCreate)
-          #if("$!request.getParameter('intent')" == 'import' || "$!request.getParameter('source_kind')" != '')
+          #if("$!request.getParameter('intent')" == 'import' || "$!request.getParameter('source_kind')" != '' || "$!request.getParameter('source_filename')" != '')
             #set($operation = 'import')
-            #set($operationAllowed = $canImport)
+            #set($operationAllowed = $canImport && $canCreate)
           #end
         #elseif($action == 'modifier metadonnees document')
           #set($operation = 'modify')
@@ -782,15 +810,18 @@
         #end
         #set($mode = "$!request.getParameter('mode')")
         ## Le serveur choisit : droit de l’action = publication directe ; sinon droit de proposer.
+        ## Importer autorise l'envoi d'un fichier ; Créer permet sa publication directe.
         ## Un ancien client peut encore envoyer mode=proposal, sans imposer ce mode à un contributeur autorisé.
         #set($asProposal = !$operationAllowed && $operation != 'delete')
         #if($mode != '' && $mode != 'proposal' && $mode != 'direct')
           #docError('ERREUR_MODE' 'Mode de modification invalide.')
+        #elseif($operation == 'import' && !$canImport)
+          #docError('ERREUR_DROITS' 'Vous n’avez pas le droit d’importer des fichiers.')
         #elseif($operation == 'delete' && !$operationAllowed)
           #docError('ERREUR_DROITS' 'Vous n’avez pas le droit de supprimer cet élément.')
         #elseif($mode == 'direct' && !$operationAllowed)
           #docError('ERREUR_DROITS' 'Vous n’avez pas le droit d’effectuer cette action directement.')
-        #elseif($asProposal && !$canPropose)
+        #elseif($asProposal && !$canPropose && $operation != 'import')
           #docError('ERREUR_DROITS' 'Vous n’avez pas le droit d’effectuer ou de proposer cette action.')
         #end
         #set($sourceRef = "$!request.getParameter('source_ref')")
@@ -914,11 +945,21 @@
           #if(!$newProposalObject)
             #docError('ERREUR_CLASSE_PROPOSITION' 'La classe des propositions doit être installée et accessible au service.')
           #else
+            #checkProposalClass($newProposalObject)
+          #end
+          #if($errorCode == '')
             #set($proposalValues = {'operation':$operation,'type':$elementType,'title':$title,'parentRef':$parentRef,'parentProposalRef':$parentProposalRef,'sourceRef':$sourceRef,'baseVersion':$baseVersion,'content':$content,'description':$description,'tags':$tags,'author':$currentUser,'submittedAt':$now,'status':'pending','reviewer':'','reviewComment':'','publishedRef':'','batchId':$batchId,'filename':$filename,'kind':$kind,'sourceProposalId':$proposalName})
             #foreach($field in $proposalValues.keySet())
               #set($discard = $newProposalObject.set($field, $proposalValues.get($field)))
-              #if("$!newProposalObject.getValue($field)" != "$!proposalValues.get($field)")
-                #docError('ERREUR_CLASSE_PROPOSITION' 'Les champs de la classe des propositions sont incomplets.')
+              #set($storedProposalValue = false)
+              #set($storedProposalValue = $newProposalObject.getValue($field))
+              #if($field == 'submittedAt')
+                ## DateProperty normalise les sous-classes de Date : comparer l'instant, pas toString().
+                #if(!$storedProposalValue || $storedProposalValue.time != $nowMillis)
+                  #docError('ERREUR_CLASSE_PROPOSITION' 'Configuration des propositions : le champ « submittedAt » ne conserve pas la date attendue.')
+                #end
+              #elseif(!$newProposalObject.getProperty($field) || "$!newProposalObject.getValue($field)" != "$!proposalValues.get($field)")
+                #docError('ERREUR_CLASSE_PROPOSITION' "Configuration des propositions : le champ « ${field} » ne conserve pas le texte attendu.")
               #end
             #end
             #set($discard = $newProposal.setTitle($escapetool.velocity($title)))
@@ -1032,7 +1073,7 @@
     #if($action == 'corbeille')
       #set($listedSpace = $trashSpace)
     #end
-    #if($isAuthenticated && ($canPropose || $canReview))
+    #if($isAuthenticated && ($canPropose || $canImport || $canReview))
       #set($listedRefs = $services.query.hql('select doc.fullName from XWikiDocument doc, BaseObject obj where obj.name = doc.fullName and obj.className = :className and doc.space = :space order by doc.creationDate').bindValue('className', $proposalClassPath).bindValue('space', $listedSpace).execute())
       #foreach($listedRef in $listedRefs)
         #checkProposalRef($listedRef $listedSpace)
@@ -1044,6 +1085,7 @@
             #set($listedObject = $listedDoc.getObject($proposalClassPath))
           #end
           #set($showProposal = $listedObject && ($canReview || "$!listedObject.getValue('author')" == $currentUser))
+          #set($listedCanRestore = $listedObject && ($canReview || ("$!listedObject.getValue('author')" == $currentUser && ($canPropose || ($canImport && "$!listedObject.getValue('operation')" == 'import')))))
           #set($deletedLabel = '')
           #set($expiresLabel = '')
           #if($showProposal && $listedSpace == $trashSpace)
@@ -1075,7 +1117,7 @@
                 #set($overlayParentProposalRef = '')
               #end
             #end
-            <span class="doc-proposal-data" data-ref="#docOutput($listedRef)" data-kind="#docOutput("$!listedObject.getValue('kind')")" data-operation="#docOutput("$!listedObject.getValue('operation')")" data-type="#docOutput("$!listedObject.getValue('type')")" data-title="#docOutput("$!listedObject.getValue('title')")" data-parent-ref="#docOutput($overlayParentRef)" data-parent-proposal-ref="#docOutput($overlayParentProposalRef)" data-source-ref="#docOutput("$!listedObject.getValue('sourceRef')")" data-author="#docOutput("$!listedObject.getValue('author')")" data-submitted-at="$xwiki.formatDate($listedObject.getValue('submittedAt'), 'dd/MM/yyyy HH:mm')" data-batch-id="#docOutput("$!listedObject.getValue('batchId')")" data-status="#docOutput("$!listedObject.getValue('status')")" data-url="#docOutput($listedDoc.getURL('view'))" data-url-preview="#docOutput($listedDoc.getURL('view', 'xpage=print'))" data-version="#docOutput("$listedDoc.version")" data-description="#docOutput("$!listedObject.getValue('description')")" data-tags="#docOutput("$!listedObject.getValue('tags')")" data-review-comment="#docOutput("$!listedObject.getValue('reviewComment')")" data-deleted-at="#docOutput($deletedLabel)" data-expires-at="#docOutput($expiresLabel)"></span>
+            <span class="doc-proposal-data" data-ref="#docOutput($listedRef)" data-kind="#docOutput("$!listedObject.getValue('kind')")" data-operation="#docOutput("$!listedObject.getValue('operation')")" data-type="#docOutput("$!listedObject.getValue('type')")" data-title="#docOutput("$!listedObject.getValue('title')")" data-parent-ref="#docOutput($overlayParentRef)" data-parent-proposal-ref="#docOutput($overlayParentProposalRef)" data-source-ref="#docOutput("$!listedObject.getValue('sourceRef')")" data-author="#docOutput("$!listedObject.getValue('author')")" data-submitted-at="$xwiki.formatDate($listedObject.getValue('submittedAt'), 'dd/MM/yyyy HH:mm')" data-batch-id="#docOutput("$!listedObject.getValue('batchId')")" data-status="#docOutput("$!listedObject.getValue('status')")" data-can-restore="$listedCanRestore" data-url="#docOutput($listedDoc.getURL('view'))" data-url-preview="#docOutput($listedDoc.getURL('view', 'xpage=print'))" data-version="#docOutput("$listedDoc.version")" data-description="#docOutput("$!listedObject.getValue('description')")" data-tags="#docOutput("$!listedObject.getValue('tags')")" data-review-comment="#docOutput("$!listedObject.getValue('reviewComment')")" data-deleted-at="#docOutput($deletedLabel)" data-expires-at="#docOutput($expiresLabel)"></span>
           #end
         #end
       #end

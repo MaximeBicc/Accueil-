@@ -42,7 +42,7 @@ Cette version remplace la première implémentation de la PR. Les pages `CODE.Wo
 | Créer | Créer un dossier ou un document |
 | Déplacer | Déplacer un document ou un dossier |
 | Modifier | Modifier les informations d'un document |
-| Importer | Importer des fichiers et une arborescence |
+| Importer | Proposer des fichiers et arborescences, ou les importer directement avec Créer |
 | Modifier le contenu | Modifier le texte documentaire |
 | Proposer | Soumettre une opération à validation |
 | Valider | Examiner toutes les propositions, accepter, refuser et restaurer depuis la corbeille |
@@ -50,13 +50,21 @@ Cette version remplace la première implémentation de la PR. Les pages `CODE.Wo
 
 Le traitement est automatique pour chaque opération :
 
-- Avec le droit correspondant, l'action est effectuée directement. Le droit **Proposer** n'est pas nécessaire.
-- Sans ce droit, un compte possédant **Proposer** soumet une demande en attente de validation ; aucun document publié n'est créé, déplacé ou modifié avant acceptation.
-- Sans aucun de ces droits, l'action est bloquée. La suppression exige toujours **Supprimer** et les droits natifs nécessaires ; elle ne peut pas être proposée.
+- La création de dossiers ou documents vides est directe avec **Créer**, ou soumise à validation avec **Proposer** sans Créer.
+- Les imports exigent **Importer**. Avec **Créer**, ils sont directs ; sans Créer, ils sont proposés, même si le droit Proposer n'est pas coché.
+- Les déplacements, les informations et le contenu sont modifiés directement avec leur droit propre ; sans ce droit, **Proposer** permet de soumettre une modification à validation.
+- Sans la combinaison requise, l'action est bloquée. La suppression exige toujours **Supprimer** et les droits natifs nécessaires ; elle ne peut pas être proposée.
 
-Le choix « Contribution : Directe / Proposition » est supprimé. Les fenêtres et leurs boutons indiquent **Créer**, **Importer**, **Enregistrer** ou **Proposer** selon l'opération autorisée. Si un compte possède à la fois le droit direct d'une opération et le droit Proposer, cette opération reste directe. Les autres opérations peuvent toujours être proposées selon leurs propres droits. Le serveur refait ces vérifications à chaque requête.
+| Importer | Créer | Proposer | Résultat pour un import |
+| --- | --- | --- | --- |
+| Oui | Oui | Oui ou non | Import direct |
+| Oui | Non | Oui | Proposition d'import, en attente de validation |
+| Oui | Non | Non | Proposition d'import, en attente de validation |
+| Non | Oui ou non | Oui ou non | Import bloqué |
 
-Après l'enregistrement des paramètres, les boutons d'ajout apparaissent immédiatement si Créer, Importer ou Proposer vient d'être attribué, même si aucun de ces droits n'existait à l'ouverture de la page. Ils disparaissent dès que ces droits sont retirés. Avec seulement Importer, les boutons indiquent **Importer un dossier** et **Importer un document**, et les fenêtres présentent les sélecteurs de fichiers.
+Le choix « Contribution : Directe / Proposition » est supprimé. Les fenêtres et leurs boutons indiquent **Créer**, **Importer**, **Enregistrer** ou **Proposer** selon l'opération autorisée. **Importer sans Créer**, avec ou sans Proposer, affiche des boutons de proposition : aucun élément importé n'est publié avant acceptation par un validateur. Un lot conserve ce même traitement pour tous ses dossiers et fichiers. Les validateurs peuvent accepter un import avec le droit **Valider**, sans avoir besoin eux-mêmes de Créer ou Importer. Le serveur refait ces vérifications à chaque requête.
+
+Après l'enregistrement des paramètres, les boutons d'ajout apparaissent immédiatement avec Créer, Proposer ou Importer, même si aucun de ces droits n'existait à l'ouverture de la page. Les sélecteurs de fichiers exigent Importer. Avec Importer seul, les fenêtres permettent de proposer des fichiers ou une arborescence, sans proposer de page vide. Le retrait des droits actualise aussi les contrôles sans recharger la page.
 
 Les refus s'affichent sous forme de messages courts, sans réponse HTML ni trace technique. Un refus de création laisse le formulaire ouvert ; un refus de suppression conserve les éléments et la sélection. L'interface confirme un succès seulement lorsque le traitement renvoie son résultat explicite.
 
@@ -117,6 +125,10 @@ Créer `TestPage.PAGE.doc-test.CODE.docContentClass.WebHome`, avec `source` de t
 
 Les noms de classes et de propriétés sont sensibles à la casse. Installer les propriétés avant le premier essai.
 
+Le traitement vérifie les 22 propriétés de `docPropositionClass`, y compris les propriétés initialement vides comme `reviewedAt` et `deletedAt`. Elles doivent être activées et avoir exactement les types du tableau. Les dates sont contrôlées par leur instant, sans comparer leur représentation textuelle.
+
+Si une proposition est refusée avec « Configuration des propositions : champ … », ouvrir **Classes** sur `TestPage.PAGE.doc-test.CODE.docPropositionClass.WebHome` et corriger la propriété nommée : l'ajouter si elle manque, l'activer si elle est désactivée ou lui donner le type indiqué. En particulier, `submittedAt`, `reviewedAt` et `deletedAt` sont de type **Date**. Le traitement ne sauvegarde pas de proposition si sa structure est incorrecte.
+
 ## Examiner les propositions
 
 **Propositions** ouvre l'arborescence existante avec les ajouts proposés surlignés et identifiés par leur opération. **Architecture** permet toujours de consulter l'arbre documentaire. Un import affiche un regroupement et ses dossiers ou documents ; ce regroupement ne publie pas tous les éléments en une seule décision.
@@ -125,7 +137,7 @@ Chaque proposition donne accès à ses détails et à un aperçu, avec ouverture
 
 Refuser un dossier laisse ses enfants en attente : ils restent visibles, mais leur validation est bloquée tant que le dossier n'a pas été restauré puis accepté. Ils ne sont pas publiés automatiquement à un autre emplacement.
 
-**Refuser** demande un motif et place l'élément dans `CORBEILLE`. Un validateur peut le restaurer pendant sept jours : il revient en attente dans `PROPOSITIONS` et doit être validé pour être publié. Les éléments expirés ne sont plus restaurables. Le nettoyage est demandé lors d'une visite de la documentation ; leur suppression effective a lieu à une visite suivante, sans tâche planifiée. La corbeille native XWiki peut ensuite conserver les pages supprimées selon la politique de l'instance.
+**Refuser** demande un motif et place l'élément dans `CORBEILLE`. Un validateur peut le restaurer pendant sept jours. Son auteur peut aussi restaurer sa propre proposition avec le droit Proposer, ou sa proposition d'import avec le droit Importer seul : elle revient en attente dans `PROPOSITIONS` et doit être validée pour être publiée. Les éléments expirés ne sont plus restaurables. Le nettoyage est demandé lors d'une visite de la documentation ; leur suppression effective a lieu à une visite suivante, sans tâche planifiée. La corbeille native XWiki peut ensuite conserver les pages supprimées selon la politique de l'instance.
 
 ## Contenu et protection des espaces
 
@@ -143,7 +155,7 @@ L'auteur des traitements doit pouvoir lire et modifier la configuration, lire/cr
 
 ## Vérification sur l'instance
 
-1. Avant toute attribution, vérifier qu'un administrateur voit **Paramètres** mais ne peut ni créer, importer, déplacer, modifier, proposer, valider ou supprimer. Enregistrer des listes vides et refaire ce contrôle. Attribuer ensuite, séparément, Créer, Importer puis Proposer à son groupe : les boutons d'ajout doivent apparaître sans recharger la page. Vérifier chaque action puis retirer le droit : les boutons doivent de nouveau disparaître.
+1. Avant toute attribution, vérifier qu'un administrateur voit **Paramètres** mais ne peut ni créer, importer, déplacer, modifier, proposer, valider ou supprimer. Enregistrer des listes vides et refaire ce contrôle. Attribuer Créer ou Proposer : les boutons d'ajout doivent apparaître sans recharger la page. Tester Importer avec chacun de ces droits, puis Importer seul : seul Créer doit permettre l'import direct ; les autres imports attendent une validation. Retirer les droits doit de nouveau masquer les boutons.
 2. Vérifier les boutons avec un créateur sans droit Proposer, un proposant sans droit Créer, un validateur et un compte sans autorisation. Contrôler que le créateur publie directement et que le proposant attend une validation, sans sélecteur de mode. Enregistrer les paramètres, recharger, puis contrôler les appartenances à plusieurs groupes et aux sous-groupes.
 3. Proposer un document et un dossier : aucun élément publié avant validation, surlignage au bon endroit dans l'arbre existant.
 4. Importer plusieurs dossiers et fichiers. Accepter le parent puis un enfant ; refuser un autre enfant avec un motif. Vérifier l'aperçu et l'ouverture avant publication.
@@ -154,8 +166,8 @@ L'auteur des traitements doit pouvoir lire et modifier la configuration, lire/cr
 
 ## Tests du dépôt
 
-- `node tests/DocumentationPropositions.browser.test.js` : 27 parcours Chromium avec les véritables extensions et une page COMMANDE simulée ; couvre notamment l'apparition des boutons après attribution de Créer, Importer ou Proposer depuis la vraie barre `WebHome`, initialement sans droits. Nécessite Playwright et Chromium (`CHROMIUM_EXECUTABLE_PATH` facultatif).
-- `java -cp '/chemin/jars/*' tests/DocumentationVelocityTest.java` : 79 scénarios exécutant les sources Velocity avec des API XWiki simulées, dont les configurations absentes ou vides, les administrateurs sans attribution, les refus sans mutation et l'enregistrement puis la révocation des droits par groupe. JAR : Velocity 2.3, commons-lang3 et slf4j-api.
+- `node tests/DocumentationPropositions.browser.test.js` : 31 parcours Chromium avec les véritables extensions et une page COMMANDE simulée ; couvre notamment les fichiers et arborescences proposés avec Importer seul, les imports directs avec Créer, les droits actualisés et la restauration réservée aux auteurs autorisés. Nécessite Playwright et Chromium (`CHROMIUM_EXECUTABLE_PATH` facultatif).
+- `java -cp '/chemin/jars/*' tests/DocumentationVelocityTest.java` : 116 scénarios exécutant les sources Velocity avec des API XWiki simulées, dont les 22 propriétés XClass, les dates normalisées, les combinaisons de droits d'import et la restauration par un importateur seul. JAR : Velocity 2.3, commons-lang3 et slf4j-api. L'option `-Ddocumentation.nativeProperties=true` ajoute un contrôle avec la véritable classe `DateProperty` de XWiki 16.10.17, soit 117 scénarios ; ajouter le JAR oldcore et ses dépendances au classpath.
 - `java -cp '/chemin/jars/*' tests/DocumentationXWikiParsingTest.java` : vérification des trois pages avec les parseurs XWiki 2.1 et Velocity ; ajouter xwiki-rendering-wikimodel 16.10.17 aux JAR précédents.
 
 La recette sur l'instance reste nécessaire pour les ACL natives, les pièces jointes, le refactoring XWiki et l'importeur Office.

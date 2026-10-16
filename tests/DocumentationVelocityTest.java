@@ -48,8 +48,39 @@ public class DocumentationVelocityTest {
   }
   public static class Obj {
     final Map<String, Object> fields = new LinkedHashMap<>();
-    public Object getValue(String name) { return fields.getOrDefault(name, ""); }
-    public void set(String name, Object value) { fields.put(name, value); }
+    final Schema schema;
+    Obj() { this(null); }
+    Obj(Schema schema) { this.schema = schema; }
+    public Object getValue(String name) { return fields.get(name); }
+    public PropertyValue getProperty(String name) { return fields.containsKey(name) ? new PropertyValue(fields.get(name)) : null; }
+    public Schema getxWikiClass() { return schema; }
+    public void set(String name, Object value) {
+      // BaseObject.set() silently ignores unknown definitions; DateProperty stores a plain Date.
+      if (schema != null && !schema.properties.containsKey(name)) return;
+      fields.put(name, value instanceof Date date ? new Date(date.getTime()) : value);
+    }
+  }
+  public static class PropertyValue {
+    final Object value;
+    PropertyValue(Object value) { this.value = value; }
+    public Object getValue() { return value; }
+  }
+  public static class Definition {
+    final String type;
+    boolean disabled;
+    Definition(String type) { this.type = type; }
+    public String getClassType() { return type; }
+  }
+  public static class Schema {
+    final Map<String, Definition> properties = new LinkedHashMap<>();
+    Schema() {
+      for (String name : List.of("operation", "type", "title", "parentRef", "parentProposalRef", "sourceRef", "baseVersion", "content", "description", "tags", "author", "submittedAt", "status", "reviewer", "reviewComment", "reviewedAt", "deletedAt", "publishedRef", "batchId", "filename", "kind", "sourceProposalId")) {
+        String type = List.of("submittedAt", "reviewedAt", "deletedAt").contains(name) ? "Date" : List.of("content", "description", "tags", "reviewComment").contains(name) ? "TextArea" : "String";
+        properties.put(name, new Definition(type));
+      }
+    }
+    public Definition get(String name) { return properties.get(name); }
+    public List<String> getEnabledPropertyNames() { return properties.entrySet().stream().filter(entry -> !entry.getValue().disabled).map(Map.Entry::getKey).toList(); }
   }
   public static class Doc {
     final Obj configuration = new Obj();
@@ -63,7 +94,7 @@ public class DocumentationVelocityTest {
     public Obj getObject(String name) { return name.equals(CONFIG_CLASS) ? configurationObjectPresent ? configuration : null : objects.getOrDefault(name, List.of()).stream().findFirst().orElse(null); }
     public Obj newObject(String name) {
       if (name.equals(CONFIG_CLASS)) { configurationObjectPresent = true; return configuration; }
-      Obj value = new Obj(); objects.computeIfAbsent(name, ignored -> new ArrayList<>()).add(value); return value;
+      Obj value = new Obj(name.equals(PROPOSAL_CLASS) ? owner.proposalSchema : null); objects.computeIfAbsent(name, ignored -> new ArrayList<>()).add(value); return value;
     }
     public List<Obj> getObjects(String name) { return new ArrayList<>(objects.getOrDefault(name, List.of())); }
     public boolean removeObject(Obj value) { return objects.values().stream().anyMatch(values -> values.remove(value)); }
@@ -106,6 +137,7 @@ public class DocumentationVelocityTest {
     public String getURL(String action, String query) { return getURL(action) + "?" + query; }
   }
   public static class Wiki {
+    final Schema proposalSchema = new Schema();
     final Doc config = new Doc(this, "TestPage.PAGE.doc-test.CODE.Configuration.WebHome");
     final Map<String, Doc> docs = new LinkedHashMap<>();
     final List<String> deleted = new ArrayList<>();
@@ -204,7 +236,8 @@ public class DocumentationVelocityTest {
     public String getUser() { return user.toString(); }
   }
   public static class DateTool {
-    public Date getDate() { return new Date(NOW); }
+    Date now = new Date(NOW);
+    public Date getDate() { return now; }
     public Date toDate(long value) { return new Date(value); }
     public Calendar toCalendar(Date value) { Calendar calendar = Calendar.getInstance(TimeZone.getTimeZone("UTC")); calendar.setTime(value); return calendar; }
   }
@@ -254,6 +287,7 @@ public class DocumentationVelocityTest {
     final Users users = new Users();
     final Model model = new Model();
     final Request request = new Request();
+    final DateTool dates = new DateTool();
     final Refactoring refactoring = new Refactoring(wiki);
     VelocityContext context;
     VelocityEngine engine;
@@ -269,7 +303,7 @@ public class DocumentationVelocityTest {
       engine.setProperty("velocimacro.library", "");
       engine.init();
       context = new VelocityContext();
-      context.put("xwiki", wiki); context.put("xcontext", user); context.put("datetool", new DateTool());
+      context.put("xwiki", wiki); context.put("xcontext", user); context.put("datetool", dates);
       context.put("services", Map.of("model", model, "user", users, "query", new Queries(wiki), "csrf", new Csrf(), "refactoring", refactoring));
       context.put("request", request); context.put("escapetool", new Escape());
       context.put("doc", new Doc(wiki, page.equals("WebHome.xwiki") ? MAIN : "TestPage.PAGE.doc-test.COMMANDE"));
@@ -362,7 +396,19 @@ public class DocumentationVelocityTest {
       default -> throw new IllegalArgumentException(state);
     }
   }
+  static void nativeXWikiProperties() throws Exception {
+    // Optional native contract check: add XWiki oldcore and its runtime jars to the classpath.
+    java.lang.Class<?> dateType = java.lang.Class.forName("com.xpn.xwiki.objects.DateProperty");
+    Object property = dateType.getConstructor().newInstance();
+    java.sql.Timestamp submitted = new java.sql.Timestamp(NOW + 123);
+    dateType.getMethod("setValue", Object.class).invoke(property, submitted);
+    Date stored = (Date) dateType.getMethod("getValue").invoke(property);
+    check(stored.getClass() == Date.class && stored.getTime() == submitted.getTime(), "Native DateProperty must preserve Timestamp milliseconds as a Date");
+    check(!stored.toString().equals(submitted.toString()), "The old string comparison must fail on the native date conversion");
+    done("Native XWiki DateProperty preserves Timestamp milliseconds while changing its string representation");
+  }
   public static void main(String[] args) throws Exception {
+    if (Boolean.getBoolean("documentation.nativeProperties")) nativeXWikiProperties();
     String homeSource = Files.readString(ROOT.resolve("WebHome.xwiki"));
     String commandSource = Files.readString(ROOT.resolve("COMMANDE.xwiki"));
     check(policy(homeSource).equals(policy(commandSource)), "Home and server must calculate identical permissions");
@@ -506,6 +552,36 @@ public class DocumentationVelocityTest {
     check(listed.contains("data-ref=\"" + theirs + "\""), "Validators must see pending proposals from other authors");
     done("Real proposal listing scopes private data to its author or a validator");
 
+    for (String field : new Schema().properties.keySet()) {
+      f = operationFixture("proposeGroups"); f.wiki.proposalSchema.properties.remove(field);
+      Map<String, Integer> before = revisions(f);
+      String invalidClass = f.post("ajouter un fichier", "type", "folder", "page", MAIN, "nom_fichier", "À examiner");
+      String expectedType = List.of("submittedAt", "reviewedAt", "deletedAt").contains(field) ? "Date" : List.of("content", "description", "tags", "reviewComment").contains(field) ? "TextArea" : "String";
+      check(invalidClass.equals("ERREUR_CLASSE_PROPOSITION") && f.pageOutput.contains("champ « " + field + " » absent (type " + expectedType + " attendu)"), "Missing field must identify its name and expected type: " + field + ": " + f.pageOutput);
+      check(revisions(f).equals(before), "Missing proposal definitions cannot save a partial proposal or modify published documents");
+      done("Missing proposal field " + field + " reports its expected type before saving");
+    }
+    for (String field : List.of("submittedAt", "reviewedAt", "deletedAt", "operation", "content")) {
+      f = operationFixture("proposeGroups"); f.wiki.proposalSchema.properties.put(field, new Definition(field.equals("operation") ? "TextArea" : "String"));
+      String invalidClass = f.post("ajouter un fichier", "type", "folder", "page", MAIN, "nom_fichier", "À examiner");
+      check(invalidClass.equals("ERREUR_CLASSE_PROPOSITION") && f.pageOutput.contains("champ « " + field + " » de type incorrect"), "Wrong proposal definition must be refused before an incompatible value is set: " + field);
+      check(f.wiki.docs.keySet().equals(Set.of(MAIN, GUIDE, TARGET)), "Wrong types cannot persist a partial proposal");
+      done("Incorrect proposal field type " + field + " returns a precise configuration error");
+    }
+    f = operationFixture("proposeGroups"); f.wiki.proposalSchema.properties.get("reviewer").disabled = true;
+    String invalidClass = f.post("ajouter un fichier", "type", "folder", "page", MAIN, "nom_fichier", "À examiner");
+    check(invalidClass.equals("ERREUR_CLASSE_PROPOSITION") && f.pageOutput.contains("champ « reviewer » désactivé (type String attendu)"), "Disabled proposal fields must be identified before writing");
+    done("Disabled proposal fields are detected through the script-safe XClass API");
+
+    f = operationFixture("proposeGroups"); f.dates.now = new java.sql.Timestamp(NOW + 123);
+    String typedDateResult = f.post("ajouter un document", "type", "document", "page", MAIN, "nom_fichier", "false", "content", "", "description", "false", "tags", "");
+    check(typedDateResult.equals("PROPOSITION_OK"), "A real-like Timestamp normalization and valid empty/string fields must not trigger a class error: " + f.pageOutput);
+    Obj datedProposal = f.wiki.docs.get(String.valueOf(f.context.get("resultProposalRef"))).getObject(PROPOSAL_CLASS);
+    check(datedProposal.getValue("submittedAt").getClass() == Date.class && ((Date)datedProposal.getValue("submittedAt")).getTime() == NOW + 123, "The stored proposal date must preserve all milliseconds");
+    check(!f.dates.now.toString().equals(datedProposal.getValue("submittedAt").toString()), "The regression fixture must reproduce the old invalid string comparison");
+    for (String empty : List.of("reviewer", "reviewComment", "baseVersion", "sourceRef", "parentProposalRef", "publishedRef", "filename")) check(datedProposal.getProperty(empty) != null && datedProposal.getValue(empty).equals(""), "An existing empty field is valid: " + empty);
+    done("Typed proposal dates, text equal to false, and valid empty fields create a pending proposal without false class errors");
+
     f = new Fixture(); f.configured(); f.group("proposeGroups", "XWiki.Contributors"); f.document(MAIN, "root", "Documentation");
     String result = f.post("ajouter un fichier", "mode", "proposal", "type", "folder", "page", MAIN, "nom_fichier", "Nouveau dossier", "batch_id", "batch-one");
     check(result.equals("PROPOSITION_OK"), "Creation proposal failed: " + result);
@@ -646,6 +722,7 @@ public class DocumentationVelocityTest {
     done("An administrator can save and revoke explicit IVQ_Gestionnaires grants through the real settings POST without implicit action rights");
 
     for (OperationCase operation : operations) {
+      if (operation.grant.equals("importGroups")) continue; // Imports require the dedicated Importer/Create/Propose matrix below.
       for (String mode : List.of("", "direct", "proposal")) {
         f = operationFixture(operation.grant);
         result = f.post(operation.action, withMode(operation, mode));
@@ -685,10 +762,82 @@ public class DocumentationVelocityTest {
     f = operationFixture("createGroups", "proposeGroups");
     OperationCase importOperation = operations.get(2);
     result = f.post(importOperation.action, importOperation.parameters);
-    check(result.equals("PROPOSITION_OK") && !f.can("Import") && f.can("Create"), "Create permission must not silently grant direct import");
+    check(result.equals("ERREUR_DROITS") && !f.can("Import") && f.can("Create") && f.wiki.upload.loads == 0, "Create and propose permissions must not bypass the import permission");
     result = f.post("ajouter un fichier", "type", "folder", "page", MAIN, "nom_fichier", "Mode invalide", "mode", "unexpected");
     check(result.equals("ERREUR_MODE"), "Unknown legacy modes must still be rejected");
-    done("Mixed creator and proposer rights still require separate import permission, and invalid modes fail closed");
+    done("Mixed creator and proposer rights cannot import without Importer, and invalid modes fail closed");
+
+    for (int rights = 0; rights < 8; rights++) {
+      boolean importer = (rights & 1) != 0, creator = (rights & 2) != 0, proposer = (rights & 4) != 0;
+      List<String> grants = new ArrayList<>();
+      if (importer) grants.add("importGroups"); if (creator) grants.add("createGroups"); if (proposer) grants.add("proposeGroups");
+      for (String mode : List.of("", "direct", "proposal")) {
+        for (String trigger : List.of("intent", "source_kind", "filename_only", "folder")) {
+          f = operationFixture(grants.toArray(String[]::new)); Map<String, Integer> before = revisions(f);
+          List<String> parameters = new ArrayList<>(List.of("type", trigger.equals("folder") ? "folder" : "document", "page", MAIN, "nom_fichier", "Lot importé", "batch_id", "batch-import"));
+          if (!mode.isEmpty()) { parameters.add("mode"); parameters.add(mode); }
+          if (trigger.equals("intent") || trigger.equals("folder")) { parameters.add("intent"); parameters.add("import"); }
+          if (trigger.equals("source_kind")) { parameters.add("source_kind"); parameters.add("file"); }
+          if (!trigger.equals("folder")) { parameters.add("source_filename"); parameters.add("guide.txt"); }
+          result = f.post(trigger.equals("folder") ? "ajouter un fichier" : "ajouter un document", parameters.toArray(String[]::new));
+          boolean direct = importer && creator, pending = importer && !creator && !mode.equals("direct");
+          String expected = direct ? "LIEN_AJOUTE_OK" : pending ? "PROPOSITION_OK" : "ERREUR_DROITS";
+          check(result.equals(expected), "Import policy mismatch for rights=" + grants + ", mode=" + mode + ", trigger=" + trigger + ": " + result);
+          if (pending) {
+            Doc staged = f.wiki.docs.get(String.valueOf(f.context.get("resultProposalRef")));
+            check(staged != null && staged.getObject(PROPOSAL_CLASS).getValue("status").equals("pending") && staged.getObject(PROPOSAL_CLASS).getValue("operation").equals("import"), "Imported files and folders without Create must be pending import proposals");
+            if (!trigger.equals("folder")) check(staged.attachments.containsKey("guide.txt"), "Imported files must remain in the private proposal");
+            for (String ref : before.keySet()) check(f.wiki.docs.get(ref).revision == before.get(ref), "Import proposals cannot change a published page");
+          } else if (direct) {
+            check(f.wiki.docs.keySet().stream().noneMatch(ref -> ref.startsWith(PROPOSALS + ".")), "Importer + Create publishes without requiring Propose");
+          } else check(revisions(f).equals(before) && f.wiki.upload.loads == 0, "Refused imports cannot load files or save wiki pages");
+        }
+      }
+      done("Import permissions Importer=" + importer + ", Create=" + creator + ", Propose=" + proposer + " apply to files, folders and forged legacy requests");
+    }
+
+    f = operationFixture("importGroups");
+    result = f.post(importOperation.action, importOperation.parameters);
+    check(result.equals("PROPOSITION_OK"), "Importer alone must stage an imported file");
+    String importToValidate = String.valueOf(f.context.get("resultProposalRef"));
+    check(f.list("propositions").contains("data-ref=\"" + importToValidate + "\""), "Importer-only authors must see their pending imported proposals");
+    f.group("reviewGroups", "XWiki.Validators");
+    result = f.post("refuser proposition", "proposal_ref", importToValidate, "version", f.wiki.docs.get(importToValidate).getVersion(), "comment", "À compléter");
+    check(result.equals("PROPOSITION_REFUSEE_OK"), "A validator must be able to reject an importer-only proposal: " + result);
+    String importInTrash = String.valueOf(f.context.get("resultRef"));
+    f.wiki.config.configuration.set("reviewGroups", "");
+    check(f.list("corbeille").contains("data-ref=\"" + importInTrash + "\"") && f.pageOutput.contains("data-can-restore=\"true\""), "Importer-only authors must see their rejected imported proposals and their per-proposal restore grant");
+    f.user.user = new Ref("xwiki", "XWiki.Bob");
+    check(!f.list("corbeille").contains("data-ref=\"" + importInTrash + "\""), "Another importer cannot read someone else's private proposal");
+    result = f.post("restaurer proposition", "proposal_ref", importInTrash, "version", f.wiki.docs.get(importInTrash).getVersion());
+    check(result.equals("ERREUR_DROITS") && f.wiki.docs.containsKey(importInTrash), "Another importer cannot restore someone else's rejected import");
+    f.user.user = new Ref("xwiki", "XWiki.Alice");
+    result = f.post("restaurer proposition", "proposal_ref", importInTrash, "version", f.wiki.docs.get(importInTrash).getVersion());
+    check(result.equals("PROPOSITION_RESTAUREE_OK"), "Importer-only authors can restore their own rejected import without Propose: " + result);
+    importToValidate = String.valueOf(f.context.get("resultRef"));
+    check(f.wiki.docs.get(importToValidate).getObject(PROPOSAL_CLASS).getValue("status").equals("pending"), "Restoring an imported proposal returns it to pending without publishing");
+    check(f.wiki.docs.keySet().equals(Set.of(MAIN, GUIDE, TARGET, importToValidate)), "No imported page may be published before validation");
+    done("Importer-only authors can list, receive a rejection and restore their imported proposal without publishing");
+    f.wiki.config.configuration.set("importGroups", ""); f.wiki.config.configuration.set("proposeGroups", ""); f.group("reviewGroups", "XWiki.Validators");
+    result = f.post("valider proposition", "proposal_ref", importToValidate, "version", f.wiki.docs.get(importToValidate).getVersion());
+    check(result.equals("PROPOSITION_VALIDEE_OK") && !f.can("Import") && !f.can("Create") && !f.can("Propose"), "A validator can accept an imported proposal without Importer, Create or Propose: " + result);
+    Doc validatedImport = f.wiki.docs.get(String.valueOf(f.context.get("resultRef")));
+    check(validatedImport != null && validatedImport.attachments.containsKey("guide.txt"), "Validating an imported proposal must publish its uploaded attachment");
+    done("A validator-only account can accept a staged import and publish its attachment");
+
+    f = operationFixture("proposeGroups");
+    result = f.post("ajouter un document", "type", "document", "page", MAIN, "nom_fichier", "Document à corriger", "content", "Texte proposé");
+    check(result.equals("PROPOSITION_OK"), "A regular creation proposal must be available for the restore-permission regression");
+    String nonImportProposal = String.valueOf(f.context.get("resultProposalRef"));
+    f.group("reviewGroups", "XWiki.Validators");
+    result = f.post("refuser proposition", "proposal_ref", nonImportProposal, "version", f.wiki.docs.get(nonImportProposal).getVersion(), "comment", "À corriger");
+    check(result.equals("PROPOSITION_REFUSEE_OK"), "The normal proposal must reach trash before testing revoked Propose");
+    String nonImportTrash = String.valueOf(f.context.get("resultRef"));
+    f.wiki.config.configuration.set("reviewGroups", ""); f.wiki.config.configuration.set("proposeGroups", ""); f.group("importGroups", "XWiki.Importers");
+    check(f.list("corbeille").contains("data-ref=\"" + nonImportTrash + "\"") && f.pageOutput.contains("data-can-restore=\"false\""), "Importer-only rights cannot advertise restore permission for an older non-import proposal");
+    result = f.post("restaurer proposition", "proposal_ref", nonImportTrash, "version", f.wiki.docs.get(nonImportTrash).getVersion());
+    check(result.equals("ERREUR_DROITS") && f.wiki.docs.containsKey(nonImportTrash), "Importer-only rights cannot restore a non-import proposal after Propose has been revoked");
+    done("Importer-only restore rights apply solely to the author's imports, never another author or a different operation");
 
     for (String type : List.of("document", "attached-document", "folder")) {
       for (String[] grants : List.of(new String[]{}, new String[]{"proposeGroups"}, new String[]{"createGroups", "reviewGroups"})) {

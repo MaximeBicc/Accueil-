@@ -22,8 +22,12 @@
     }
     function can(right) { return permissions[right] === true; }
     function modeFor(right) {
+        if (right === "import") {
+            if (!can("import")) return "";
+            return can("create") ? "direct" : "proposal";
+        }
         if (can(right)) return "direct";
-        var proposable = ["create", "import", "move", "modify", "content"].indexOf(right) !== -1;
+        var proposable = ["create", "move", "modify", "content"].indexOf(right) !== -1;
         return proposable && can("propose") ? "proposal" : "";
     }
     var errorMessages = {
@@ -140,7 +144,8 @@
     }
     async function proposalAction(ref, decision, reason, version) {
         var actions = {accept:"valider proposition", reject:"refuser proposition", restore:"restaurer proposition"};
-        if (!can("review") || !actions[decision]) throw new Error("Le droit de validation est nécessaire.");
+        var allowed = decision === "restore" ? can("review") || can("propose") || can("import") : can("review");
+        if (!allowed || !actions[decision]) throw new Error(decision === "restore" ? "Vous n’avez pas le droit de restaurer cette proposition." : "Le droit de validation est nécessaire.");
         var result = await request(actions[decision], {proposal_ref:ref, version:version || "", comment:reason || ""});
         notify(decision === "reject" ? "La proposition a été placée dans la corbeille pour sept jours." :
             decision === "restore" ? "La proposition est de nouveau en attente." : "Cette partie de la proposition a été validée.");
@@ -152,9 +157,8 @@
         var creation = !!modeFor("create") || !!modeFor("import");
         document.querySelectorAll("#doc-add-folder, #doc-add-document").forEach(function (item) {
             item.hidden = !creation;
-            var proposalOnly = !can("create") && !can("import") && can("propose");
-            var importOnly = can("import") && !can("create") && !can("propose");
-            item.textContent = (proposalOnly ? "Proposer un " : importOnly ? "Importer un " : "Ajouter un ") + (item.id === "doc-add-folder" ? "dossier" : "document");
+            var proposalOnly = !can("create") && creation;
+            item.textContent = (proposalOnly ? "Proposer un " : "Ajouter un ") + (item.id === "doc-add-folder" ? "dossier" : "document");
         });
         var mapping = {"#explorer-move-btn,#explorer-move-here-btn,#architecture-validate-btn":"move",
             "#explorer-delete-btn,#architecture-delete-btn":"delete", "#sidebar-metadata-save,#sidebar-tag-add":"modify",
@@ -224,7 +228,7 @@
         });
         table.appendChild(body); view.body.appendChild(table);
         view.body.appendChild(node("p", "Attribuez les droits aux groupes puis enregistrez. Sans attribution, aucune action n’est autorisée, même pour les administrateurs. Ceux-ci conservent l’accès aux paramètres.", "help-block"));
-        view.body.appendChild(node("p", "Chaque opération autorisée s’effectue directement. Le droit Proposer permet de soumettre les autres opérations à validation, sauf la suppression.", "help-block"));
+        view.body.appendChild(node("p", "Créer autorise les ajouts directs. Importer permet de proposer des fichiers, même sans Proposer. Avec Créer, les imports sont directs ; sans Créer, ils attendent une validation. Les autres opérations suivent leurs droits propres ; la suppression ne peut pas être proposée.", "help-block"));
         var save = node("button","Enregistrer les autorisations","btn btn-primary"); save.type="button";
         save.onclick = async function () {
             save.disabled=true;

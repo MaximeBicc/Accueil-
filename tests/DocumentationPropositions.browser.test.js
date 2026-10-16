@@ -308,6 +308,30 @@ async function deleteInUI(page, mode) {
       } finally { await page.close(); }
     });
 
+    await check('An import author can restore their own refused import using the server grant, without receiving validation rights', async () => {
+      const page = await setup(browser, { reviewer: false, proposals: [
+        proposal('ImportAuteur', { operation: 'import', status: 'rejected', 'can-restore': 'true' }),
+        proposal('ImportAutre', { operation: 'import', status: 'rejected', 'can-restore': 'false' })
+      ] });
+      try {
+        await open(page, 'corbeille');
+        assert.equal(await page.locator('.architecture-row-rejected').count(), 2);
+        assert.equal(await page.locator('[data-architecture-proposal-decision="accept"], [data-architecture-proposal-decision="reject"]').count(), 0);
+        assert.equal(await page.locator('[data-architecture-proposal-decision="restore"]').count(), 1);
+        await page.evaluate(async ref => {
+          await decideDocumentationProposal(architectureState.nodes['proposal:' + ref], 'restore');
+        }, space + 'ImportAutre');
+        assert.equal(await page.evaluate(() => testState.decisions.length), 0, 'manual restoration cannot bypass the server grant');
+        await page.locator('[data-architecture-proposal-decision="restore"]').click();
+        await page.waitForFunction(() => architectureState.proposalCount === 1);
+        assert.deepEqual(await page.evaluate(() => testState.decisions), [
+          { ref: space + 'ImportAuteur', decision: 'restore', reason: '', version: '1.1' }
+        ]);
+        assert.equal(await page.locator('[data-architecture-proposal-decision]').count(), 0);
+        assert.deepEqual(await page.evaluate(() => testState.alerts), []);
+      } finally { await page.close(); }
+    });
+
     await check('Documents have an accessible preview and can be opened before publication', async () => {
       const page = await setup(browser, { proposals: [proposal('Contrat')] });
       try {
@@ -393,6 +417,29 @@ async function deleteInUI(page, mode) {
         assert.equal(saved.values.propose_groups, 'XWiki.Contributors');
         assert.equal(saved.values.create_groups, '');
         assert.equal(saved.values.review_groups, '');
+      } finally { await page.close(); }
+    });
+
+    await check('Importer alone can request restoration but cannot accept or refuse proposals', async () => {
+      const page = await workflowPage(browser, { import: true, create: false, propose: false, review: false });
+      try {
+        await page.evaluate(async ref => {
+          await DocPropositions.proposalAction(ref, 'restore', '', '2.4');
+        }, space + 'ImportAuteur');
+        const posted = await page.evaluate(() => testWorkflow.requests.filter(request => request.action === 'restaurer proposition'));
+        assert.equal(posted.length, 1);
+        assert.equal(posted[0].action, 'restaurer proposition');
+        assert.equal(posted[0].values.proposal_ref, space + 'ImportAuteur');
+        assert.equal(posted[0].values.version, '2.4');
+        assert.equal(posted[0].values.form_token, 'test-csrf');
+        for (const decision of ['accept', 'reject']) {
+          const message = await page.evaluate(async ({ ref, decision }) => {
+            try { await DocPropositions.proposalAction(ref, decision, '', '2.4'); return ''; }
+            catch (error) { return error.message; }
+          }, { ref: space + 'ImportAuteur', decision });
+          assert.match(message, /validation/);
+        }
+        assert.equal(await page.evaluate(() => testWorkflow.requests.filter(request => /^(restaurer|valider|refuser) proposition$/.test(request.action)).length), 1);
       } finally { await page.close(); }
     });
 
@@ -523,7 +570,7 @@ async function deleteInUI(page, mode) {
       } finally { await page.close(); }
     });
 
-    await check('The real WebHome toolbar reveals creation, import and proposal buttons after each grant without reloading', async () => {
+    await check('The real WebHome toolbar and file pickers reflect creation, proposal and import grants without reloading', async () => {
       const page = await workflowPage(browser, { configure: true }, { groupGrants: {}, webHomeToolbar: true });
       try {
         await addCreationUI(page);
@@ -535,22 +582,23 @@ async function deleteInUI(page, mode) {
           document.getElementById('doc-add-folder'), document.getElementById('doc-add-document')
         ]);
 
-        for (const right of ['create', 'import', 'propose']) {
+        for (const rights of [['create'], ['propose'], ['import', 'create'], ['import', 'propose'], ['import']]) {
           await page.locator('#doc-settings').click();
           let dialog = page.getByRole('dialog', { name: 'Paramètres de la documentation' });
           await dialog.waitFor();
           assert.equal(await dialog.locator('input[type="checkbox"]:checked').count(), 0);
-          await dialog.locator('input[data-right="' + right + '"]').check();
+          for (const right of rights) await dialog.locator('input[data-right="' + right + '"]').check();
           await dialog.getByRole('button', { name: 'Enregistrer les autorisations' }).click();
           await page.waitForFunction(() => !document.querySelector('dialog'));
           assert.equal(await page.evaluate(handles => handles.every(button => button.isConnected), buttonHandles), true,
-            'granting a right must reveal the original buttons, without a page reload');
+            'changing a right must update the original buttons, without a page reload');
+          const manual = rights.includes('create') || rights.includes('propose');
+          const importing = rights.includes('import');
+          const mode = rights.includes('create') ? 'direct' : 'proposal';
           for (const selector of ['#doc-add-folder', '#doc-add-document']) {
-            assert.equal(await page.locator(selector).isVisible(), true, right + ' must expose both entry points');
-            assert.match(await page.locator(selector).innerText(), right === 'propose' ? /proposer/i : right === 'import' ? /importer/i : /ajouter|créer/i);
+            assert.equal(await page.locator(selector).isVisible(), manual || importing, rights.join('+') + ' must expose only usable entry points');
+            if (manual || importing) assert.match(await page.locator(selector).innerText(), mode === 'proposal' ? /proposer/i : /ajouter|créer/i);
           }
-          const manual = right !== 'import', importing = right !== 'create';
-          const mode = right === 'propose' ? 'proposal' : 'direct';
           await page.evaluate(({ mode, root }) => {
             testWorkflow.requests = [];
             const body = mode === 'proposal' ?
@@ -560,64 +608,54 @@ async function deleteInUI(page, mode) {
             testWorkflow.responses['ajouter un document'] = { body };
           }, { mode, root });
 
-          await page.locator('#doc-add-folder').click();
-          await page.locator('#popup').waitFor({ state: 'visible' });
-          assert.equal(await page.locator('#folder-empty-page-group').isVisible(), manual);
-          assert.equal(await page.locator('#branch-folder-picker-btn').isVisible(), importing);
-          if (right === 'import') {
-            assert.match(await page.locator('#documentation-creation-title').innerText(), /importer/i);
-            assert.match(await page.locator('#btn-popup-valide').innerText(), /importer/i);
+          if (manual || importing) {
+            await page.locator('#doc-add-folder').click();
+            await page.locator('#popup').waitFor({ state: 'visible' });
+            assert.equal(await page.locator('#folder-empty-page-group').isVisible(), manual);
+            assert.equal(await page.locator('#branch-folder-picker-btn').isVisible(), importing);
+            if (importing) {
+              await page.evaluate(() => {
+                const file = new File(['branch-content'], 'guide.pdf', { type: 'application/pdf' });
+                Object.defineProperty(file, 'webkitRelativePath', { value: 'Archive/guide.pdf' });
+                const transfer = new DataTransfer(); transfer.items.add(file);
+                const input = document.getElementById('branch-folder-input');
+                input.files = transfer.files;
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+              });
+            } else await page.locator('#folder-name-input').fill('Dossier ' + rights.join('+'));
+            assert.match(await page.locator('#btn-popup-valide').innerText(), mode === 'proposal' ? /proposer/i : importing ? /importer/i : /créer/i);
             await page.locator('#btn-popup-valide').click();
-            await page.waitForFunction(() => !document.getElementById('btn-popup-valide').disabled);
-            assert.equal(await page.locator('#popup').isVisible(), true);
-            assert.match(await page.locator('#documentation-popup-status').innerText(), /sélectionnez.*importer/i);
+            await page.waitForFunction(() => document.getElementById('popup').style.display === 'none');
+
+            await page.locator('#doc-add-document').click();
+            await page.locator('#popup').waitFor({ state: 'visible' });
+            assert.equal(await page.locator('#document-empty-page-group').isVisible(), manual);
+            assert.equal(await page.locator('#document-file-picker-btn').isVisible(), importing);
+            if (importing) {
+              await page.locator('#document-file-input').setInputFiles({
+                name: 'contrat.pdf', mimeType: 'application/pdf', buffer: Buffer.from('pdf-file')
+              });
+            } else await page.locator('#document-name-input').fill('Document ' + rights.join('+'));
+            assert.match(await page.locator('#btn-popup-valide').innerText(), mode === 'proposal' ? /proposer/i : importing ? /importer/i : /créer/i);
+            await page.locator('#btn-popup-valide').click();
+            await page.waitForFunction(() => document.getElementById('popup').style.display === 'none');
+            const requests = await page.evaluate(() => testWorkflow.requests.filter(request => /^ajouter un /.test(request.action)));
+            assert.equal(requests.length, importing ? 3 : 2);
+            assert.ok(requests.some(request => request.action === 'ajouter un fichier'));
+            assert.ok(requests.some(request => request.action === 'ajouter un document'));
+            assert.ok(requests.every(request => request.method === 'POST' && request.values.mode === mode &&
+              request.values.intent === (importing ? 'import' : 'create') && request.values.form_token === 'test-csrf'));
+            assert.deepEqual(await page.evaluate(() => testWorkflow.alerts), []);
+          } else {
+            await page.evaluate(async () => { await ajouterFichier(); await ajouterDocument(); });
+            assert.equal(await page.locator('#popup').isVisible(), false);
             assert.equal(await page.evaluate(() => testWorkflow.requests.filter(request => /^ajouter un /.test(request.action)).length), 0);
           }
-          if (manual) {
-            await page.locator('#folder-name-input').fill('Dossier ' + right);
-          } else {
-            await page.evaluate(() => {
-              const file = new File(['branch-content'], 'guide.pdf', { type: 'application/pdf' });
-              Object.defineProperty(file, 'webkitRelativePath', { value: 'Archive/guide.pdf' });
-              const transfer = new DataTransfer(); transfer.items.add(file);
-              const input = document.getElementById('branch-folder-input');
-              input.files = transfer.files;
-              input.dispatchEvent(new Event('change', { bubbles: true }));
-            });
-          }
-          assert.match(await page.locator('#btn-popup-valide').innerText(), right === 'propose' ? /proposer/i : right === 'import' ? /importer/i : /créer/i);
-          await page.locator('#btn-popup-valide').click();
-          await page.waitForFunction(() => document.getElementById('popup').style.display === 'none');
-
-          await page.locator('#doc-add-document').click();
-          await page.locator('#popup').waitFor({ state: 'visible' });
-          assert.equal(await page.locator('#document-empty-page-group').isVisible(), manual);
-          assert.equal(await page.locator('#document-file-picker-btn').isVisible(), importing);
-          if (right === 'import') {
-            assert.match(await page.locator('#documentation-creation-title').innerText(), /importer/i);
-            assert.match(await page.locator('#btn-popup-valide').innerText(), /importer/i);
-          }
-          if (manual) {
-            await page.locator('#document-name-input').fill('Document ' + right);
-          } else {
-            await page.locator('#document-file-input').setInputFiles({
-              name: 'contrat.pdf', mimeType: 'application/pdf', buffer: Buffer.from('pdf-file')
-            });
-          }
-          await page.locator('#btn-popup-valide').click();
-          await page.waitForFunction(() => document.getElementById('popup').style.display === 'none');
-          const requests = await page.evaluate(() => testWorkflow.requests.filter(request => /^ajouter un /.test(request.action)));
-          assert.equal(requests.length, right === 'import' ? 3 : 2);
-          assert.ok(requests.some(request => request.action === 'ajouter un fichier'));
-          assert.ok(requests.some(request => request.action === 'ajouter un document'));
-          assert.ok(requests.every(request => request.method === 'POST' && request.values.mode === mode &&
-            request.values.intent === (right === 'import' ? 'import' : 'create') && request.values.form_token === 'test-csrf'));
-          assert.deepEqual(await page.evaluate(() => testWorkflow.alerts), []);
 
           await page.locator('#doc-settings').click();
           dialog = page.getByRole('dialog', { name: 'Paramètres de la documentation' });
           await dialog.waitFor();
-          await dialog.locator('input[data-right="' + right + '"]').uncheck();
+          for (const right of rights) await dialog.locator('input[data-right="' + right + '"]').uncheck();
           await dialog.getByRole('button', { name: 'Enregistrer les autorisations' }).click();
           await page.waitForFunction(() => !document.querySelector('dialog'));
           assert.equal(await page.locator('#doc-add-folder').isVisible(), false);
@@ -671,62 +709,118 @@ async function deleteInUI(page, mode) {
       } finally { await page.close(); }
     });
 
-    await check('An imported branch submits separate proposal pages with shared batch, proposed parents, and actual multipart files', async () => {
-      const page = await workflowPage(browser, { propose: true, create: false, import: false });
-      try {
-        await page.evaluate(parent => {
-          const host = document.createElement('div');
-          host.innerHTML = '<div id="pageData" parent-page="' + parent + '"></div>' +
-            '<div id="popup" style="display:none"><form id="formulairePopup"><input name="form_token" value="test-csrf">' +
-            '<div id="popupContent"></div><button id="btn-popup-valide" type="button">Valider</button></form></div>';
-          document.body.appendChild(host);
-          window.uploads = []; window.alerts = []; window.openedProposals = 0;
-          window.LienPerso = () => {};
-          window.alert = message => alerts.push(message);
-          window.openDocumentationProposals = () => { openedProposals++; };
-          const previousFetch = window.fetch;
-          window.fetch = async (url, options = {}) => {
-            const values = Object.fromEntries(options.body || []);
-            if (!/^ajouter un /.test(values.action || '')) return previousFetch(url, options);
-            const file = options.body.get('filePath');
-            const ref = 'TestPage.PAGE.doc-test.PROPOSITIONS.P' + (uploads.length + 1);
-            uploads.push({ values: Object.fromEntries(Array.from(options.body).filter(([key]) => key !== 'filePath')),
-              file: file ? { name: file.name, size: file.size, content: await file.text() } : null, ref });
-            return { ok: true, text: async () => '<div id="creation-result" data-proposal-ref="' + ref + '"></div>PROPOSITION_OK' };
-          };
-        }, root);
-        await page.addScriptTag({ path: path.join(codeDir, 'Popup.js') });
-        await page.evaluate(async () => {
-          await ajouterFichier();
-          const file = new File(['pdf-content'], 'contrat.pdf', { type: 'application/pdf' });
-          Object.defineProperty(file, 'webkitRelativePath', { value: 'Archive/Sous/contrat.pdf' });
-          const branch = buildBranchTreeFromFiles([file]);
-          branch.children.push(createBranchFolderNode('Vide'));
-          prepareBranchTree(branch);
-          branchImportSelection = { root: branch, sourceMode: 'directory-handle' };
-          await popupValider();
-        });
-        const result = await page.evaluate(() => ({ uploads, alerts, opened: openedProposals, batchEnded: DocPropositions.batchId() }));
-        assert.equal(result.uploads.length, 4, 'the root, subfolder, document and empty folder each get a proposal');
-        const byTitle = Object.fromEntries(result.uploads.map(item => [item.values.nom_fichier, item]));
-        assert.ok(byTitle.Archive && byTitle.Sous && byTitle.contrat && byTitle.Vide);
-        assert.equal(byTitle.Archive.values.parent_proposal_ref, '');
-        assert.equal(byTitle.Sous.values.parent_proposal_ref, byTitle.Archive.ref);
-        assert.equal(byTitle.contrat.values.parent_proposal_ref, byTitle.Sous.ref);
-        assert.equal(byTitle.Vide.values.parent_proposal_ref, byTitle.Archive.ref);
-        for (const upload of result.uploads) {
-          assert.equal(upload.values.mode, 'proposal');
-          assert.equal(upload.values.intent, 'import');
-          assert.equal(upload.values.page, root);
-          assert.equal(upload.values.form_token, 'test-csrf');
-          assert.equal(upload.values.batch_id, result.uploads[0].values.batch_id);
-          assert.ok(upload.values.batch_id);
-        }
-        assert.deepEqual(byTitle.contrat.file, { name: 'contrat.pdf', size: 11, content: 'pdf-content' });
-        assert.deepEqual(result.alerts, []);
-        assert.equal(result.opened, 1);
-        assert.equal(result.batchEnded, '');
-      } finally { await page.close(); }
+    await check('Multi-file imports require creation rights to publish directly, and otherwise use the proposal workflow', async () => {
+      for (const grants of [
+        { import: true, create: false, propose: true },
+        { import: true, create: false, propose: false },
+        { import: true, create: true, propose: false },
+        { import: true, create: true, propose: true }
+      ]) {
+        const page = await workflowPage(browser, grants);
+        try {
+          const mode = grants.create ? 'direct' : 'proposal';
+          assert.equal(await page.evaluate(() => DocPropositions.modeFor('import')), mode);
+          await addCreationUI(page);
+          await page.evaluate(({ mode, root }) => {
+            testWorkflow.responses['ajouter un document'] = { body: mode === 'proposal' ?
+              '<div id="creation-result" data-code="PROPOSITION_OK" data-proposal-ref="TestPage.PAGE.doc-test.PROPOSITIONS.P1"></div>PROPOSITION_OK' :
+              '<div id="creation-result" data-code="LIEN_AJOUTE_OK" data-page-ref="' + root + '.Contrat.WebHome"></div>LIEN_AJOUTE_OK' };
+          }, { mode, root });
+          await page.evaluate(() => ajouterDocument());
+          await page.locator('#document-file-input').setInputFiles([
+            { name: 'contrat.pdf', mimeType: 'application/pdf', buffer: Buffer.from('pdf-file') },
+            { name: 'guide.pdf', mimeType: 'application/pdf', buffer: Buffer.from('second-file') }
+          ]);
+          assert.match(await page.locator('#btn-popup-valide').innerText(), grants.create ? /importer/i : /proposer/i);
+          await page.locator('#btn-popup-valide').click();
+          await page.waitForFunction(() => document.getElementById('popup').style.display === 'none');
+          const uploads = await page.evaluate(async () => Promise.all(testWorkflow.requests
+            .filter(request => request.action === 'ajouter un document').map(async request => ({
+              mode: request.values.mode, intent: request.values.intent, token: request.values.form_token,
+              filename: request.values.filePath.name, contents: await request.values.filePath.text(), batch: request.values.batch_id
+            }))));
+          assert.equal(uploads.length, 2);
+          assert.ok(uploads[0].batch, 'a multiple-file import must share one batch');
+          assert.deepEqual(uploads, [
+            { mode, intent: 'import', token: 'test-csrf', filename: 'contrat.pdf', contents: 'pdf-file', batch: uploads[0].batch },
+            { mode, intent: 'import', token: 'test-csrf', filename: 'guide.pdf', contents: 'second-file', batch: uploads[0].batch }
+          ]);
+          assert.deepEqual(await page.evaluate(() => testWorkflow.alerts), []);
+        } finally { await page.close(); }
+      }
+    });
+
+    await check('Imported branches preserve batches, hierarchy and multipart files in both proposal and direct modes', async () => {
+      for (const grants of [
+        { import: true, create: false, propose: true },
+        { import: true, create: false, propose: false },
+        { import: true, create: true, propose: false },
+        { import: true, create: true, propose: true }
+      ]) {
+        const page = await workflowPage(browser, grants);
+        const mode = grants.create ? 'direct' : 'proposal';
+        try {
+          await page.evaluate(parent => {
+            const host = document.createElement('div');
+            host.innerHTML = '<div id="pageData" parent-page="' + parent + '"></div>' +
+              '<div id="popup" style="display:none"><form id="formulairePopup"><input name="form_token" value="test-csrf">' +
+              '<div id="popupContent"></div><button id="btn-popup-valide" type="button">Valider</button></form></div>';
+            document.body.appendChild(host);
+            window.uploads = []; window.alerts = []; window.openedProposals = 0;
+            window.LienPerso = () => {};
+            window.alert = message => alerts.push(message);
+            window.openDocumentationProposals = () => { openedProposals++; };
+            const previousFetch = window.fetch;
+            window.fetch = async (url, options = {}) => {
+              const values = Object.fromEntries(options.body || []);
+              if (!/^ajouter un /.test(values.action || '')) return previousFetch(url, options);
+              const file = options.body.get('filePath');
+              const proposed = values.mode === 'proposal';
+              const ref = proposed ? 'TestPage.PAGE.doc-test.PROPOSITIONS.P' + (uploads.length + 1) :
+                values.page.replace(/\.WebHome$/, '') + '.' + values.technical_name + '.WebHome';
+              uploads.push({ values: Object.fromEntries(Array.from(options.body).filter(([key]) => key !== 'filePath')),
+                file: file ? { name: file.name, size: file.size, content: await file.text() } : null, ref });
+              const code = proposed ? 'PROPOSITION_OK' : 'LIEN_AJOUTE_OK';
+              return { ok: true, text: async () => '<div id="creation-result" data-code="' + code + '" ' +
+                (proposed ? 'data-proposal-ref' : 'data-page-ref') + '="' + ref + '"></div>' + code };
+            };
+          }, root);
+          await page.addScriptTag({ path: path.join(codeDir, 'Popup.js') });
+          await page.evaluate(async () => {
+            await ajouterFichier();
+            const file = new File(['pdf-content'], 'contrat.pdf', { type: 'application/pdf' });
+            Object.defineProperty(file, 'webkitRelativePath', { value: 'Archive/Sous/contrat.pdf' });
+            const branch = buildBranchTreeFromFiles([file]);
+            branch.children.push(createBranchFolderNode('Vide'));
+            prepareBranchTree(branch);
+            branchImportSelection = { root: branch, sourceMode: 'directory-handle' };
+            await popupValider();
+          });
+          const result = await page.evaluate(() => ({ uploads, alerts, opened: openedProposals, batchEnded: DocPropositions.batchId() }));
+          assert.equal(result.uploads.length, 4, 'the root, subfolder, document and empty folder must each be submitted');
+          const byTitle = Object.fromEntries(result.uploads.map(item => [item.values.nom_fichier, item]));
+          assert.ok(byTitle.Archive && byTitle.Sous && byTitle.contrat && byTitle.Vide);
+          assert.equal(byTitle.Archive.values.parent_proposal_ref, '');
+          assert.equal(byTitle.Sous.values.parent_proposal_ref, grants.create ? '' : byTitle.Archive.ref);
+          assert.equal(byTitle.contrat.values.parent_proposal_ref, grants.create ? '' : byTitle.Sous.ref);
+          assert.equal(byTitle.Vide.values.parent_proposal_ref, grants.create ? '' : byTitle.Archive.ref);
+          assert.equal(byTitle.Archive.values.page, root);
+          assert.equal(byTitle.Sous.values.page, grants.create ? byTitle.Archive.ref : root);
+          assert.equal(byTitle.contrat.values.page, grants.create ? byTitle.Sous.ref : root);
+          assert.equal(byTitle.Vide.values.page, grants.create ? byTitle.Archive.ref : root);
+          for (const upload of result.uploads) {
+            assert.equal(upload.values.mode, mode);
+            assert.equal(upload.values.intent, 'import');
+            assert.equal(upload.values.form_token, 'test-csrf');
+            assert.equal(upload.values.batch_id, result.uploads[0].values.batch_id);
+            assert.ok(upload.values.batch_id);
+          }
+          assert.deepEqual(byTitle.contrat.file, { name: 'contrat.pdf', size: 11, content: 'pdf-content' });
+          assert.deepEqual(result.alerts, []);
+          assert.equal(result.opened, grants.create ? 0 : 1);
+          assert.equal(result.batchEnded, '');
+        } finally { await page.close(); }
+      }
     });
 
     await check('Replacement files are proposed as multipart content without treating error-code text in a document as a server failure', async () => {
@@ -758,7 +852,10 @@ async function deleteInUI(page, mode) {
     await check('Each operation chooses direct rights before proposing, without a contribution selector or deletion proposals', async () => {
       for (const grants of [
         { create: true, import: true, content: true, propose: false },
+        { create: true, import: true, content: true, propose: true },
         { create: true, import: false, content: true, propose: true },
+        { create: false, import: true, content: false, propose: true },
+        { create: false, import: true, content: false, propose: false },
         { create: false, import: false, content: false, propose: true },
         { create: false, import: false, content: false, propose: false }
       ]) {
@@ -766,10 +863,12 @@ async function deleteInUI(page, mode) {
         try {
           assert.equal(await page.locator('#doc-contribution-mode').count(), 0);
           const actual = await page.evaluate(() => ['create', 'import', 'content', 'delete'].map(right => DocPropositions.modeFor(right)));
-          const expected = grants.create ? ['direct', grants.import ? 'direct' : 'proposal', 'direct', ''] :
-            grants.propose ? ['proposal', 'proposal', 'proposal', ''] : ['', '', '', ''];
+          const creationMode = grants.create ? 'direct' : grants.propose ? 'proposal' : '';
+          const importMode = grants.import ? (grants.create ? 'direct' : 'proposal') : '';
+          const contentMode = grants.content ? 'direct' : grants.propose ? 'proposal' : '';
+          const expected = [creationMode, importMode, contentMode, ''];
           assert.deepEqual(actual, expected);
-          if (!grants.create && !grants.propose) {
+          if (!grants.create && !grants.propose && !grants.import) {
             assert.equal(await page.locator('#doc-add-folder').isVisible(), false);
             assert.equal(await page.locator('#doc-add-document').isVisible(), false);
           }
@@ -813,6 +912,28 @@ async function deleteInUI(page, mode) {
         assert.ok(messages.length > 0 && messages.length < 300);
         assert.doesNotMatch(messages, /ERREUR_|Exception|<[^>]+>|\bat org\./);
       } finally { await page.close(); }
+    });
+
+    await check('Neither proposing alone nor creating alone can upload files through manual browser calls', async () => {
+      for (const grants of [
+        { create: false, import: false, propose: true },
+        { create: true, import: false, propose: false }
+      ]) {
+        const page = await workflowPage(browser, grants);
+        try {
+          await addCreationUI(page);
+          const message = await page.evaluate(async parent => {
+            const file = new File(['pdf-file'], 'contrat.pdf', { type: 'application/pdf' });
+            const info = getDocumentImportInfo(file, 'Contrat');
+            try {
+              await sendCreationRequest(document.getElementById('formulairePopup'), parent, info, 'test-csrf', 'document');
+              return '';
+            } catch (error) { return error.message; }
+          }, root);
+          assert.match(message, /droit|autoris/i);
+          assert.equal(await page.evaluate(() => testWorkflow.requests.filter(request => /^ajouter un /.test(request.action)).length), 0);
+        } finally { await page.close(); }
+      }
     });
 
     await check('Structured refusals, raw rights codes and HTML exceptions become short readable request errors', async () => {
@@ -864,7 +985,7 @@ async function deleteInUI(page, mode) {
         { status: 200, body: 'ERREUR_DROITS' },
         { status: 500, body: '<html><h1>Failed Velocity macro</h1><pre>org.xwiki.MacroExecutionException at Importer.java:87</pre></html>' }
       ]) {
-        const page = await workflowPage(browser, { create: false, import: true, propose: false });
+        const page = await workflowPage(browser, { create: true, import: true, propose: false });
         try {
           await addCreationUI(page);
           await page.evaluate(response => { testWorkflow.responses['ajouter un document'] = response; }, response);
