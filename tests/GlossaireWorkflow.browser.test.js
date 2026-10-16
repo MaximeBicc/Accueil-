@@ -144,6 +144,69 @@ function check(value, expected, label) { assert.deepEqual(value, expected, label
     check(nativeGroups, sentGroups, 'sans JavaScript : mêmes groupes et niveaux que le clic AJAX');
     await nativeSettings.close();
 
+    const portableRoot = 'Entreprise.Ressources.Lexique';
+    const portableEndpoint = 'https://wiki.test/bin/view/Entreprise/Ressources/Lexique/DATA/WebHome';
+    const portable = await openFixture('portable', { redispatch: false });
+    check(await portable.locator('#glossaryBootstrap').getAttribute('data-endpoint-url'), portableEndpoint, 'autre emplacement : endpoint du bootstrap dérivé de la racine');
+    check(await portable.locator('#mainGlossaryTable').getAttribute('data-endpoint-url'), portableEndpoint, 'autre emplacement : endpoint du tableau dérivé de la racine');
+    check(await portable.locator('#mainGlossaryTable').getAttribute('data-class-path'), portableRoot + '.CODE.glossaireClass.WebHome', 'autre emplacement : classe des acronymes dérivée de la racine');
+    check(await portable.locator('#glossaryCreateForm,#glossarySettingsForm').evaluateAll(forms => forms.map(form => form.getAttribute('action'))), [portableEndpoint, portableEndpoint], 'autre emplacement : formulaires natifs de création et paramètres vers DATA');
+    const portableActions = await portable.evaluate(async rootReference => {
+      const original = document.querySelector('.main-term-row');
+      const originalReference = original.getAttribute('data-full-ref');
+      const savedReference = rootReference + '.DATA.portable-saved';
+      toggleEditMode(original.querySelector('.js-edit-row'), true);
+      original.querySelector('.edit-acronym').value = 'DÉPLACÉ';
+      original.querySelector('.edit-label').value = 'Libellé déplacé';
+      original.querySelector('.edit-definition').value = 'Définition portable';
+      document.querySelector('#filterDefinition').value = 'portable';
+      reply = { ok: true, text: 'GLOSSAIRE_OK|' + [savedReference, 'portable-saved'].map(encodeURIComponent).join('|') };
+      await saveRowEdition(original.querySelector('.js-save-row'));
+      const saved = [original.getAttribute('data-full-ref'), original.dataset.filteredMatch,
+        findGlossaryPopupRow(savedReference).getAttribute('data-full-ref')];
+      reply = { ok: true, text: 'GLOSSAIRE_OK' };
+      openDeleteModal(original.querySelector('.js-delete-row'));
+      await executeRowDelete();
+      const deletionReference = requests.at(-1).values.targetRef;
+      document.querySelector('#filterDefinition').value = '';
+      filterMainTableColumns();
+      reply = { ok: true, text: 'GLOSSAIRE_PROPOSED|' + encodeURIComponent(rootReference + '.PROPOSITIONS.portable-proposed') };
+      const proposed = await requestGlossaryWorkflow('propose', { acronym: 'PROPOSÉ', label: 'Proposition portable', definition: '' });
+      const form = document.querySelector('#glossaryCreateForm');
+      form.querySelector('[name="acronyme"]').value = 'CRÉÉ';
+      form.querySelector('[name="libelle"]').value = 'Création portable';
+      reply = { ok: true, text: 'GLOSSAIRE_OK|' + [rootReference + '.DATA.portable-created', 'portable-created'].map(encodeURIComponent).join('|') };
+      await submitGlossaryProposal({ preventDefault() {}, currentTarget: form });
+      reply = { ok: true, text: 'ROW_OK|0|' + encodeURIComponent(rootReference + '.DATA.portable-imported') + '|portable-imported\nGLOSSAIRE_IMPORT_OK|1|0|1|0' };
+      await executeExcelImport([{ acronym: 'IMPORTÉ', label: 'Import portable', definition: '' }], false, false);
+      const pending = document.querySelector('.glossary-proposal-card');
+      const proposalReference = pending.getAttribute('data-proposal-ref');
+      reply = { ok: true, text: 'GLOSSAIRE_APPROVED|' + [rootReference + '.DATA.portable-approved', 'portable-approved', 'VALIDÉ', 'Libellé canonique portable', ''].map(encodeURIComponent).join('|') };
+      await reviewGlossaryProposal(pending, 'approve');
+      window.reloads = 0;
+      window.reloadGlossaryAfterSettings = () => { reloads++; };
+      reply = { ok: true, text: 'GLOSSAIRE_SETTINGS_SAVED' };
+      await saveGlossarySettings({ preventDefault() {}, currentTarget: document.querySelector('#glossarySettingsForm') });
+      return { originalReference, saved, deletionReference, proposed: proposed[0], proposalReference,
+        published: Array.from(document.querySelectorAll('.main-term-row')).map(row => row.getAttribute('data-full-ref')).sort(),
+        actions: requests.map(request => request.values.action),
+        portablePayloads: requests.every(request => !JSON.stringify(request.values).includes('TestPage.PAGE.Glossaire')),
+        urls: requests.concat(maintenanceRequests).map(request => request.url), reloads };
+    }, portableRoot);
+    check(portableActions.originalReference.startsWith(portableRoot + '.DATA.'), true, 'autre emplacement : référence initiale rendue sous la nouvelle racine');
+    check(portableActions.saved, [portableRoot + '.DATA.portable-saved', 'true', portableRoot + '.DATA.portable-saved'], 'autre emplacement : référence canonique synchronisée et filtre recalculé après modification');
+    check(portableActions.deletionReference, portableRoot + '.DATA.portable-saved', 'autre emplacement : suppression envoyée à la référence canonique');
+    check(portableActions.proposed, portableRoot + '.PROPOSITIONS.portable-proposed', 'autre emplacement : référence de proposition décodée');
+    check(portableActions.proposalReference.startsWith(portableRoot + '.PROPOSITIONS.'), true, 'autre emplacement : validation cible la proposition de la nouvelle racine');
+    check(portableActions.published, ['portable-approved', 'portable-created', 'portable-imported'].map(name => portableRoot + '.DATA.' + name), 'autre emplacement : création, import et validation ajoutent les références canoniques');
+    check(portableActions.actions, ['save', 'delete', 'propose', 'create', 'import', 'approve', 'settings'], 'autre emplacement : parcours client des commandes principales');
+    check(portableActions.urls.every(url => {
+      const endpoint = new URL(url);
+      return endpoint.origin + endpoint.pathname === portableEndpoint && endpoint.searchParams.getAll('xpage').join(',') === 'plain';
+    }), true, 'autre emplacement : toutes les commandes utilisent le nouvel endpoint sans remplacement DOM');
+    check([portableActions.portablePayloads, portableActions.reloads], [true, 1], 'autre emplacement : aucune référence à l’ancienne racine et paramètres enregistrés');
+    await portable.close();
+
     const reader = await openFixture('reader');
     check(await reader.locator('#mainGlossaryTable').getAttribute('data-endpoint-url'), dataUrl, 'route DATA fournie par le vrai template');
     check(await reader.locator('#mainGlossaryTable').getAttribute('data-workflow-url'), null, 'aucun service Workflow séparé demandé');

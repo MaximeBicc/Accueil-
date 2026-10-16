@@ -8,6 +8,7 @@ import org.apache.velocity.app.VelocityEngine;
 
 /** Exécute les véritables templates Velocity avec une API XWiki simulée. */
 public class GlossaireVelocityTest {
+  static final String DEFAULT_GLOSSARY_ROOT = "TestPage.PAGE.Glossaire";
   static final String SPACE = "TestPage.PAGE.Glossaire.DATA";
   static final String DATA_DOC = SPACE + ".WebHome";
   static final String DATA_URL = "https://wiki.test/bin/view/TestPage/PAGE/Glossaire/DATA/WebHome";
@@ -30,6 +31,7 @@ public class GlossaireVelocityTest {
     Ref(String parent, String name) { this("xwiki", parent, name); }
     Ref(String wiki, String parent, String name) { this.wiki = wiki; this.parent = parent; this.name = name; }
     public ParentRef getParent() { return new ParentRef(wiki, parent); }
+    public List<SpaceRef> getSpaceReferences() { return splitReference(parent).stream().map(SpaceRef::new).toList(); }
     public WikiRef getWikiReference() { return new WikiRef(wiki); }
     public String getName() { return name; }
     public String toString() { return (wiki.equals("xwiki") ? "" : wiki + ":") + parent + "." + name.replace("\\", "\\\\").replace(".", "\\."); }
@@ -37,6 +39,25 @@ public class GlossaireVelocityTest {
     public int hashCode() { return Objects.hash(wiki, parent, name); }
   }
   public record ParentRef(String wiki, String parent) {}
+  public static class SpaceRef {
+    final String name;
+    SpaceRef(String name) { this.name = name; }
+    public String getName() { return name; }
+  }
+  static List<String> splitReference(String reference) {
+    List<String> parts = new ArrayList<>(); StringBuilder part = new StringBuilder(); boolean escaped = false;
+    for (char c : reference.toCharArray()) {
+      if (escaped) { part.append(c); escaped = false; }
+      else if (c == '\\') escaped = true;
+      else if (c == '.') { parts.add(part.toString()); part.setLength(0); }
+      else part.append(c);
+    }
+    if (escaped) part.append('\\');
+    parts.add(part.toString()); return parts;
+  }
+  static String serializeSpaceNames(List<String> names) {
+    return String.join(".", names.stream().map(name -> name.replace("\\", "\\\\").replace(".", "\\.")).toList());
+  }
   public static class WikiRef {
     final String name;
     WikiRef(String name) { this.name = name; }
@@ -47,7 +68,7 @@ public class GlossaireVelocityTest {
     final boolean absolute;
     Model() { this(false); }
     Model(boolean absolute) { this.absolute = absolute; }
-    public Ref createDocumentReference(String wiki, List<String> spaces, String name) { return new Ref(wiki == null || wiki.isEmpty() ? "xwiki" : wiki, String.join(".", spaces), name); }
+    public Ref createDocumentReference(String wiki, List<String> spaces, String name) { return new Ref(wiki == null || wiki.isEmpty() ? "xwiki" : wiki, serializeSpaceNames(spaces), name); }
     public Ref resolveDocument(String text) {
       String wiki = "xwiki";
       int colon = text.indexOf(':');
@@ -63,7 +84,8 @@ public class GlossaireVelocityTest {
       return new Ref(wiki, cut < 0 ? SPACE : text.substring(0, cut), name);
     }
     public String serialize(Ref ref) { return absolute && ref.wiki.equals("xwiki") ? "xwiki:" + ref.toString() : ref.toString(); }
-    public String serialize(Ref ref, String hint) { return serialize(ref); }
+    public String serialize(Ref ref, String hint) { return hint.equals("local") ? ref.parent + "." + ref.name.replace("\\", "\\\\").replace(".", "\\.") : serialize(ref); }
+    public String serialize(ParentRef ref, String hint) { return ref.parent(); }
   }
   public static class Obj {
     final Map<String, Object> values = new HashMap<>();
@@ -141,6 +163,14 @@ public class GlossaireVelocityTest {
     final Set<Ref> deniedAuthorReads = new HashSet<>();
     final Set<Ref> silentAclRollback = new HashSet<>();
     final Deque<String> forcedNames = new ArrayDeque<>();
+    final List<String> uniquePageSpaces = new ArrayList<>(), queriedSpaces = new ArrayList<>();
+    final String glossaryRoot, dataSpace, proposalSpace, trashSpace, entryClass, proposalClass, configurationClass, configurationDoc;
+    Wiki() { this(DEFAULT_GLOSSARY_ROOT); }
+    Wiki(String root) {
+      glossaryRoot = root; dataSpace = root + ".DATA"; proposalSpace = root + ".PROPOSITIONS"; trashSpace = root + ".CORBEILLE";
+      entryClass = root + ".CODE.glossaireClass.WebHome"; proposalClass = root + ".CODE.glossairePropositionClass.WebHome";
+      configurationClass = root + ".CODE.glossaireConfigurationClass.WebHome"; configurationDoc = root + ".CODE.Configuration.WebHome";
+    }
     public boolean hasWikiAdminRights() { return admin; }
     public Extension getJsx() { return jsx; }
     public Extension getSsx() { return ssx; }
@@ -149,7 +179,7 @@ public class GlossaireVelocityTest {
       return docs.getOrDefault(reference, new Doc(this, reference));
     }
     public Doc getDocumentAsAuthor(Object value) { Ref ref = value instanceof Ref r ? r : new Model().resolveDocument(String.valueOf(value)); authorReads.add(ref); return authorAllowed && !deniedAuthorReads.contains(ref) ? getDocument(ref) : null; }
-    public String getUniquePageName(String space) { return forcedNames.isEmpty() ? String.format("%016d", ++uniqueId) : forcedNames.removeFirst(); }
+    public String getUniquePageName(String space) { uniquePageSpaces.add(space); return forcedNames.isEmpty() ? String.format("%016d", ++uniqueId) : forcedNames.removeFirst(); }
     public String getURL(String reference, String action) { return "https://wiki.test/bin/" + action + "/" + reference.replace(".", "/"); }
     public boolean hasAccessLevel(String right, String user, String reference) {
       if (right.equals("admin")) return admin;
@@ -157,15 +187,16 @@ public class GlossaireVelocityTest {
       return user.equals(scriptAuthor.toString()) ? authorAllowed : allowed;
     }
     public List<String> getSpaceDocsName(String space) {
+      queriedSpaces.add(space);
       return docs.keySet().stream().filter(r -> r.parent.equals(space)).map(r -> r.name).toList();
     }
     Doc add(String name, String acronym) {
-      Doc d = getDocument(new Ref(SPACE, name)); d.newObject(CLASS);
+      Doc d = getDocument(new Ref(dataSpace, name)); d.newObject(entryClass);
       d.obj.set("acronyme", acronym); d.obj.set("libelle", "Libellé " + acronym); d.obj.set("definition", "Définition");
       d.save("", false); return d;
     }
     Doc addProposal(String name, String acronym, String status, String author, String comment) {
-      Doc d = getDocument(new Ref(PROPOSAL_SPACE, name)); Obj o = d.newObject(PROPOSAL_CLASS);
+      Doc d = getDocument(new Ref(proposalSpace, name)); Obj o = d.newObject(proposalClass);
       o.set("acronyme", acronym); o.set("libelle", "Libellé " + acronym); o.set("definition", "Définition " + acronym);
       o.set("status", status); o.set("author", author); o.set("reviewComment", comment);
       o.set("submittedAt", new DateTool().getDate()); o.set("reviewer", ""); o.set("publishedRef", "");
@@ -286,23 +317,24 @@ public class GlossaireVelocityTest {
     }
   }
   public static class Fixture {
-    final Wiki wiki = new Wiki(); final Request request = new Request(); final Refactoring refactoring = new Refactoring(wiki);
+    final Wiki wiki; final Request request = new Request(); final Refactoring refactoring;
     final Context userContext = new Context(); final UserServices userServices = new UserServices();
     final DateTool clock = new DateTool();
     Response lastResponse;
-    Fixture() { request.params.put("form_token", "test-token"); }
+    Fixture() { this(DEFAULT_GLOSSARY_ROOT); }
+    Fixture(String root) { wiki = new Wiki(root); refactoring = new Refactoring(wiki); request.params.put("form_token", "test-token"); }
     String render(String filename, String action, String... pairs) throws Exception {
       request.params.put("action", action);
       for (int i = 0; i < pairs.length; i += 2) request.params.put(pairs[i], pairs[i + 1]);
       Response response = new Response(); lastResponse = response; VelocityContext context = new VelocityContext();
       context.put("xwiki", wiki); context.put("request", request); context.put("response", response);
-      String documentName = filename.equals("DATA/WebHome.xwiki") ? DATA_DOC : "TestPage.PAGE.Glossaire.WebHome";
+      String documentName = wiki.glossaryRoot + (filename.equals("DATA/WebHome.xwiki") ? ".DATA.WebHome" : ".WebHome");
       context.put("doc", wiki.getDocument(documentName));
       context.put("xcontext", userContext); context.put("escapetool", new Escape()); context.put("datetool", clock);
       context.put("services", Map.of("model", new Model(wiki.absoluteReferences), "csrf", new Csrf(), "refactoring", refactoring, "icon", new Icon(), "user", userServices, "query", new Queries(wiki)));
       // XWiki evaluates all content inside the outer Velocity macro, including
       // the inner HTML macro. Preserve that full source for the Velocity parser.
-      String template = velocityBody(Files.readString(ROOT.resolve(filename)));
+      String template = velocityBody(rootedTemplate(Files.readString(ROOT.resolve(filename)), wiki.glossaryRoot));
       StringWriter output = new StringWriter(); ENGINE.evaluate(context, output, filename, template);
       return filename.equals("DATA/WebHome.xwiki") ? response.body.toString().trim()
           : output.toString().replaceAll("(?m)^\\{\\{/?html(?:[^}\\r\\n]*)}}[ \t]*(?:\\r?\\n|$)", "");
@@ -315,8 +347,8 @@ public class GlossaireVelocityTest {
     void manager() { userServices.group.memberships.add(new Ref("XWiki", "GlossaireValidateurs")); }
     String data(String action, String... pairs) throws Exception { return render("DATA/WebHome.xwiki", action, pairs); }
     String create(String acronym, String label) throws Exception { return data("create", "acronym", acronym, "label", label, "definition", "Définition créée"); }
-    Doc proposal() { return wiki.docs.values().stream().filter(d -> d.ref.parent.equals(PROPOSAL_SPACE)).findFirst().orElseThrow(); }
-    List<Doc> proposals() { return wiki.docs.values().stream().filter(d -> d.ref.parent.equals(PROPOSAL_SPACE)).toList(); }
+    Doc proposal() { return wiki.docs.values().stream().filter(d -> d.ref.parent.equals(wiki.proposalSpace)).findFirst().orElseThrow(); }
+    List<Doc> proposals() { return wiki.docs.values().stream().filter(d -> d.ref.parent.equals(wiki.proposalSpace)).toList(); }
     String importRows(boolean acronymDuplicates, boolean labelDuplicates, String[]... rows) throws Exception {
       request.params.keySet().removeIf(key -> key.matches("(acronym|label|definition)_[0-9]+"));
       List<String> pairs = new ArrayList<>(List.of("allowAcronymDuplicates", String.valueOf(acronymDuplicates), "allowLabelDuplicates", String.valueOf(labelDuplicates)));
@@ -327,10 +359,10 @@ public class GlossaireVelocityTest {
       }
       return data("import", pairs.toArray(String[]::new));
     }
-    List<Doc> published() { return wiki.docs.values().stream().filter(d -> d.ref.parent.equals(SPACE) && d.getObject(CLASS) != null).toList(); }
-    List<Doc> trash() { return wiki.docs.values().stream().filter(d -> d.ref.parent.equals(TRASH_SPACE) && d.getObject(PROPOSAL_CLASS) != null).toList(); }
+    List<Doc> published() { return wiki.docs.values().stream().filter(d -> d.ref.parent.equals(wiki.dataSpace) && d.getObject(wiki.entryClass) != null).toList(); }
+    List<Doc> trash() { return wiki.docs.values().stream().filter(d -> d.ref.parent.equals(wiki.trashSpace) && d.getObject(wiki.proposalClass) != null).toList(); }
     Doc addTrash(String name, String acronym, String status, String author, String reason, long age) {
-      Doc d = wiki.getDocument(new Ref(TRASH_SPACE, name)); Obj o = d.newObject(PROPOSAL_CLASS);
+      Doc d = wiki.getDocument(new Ref(wiki.trashSpace, name)); Obj o = d.newObject(wiki.proposalClass);
       o.set("acronyme", acronym); o.set("libelle", "Libellé " + acronym); o.set("definition", "Définition " + acronym);
       o.set("status", status); o.set("author", author); o.set("reviewComment", reason); o.set("reviewer", "XWiki.Validateur");
       o.set("submittedAt", new Date(clock.now - age - 1000)); o.set("reviewedAt", new Date(clock.now - age));
@@ -338,7 +370,7 @@ public class GlossaireVelocityTest {
       d.setTitle(acronym); d.saveAsAuthor("Fixture corbeille", true); return d;
     }
     Doc configure(String view, String propose, String add, String review) {
-      Doc d = wiki.getDocument(CONFIG_DOC); Obj o = d.getObject(CONFIG_CLASS); if (o == null) o = d.newObject(CONFIG_CLASS);
+      Doc d = wiki.getDocument(wiki.configurationDoc); Obj o = d.getObject(wiki.configurationClass); if (o == null) o = d.newObject(wiki.configurationClass);
       o.set("schemaVersion", "2"); o.set("viewGroups", view); o.set("proposeGroups", propose); o.set("directAddGroups", add); o.set("reviewGroups", review);
       d.saveAsAuthor("Fixture configuration", true); return d;
     }
@@ -347,6 +379,15 @@ public class GlossaireVelocityTest {
       ordinary(); if (level > 0) userServices.group.memberships.add(new Ref("XWiki", List.of("", "Lecteurs", "Contributeurs", "Ajouteurs", "Validateurs").get(level)));
     }
     Doc group(String name) { Doc d = wiki.getDocument(name); d.newObject(GROUP_CLASS); d.saveAsAuthor("Fixture groupe", true); return d; }
+  }
+  static String rootedTemplate(String source, String root) {
+    if (root.equals(DEFAULT_GLOSSARY_ROOT)) return source;
+    String initialSetting = "#set($glossaryRoot = '" + DEFAULT_GLOSSARY_ROOT + "')";
+    int start = source.indexOf(initialSetting);
+    if (start < 0 || source.indexOf(initialSetting, start + initialSetting.length()) >= 0) {
+      throw new AssertionError("La portabilité doit changer uniquement l'initialisation unique de glossaryRoot");
+    }
+    return source.substring(0, start) + "#set($glossaryRoot = '" + root + "')" + source.substring(start + initialSetting.length());
   }
   static String velocityBody(String source) {
     int openEnd = source.indexOf("}}"), closeStart = source.lastIndexOf("{{/velocity}}");
@@ -829,6 +870,125 @@ public class GlossaireVelocityTest {
     check(f.wiki.jsx.requested.equals(List.of("TestPage.PAGE.Glossaire.CODE.GlossaireExtension", "TestPage.PAGE.Glossaire.CODE.GlossairePageExtension")),
         "seules les deux extensions JavaScript existantes sont chargées");
   }
+  static boolean insideRoot(Ref ref, String root) {
+    Ref home = new Model().resolveDocument(root + ".WebHome");
+    return ref.wiki.equals(home.wiki) && (ref.parent.equals(home.parent) || ref.parent.startsWith(home.parent + "."));
+  }
+  static Map<Ref, String> outsideSnapshot(Wiki wiki, String root) {
+    Map<Ref, String> snapshot = new LinkedHashMap<>();
+    for (Doc d : wiki.docs.values()) {
+      if (insideRoot(d.ref, root)) continue;
+      StringBuilder state = new StringBuilder(d.getVersion()).append('|').append(d.title).append('|').append(d.content).append('|').append(d.contentAuthor);
+      for (String className : new TreeSet<>(d.objectLists.keySet())) {
+        state.append('|').append(className);
+        for (Obj object : d.objectLists.get(className)) state.append(new TreeMap<>(object.values));
+      }
+      snapshot.put(d.ref, state.toString());
+    }
+    return snapshot;
+  }
+  static void seedOtherGlossaries(Fixture f) {
+    for (String root : List.of(DEFAULT_GLOSSARY_ROOT, "AutreEquipe.Ressources.Lexique")) {
+      for (String category : List.of("DATA", "PROPOSITIONS", "CORBEILLE", "CODE.Configuration")) {
+        String name = category.equals("DATA") ? "Ancienne" : category.equals("PROPOSITIONS") ? "Attente" : category.equals("CORBEILLE") ? "Refusee" : "WebHome";
+        Doc d = f.wiki.getDocument(root + "." + category + "." + name);
+        String ownClass = root + ".CODE." + (category.equals("DATA") ? "glossaireClass" : category.equals("CODE.Configuration") ? "glossaireConfigurationClass" : "glossairePropositionClass") + ".WebHome";
+        String activeClass = category.equals("DATA") ? f.wiki.entryClass : category.equals("CODE.Configuration") ? f.wiki.configurationClass : f.wiki.proposalClass;
+        for (String className : new LinkedHashSet<>(List.of(ownClass, activeClass))) {
+          Obj object = d.newObject(className);
+          object.set("acronyme", "SECRET_AUTRE_LEXIQUE"); object.set("libelle", "Autre lexique"); object.set("definition", "Ne pas modifier");
+          object.set("status", category.equals("CORBEILLE") ? "rejected" : "pending"); object.set("author", "XWiki.Test");
+          object.set("deletedAt", new Date(f.clock.now - WEEK - 1)); object.set("reviewedAt", new Date(f.clock.now - WEEK - 1));
+          object.set("sourceProposalId", name); object.set("schemaVersion", "2"); object.set("reviewGroups", "XWiki.AutresValidateurs");
+        }
+        Obj rights = d.newObject(RIGHTS_CLASS); rights.set("levels", "view,edit,delete,admin"); rights.set("groups", "XWiki.AutresValidateurs"); rights.set("allow", 0);
+        d.setTitle("Autre lexique : " + category); d.saveAsAuthor("Fixture autre lexique", true);
+      }
+      for (String name : List.of("WebHome", "DATA.WebHome", "DATA.WebPreferences", "PROPOSITIONS.WebPreferences", "CORBEILLE.WebPreferences")) {
+        Doc d = f.wiki.getDocument(root + "." + name); Obj rights = d.newObject(RIGHTS_CLASS);
+        rights.set("levels", "view,edit,delete"); rights.set("groups", "XWiki.AutresValidateurs"); rights.set("allow", 0); d.saveAsAuthor("Fixture ACL autre lexique", true);
+      }
+    }
+  }
+  static void portableRootChecks() throws Exception {
+    for (String root : List.of("Entreprise.Ressources.Lexique", "Lexique", "Un.Deux.Trois.Quatre.Lexique", "Entreprise.Ressources\\.Partagees.Lexique")) {
+      Fixture f = new Fixture(root); f.role(4); f.wiki.admin = true;
+      for (String group : List.of("Lecteurs", "Contributeurs", "Ajouteurs", "Validateurs")) f.group("XWiki." + group);
+      seedOtherGlossaries(f); Map<Ref, String> othersBefore = outsideSnapshot(f.wiki, root);
+      String result = f.create("LOCAL", "Création portable");
+      check(result.startsWith("GLOSSAIRE_OK|") && f.published().size() == 1 && f.published().get(0).getObject(f.wiki.entryClass) != null,
+          root + " : création avec la classe et le stockage locaux");
+      Doc first = f.published().get(0); String firstRef = first.getFullName();
+      check(f.save(firstRef, "LOCAL_MODIFIÉ").startsWith("GLOSSAIRE_OK|") && first.getObject(f.wiki.entryClass).getValue("acronyme").equals("LOCAL_MODIFIÉ")
+          && first.getFullName().equals(firstRef), root + " : modification de la fiche locale sans changement d'identifiant");
+      result = f.importRows(false, false, new String[]{"IMPORT_LOCAL", "Import portable", "Définition locale"});
+      check(result.contains("ROW_OK|0|") && f.published().size() == 2 && f.proposals().isEmpty(), root + " : import dans DATA local");
+      f.ordinary(); f.userServices.group.memberships.add(new Ref("XWiki", "Contributeurs"));
+      check(error(f.create("INTERDIT", "Non")) && f.published().size() == 2, root + " : proposant ne peut pas forcer l'ajout direct");
+      result = f.data("propose", "acronym", "PROPOSITION_LOCALE", "label", "À valider");
+      Doc proposal = f.proposal();
+      check(result.startsWith("GLOSSAIRE_PROPOSED|") && f.proposals().size() == 1 && proposal.getObject(f.wiki.proposalClass) != null
+          && proposal.ref.parent.equals(f.wiki.proposalSpace), root + " : proposition avec sa classe locale");
+      String html = f.render("WebHome.xwiki", "");
+      check(html.contains("PROPOSITION_LOCALE") && html.contains("LOCAL_MODIFIÉ") && !html.contains("SECRET_AUTRE_LEXIQUE"), root + " : affichage limité aux données et au suivi locaux");
+      f.userServices.group.memberships.add(new Ref("XWiki", "Validateurs"));
+      check(approve(f, proposal, "VALIDÉ_LOCAL", "Validé", "Corrigé").startsWith("GLOSSAIRE_APPROVED|")
+          && proposal.isNew() && f.proposals().isEmpty() && f.published().size() == 3, root + " : validation publie dans DATA local");
+      f.data("propose", "acronym", "REFUS_LOCAL", "label", "À refuser"); proposal = f.proposal();
+      check(decide(f, proposal, "reject", "Motif local").startsWith("GLOSSAIRE_REJECTED|") && proposal.isNew() && f.trash().size() == 1
+          && f.trash().get(0).ref.parent.equals(f.wiki.trashSpace), root + " : refus transféré dans CORBEILLE locale");
+      Doc bin = f.trash().get(0);
+      check(decide(f, bin, "restore", "Correction locale").startsWith("GLOSSAIRE_APPROVED|") && bin.isNew() && f.trash().isEmpty()
+          && f.published().size() == 4, root + " : restauration depuis CORBEILLE locale");
+      f.data("propose", "acronym", "RETRAIT_LOCAL", "label", "À retirer"); proposal = f.proposal();
+      check(decide(f, proposal, "trash", "Retrait local").startsWith("GLOSSAIRE_TRASHED|") && proposal.isNew() && f.trash().size() == 1,
+          root + " : suppression de proposition dans CORBEILLE locale");
+      Doc legacy = f.wiki.add("AncienneLocale", "À_MIGRER"); legacy.setTitle("Titre portable conservé"); legacy.saveAsAuthor("Ancienne fiche", true);
+      String occupiedName = "0000000000009000";
+      Doc nested = f.wiki.getDocument(new Ref(f.wiki.dataSpace + "." + occupiedName, "WebHome")); nested.setTitle("Page imbriquée locale conservée"); nested.saveAsAuthor("Fixture collision locale", true);
+      f.wiki.forcedNames.add(occupiedName);
+      check(f.data("migrate").equals("GLOSSAIRE_MIGRATED|1|0") && legacy.isNew() && f.published().size() == 5
+          && f.published().stream().anyMatch(d -> d.title.equals("Titre portable conservé"))
+          && f.published().stream().noneMatch(d -> d.ref.name.equals(occupiedName)) && !nested.isNew() && nested.title.equals("Page imbriquée locale conservée"),
+          root + " : migration limitée aux fiches locales et collision imbriquée conservée");
+      Doc configuration = f.wiki.getDocument(f.wiki.configurationDoc);
+      result = settings(f, configuration.getVersion(), "group_0", "XWiki.Lecteurs", "level_0", "1", "group_1", "XWiki.Contributeurs", "level_1", "2",
+          "group_2", "XWiki.Ajouteurs", "level_2", "3", "group_3", "XWiki.Validateurs", "level_3", "4");
+      check(result.startsWith("GLOSSAIRE_SETTINGS_SAVED") && configuration.getObject(f.wiki.configurationClass).getValue("reviewGroups").equals("XWiki.Validateurs"),
+          root + " : paramètres enregistrés dans la configuration locale");
+      for (String protectedName : List.of("WebHome", "DATA.WebHome", "DATA.WebPreferences")) {
+        Doc protectedDoc = f.wiki.getDocument(root + "." + protectedName);
+        check(protectedDoc.getObjects(RIGHTS_CLASS).stream().anyMatch(o -> o.getValue("levels").equals("edit,delete") && o.getValue("groups").equals("")
+            && o.getValue("users").toString().contains("XWiki.ScriptAuthor")), root + " : ACL d'édition locale " + protectedName);
+      }
+      for (String privateName : List.of("PROPOSITIONS", "CORBEILLE")) {
+        Doc preferences = f.wiki.getDocument(root + "." + privateName + ".WebPreferences");
+        check(preferences.getObjects("XWiki.XWikiGlobalRights").stream().anyMatch(o -> o.getValue("levels").equals("view") && o.getValue("groups").equals("")
+            && o.getValue("users").toString().contains("XWiki.ScriptAuthor")), root + " : ACL privées locales " + privateName);
+      }
+      check(f.published().stream().allMatch(d -> d.getObjects(RIGHTS_CLASS).stream().anyMatch(o -> o.getValue("levels").equals("edit,delete")
+          && o.getValue("users").toString().contains("XWiki.ScriptAuthor"))), root + " : ACL propagées à toutes les fiches locales");
+      f.request.params.put("settingsForm", "true"); f.request.params.put("returnURL", "https://exemple.invalid/ignorer");
+      settings(f, configuration.getVersion(), "group_0", "XWiki.Validateurs", "level_0", "4");
+      check(f.lastResponse.status == 302 && f.lastResponse.redirectURL.equals(f.wiki.getURL(root + ".WebHome", "view")), root + " : formulaire natif redirigé vers l'affichage local");
+      f.request.params.remove("settingsForm"); f.request.params.remove("returnURL");
+      for (String action : List.of("save", "delete", "approve", "reject", "trash", "restore")) {
+        String target = DEFAULT_GLOSSARY_ROOT + (action.equals("save") || action.equals("delete") ? ".DATA.Ancienne" : action.equals("restore") ? ".CORBEILLE.Refusee" : ".PROPOSITIONS.Attente");
+        Doc foreign = f.wiki.getDocument(target); int readsBefore = f.wiki.authorReads.size();
+        result = f.data(action, "targetRef", target, "expectedVersion", foreign.getVersion(), "acronym", "FORGÉ", "label", "Interdit", "comment", "Interdit");
+        check(error(result) && !f.wiki.authorReads.subList(readsBefore, f.wiki.authorReads.size()).contains(foreign.ref), root + " : " + action + " refuse une référence de l'ancienne racine avant lecture privilégiée");
+      }
+      html = f.render("WebHome.xwiki", "");
+      check(html.contains("data-endpoint-url=\"" + f.wiki.getURL(root + ".DATA.WebHome", "view") + "\"") && !html.contains(DEFAULT_GLOSSARY_ROOT), root + " : endpoint et références de l'affichage dérivés de la seule racine");
+      check(new HashSet<>(f.wiki.jsx.requested).equals(Set.of(root + ".CODE.GlossaireExtension", root + ".CODE.GlossairePageExtension"))
+          && new HashSet<>(f.wiki.ssx.requested).equals(Set.of(root + ".CODE.GlossaireExtension")), root + " : extensions JavaScript et CSS locales");
+      Set<String> localSpaces = Set.of(f.wiki.dataSpace, f.wiki.proposalSpace, f.wiki.trashSpace);
+      check(!f.wiki.uniquePageSpaces.isEmpty() && f.wiki.uniquePageSpaces.stream().allMatch(localSpaces::contains)
+          && !f.wiki.queriedSpaces.isEmpty() && f.wiki.queriedSpaces.stream().allMatch(localSpaces::contains), root + " : recherches et allocation de noms dans les seuls espaces locaux");
+      check(outsideSnapshot(f.wiki, root).equals(othersBefore) && f.wiki.authorDeletes.stream().allMatch(ref -> insideRoot(ref, root)),
+          root + " : aucun document, objet, titre, contenu, version ou droit des autres lexiques modifié");
+    }
+  }
   static void writeWorkflowFixtures(Path directory) throws Exception {
     Fixture reviewer = new Fixture(); reviewer.wiki.add("API", "API");
     reviewer.wiki.addProposal("Attente1", "HTTP", "pending", "XWiki.Contributeur", "");
@@ -849,6 +1009,9 @@ public class GlossaireVelocityTest {
     Fixture admin = new Fixture(); admin.role(0); admin.wiki.admin = true; admin.wiki.add("Ancienne", "Ancienne");
     for (String name : List.of("Lecteurs", "Contributeurs", "Ajouteurs", "Validateurs")) admin.group("XWiki." + name);
     Files.writeString(directory.resolve("glossaire-admin.html"), admin.render("WebHome.xwiki", ""));
+    Fixture portable = new Fixture("Entreprise.Ressources.Lexique"); portable.wiki.admin = true; portable.wiki.add("API", "API");
+    portable.wiki.addProposal("Portable", "HTTP", "pending", "XWiki.Contributeur", "");
+    Files.writeString(directory.resolve("glossaire-portable.html"), portable.render("WebHome.xwiki", ""));
     Fixture firstboot = new Fixture(); firstboot.ordinary(); firstboot.wiki.admin = true;
     firstboot.group("XWiki.Real"); firstboot.userServices.group.memberships.add(new Ref("XWiki", "Real"));
     Files.writeString(directory.resolve("glossaire-admin-firstboot.html"), firstboot.render("WebHome.xwiki", ""));
@@ -934,6 +1097,7 @@ public class GlossaireVelocityTest {
     migrationChecks();
     titleAndClassChecks();
     inertPageChecks();
+    portableRootChecks();
     if (args.length > 0) writeWorkflowFixtures(Path.of(args[0]).toAbsolutePath().getParent());
     System.out.println(checks + " vérifications Velocity réussies.");
   }

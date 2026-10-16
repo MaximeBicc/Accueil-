@@ -2,6 +2,36 @@
 
 Les fichiers du dépôt sont à copier dans les pages et extensions XWiki correspondantes. Une modification GitHub ne met pas automatiquement le wiki à jour. Les classes, groupes, permissions et propositions sont détaillés dans [GLOSSAIRE_VALIDATION.md](GLOSSAIRE_VALIDATION.md).
 
+## Installer le module à un autre emplacement
+
+Modifier uniquement cette ligne, située en haut de **`WebHome.xwiki`** et de **`DATA/WebHome.xwiki`**, en mettant la même valeur dans les deux pages :
+
+```velocity
+#set($glossaryRoot = 'TestPage.PAGE.Glossaire')
+```
+
+Par exemple, pour une installation sous `Entreprise.Ressources.Lexique` :
+
+```velocity
+#set($glossaryRoot = 'Entreprise.Ressources.Lexique')
+```
+
+La valeur est la référence de l'espace du module dans le wiki où les pages sont installées, sans `.WebHome`, sans URL et sans préfixe de wiki. Respecter la casse des noms de pages.
+
+Les références des classes, de la configuration, des extensions, de DATA, des propositions et de la corbeille sont calculées à partir de cette racine. Les formulaires, les droits natifs, la conversion des anciennes adresses et le retour après enregistrement utilisent aussi cette valeur. Les JavaScript et le CSS se copient tels quels.
+
+Installer la même structure sous la nouvelle racine, avec ses classes et ses extensions :
+
+| Destination pour cet exemple | Contenu |
+| --- | --- |
+| `Entreprise.Ressources.Lexique.WebHome` | Page d'affichage |
+| `Entreprise.Ressources.Lexique.DATA.WebHome` | Traitements serveur |
+| `Entreprise.Ressources.Lexique.CODE` | Classes, configuration et extensions |
+| `Entreprise.Ressources.Lexique.PROPOSITIONS` | Propositions |
+| `Entreprise.Ressources.Lexique.CORBEILLE` | Propositions refusées |
+
+Les classes doivent exister dans le CODE de la nouvelle racine avec les propriétés du guide de validation. Une nouvelle installation possède sa propre configuration et ses propres fiches. Si des fiches existantes sont copiées, leurs objets doivent référencer les classes de cette nouvelle installation. Les chemins ci-dessous montrent la racine d'exemple du dépôt, `TestPage.PAGE.Glossaire`.
+
 ## Fichiers à installer ensemble
 
 | Fichier sous `xwiki/TestPage/PAGE/Glossaire/` | Destination XWiki |
@@ -48,7 +78,7 @@ Les tests Java utilisent un seul moteur Velocity à la fois ; ils peuvent aussi 
 
 Les vérifications couvrent les références fixes, niveaux et paramètres, imports, requêtes forgées, versions périmées, publications et reprises, corbeille, expiration, échappement HTML, filtres, erreurs réseau, doubles clics, pagination et suppressions multiples. Elles ne remplacent pas un essai sur l'instance, notamment pour ses ACL natives et ses extensions.
 
-Validation de cette version : **266 contrôles serveur**, exécutés avec Velocity 1.7 et 2.3, **22 contrôles navigateur du glossaire**, **190 du circuit de propositions**, **13 contrôles des parseurs XWiki/Velocity**, le test d'accueil et la syntaxe des **16 fichiers JavaScript** passent. Les tests vérifient aussi que les titres saisis restent du texte, qu'une classe incomplète ne provoque pas la perte d'une proposition et que le premier paramétrage crée sa configuration, même avec un JavaScript chargé tardivement ou un envoi par formulaire natif.
+Validation de cette version : **382 contrôles serveur**, exécutés avec Velocity 1.7 et 2.3, **22 contrôles navigateur du glossaire**, **203 du circuit de propositions**, **13 contrôles des parseurs XWiki/Velocity**, le test d'accueil et la syntaxe des **16 fichiers JavaScript** passent. Les tests vérifient aussi que les titres saisis restent du texte, qu'une classe incomplète ne provoque pas la perte d'une proposition et que le premier paramétrage crée sa configuration, même avec un JavaScript chargé tardivement ou un envoi par formulaire natif. La portabilité est vérifiée sur quatre racines avec contrôle de l'isolation des données et des droits ; une fixture navigateur utilise une autre racine sans modifier ses URL après rendu.
 
 ## Vérification après installation
 

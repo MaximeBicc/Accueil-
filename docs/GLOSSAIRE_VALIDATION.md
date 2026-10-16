@@ -27,6 +27,8 @@ La corbeille du glossaire concerne les **propositions**. Supprimer un acronyme d
 
 Les fichiers GitHub doivent être installés dans XWiki ; ils ne mettent pas automatiquement l'instance à jour. Les API de groupes nécessitent XWiki 10.8 ou ultérieur.
 
+Pour une autre adresse, renseigner la même variable `glossaryRoot` en haut de l'affichage et de DATA, puis installer les pages, classes et extensions sous cette racine. La procédure et un exemple figurent dans [Installer le module à un autre emplacement](GLOSSAIRE_PAGE.md#installer-le-module-à-un-autre-emplacement). Les références `TestPage.PAGE.Glossaire` de ce guide sont des exemples.
+
 1. Installer ensemble les deux pages et trois extensions de [GLOSSAIRE_PAGE.md](GLOSSAIRE_PAGE.md), en copiant les sources complètes dans l'éditeur Wiki, syntaxe XWiki 2.1.
 2. Compléter les classes ci-dessous. Aucun objet de configuration n'est à créer manuellement : le premier enregistrement dans Paramètres le crée, ainsi que sa page si elle n'existe pas.
 3. Créer les conteneurs `TestPage.PAGE.Glossaire.PROPOSITIONS.WebHome` et `TestPage.PAGE.Glossaire.CORBEILLE.WebHome`, puis appliquer les droits indiqués ci-dessous.
