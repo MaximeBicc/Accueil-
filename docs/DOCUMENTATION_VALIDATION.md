@@ -56,6 +56,8 @@ Le traitement est automatique pour chaque opération :
 
 Le choix « Contribution : Directe / Proposition » est supprimé. Les fenêtres et leurs boutons indiquent **Créer**, **Importer**, **Enregistrer** ou **Proposer** selon l'opération autorisée. Si un compte possède à la fois le droit direct d'une opération et le droit Proposer, cette opération reste directe. Les autres opérations peuvent toujours être proposées selon leurs propres droits. Le serveur refait ces vérifications à chaque requête.
 
+Après l'enregistrement des paramètres, les boutons d'ajout apparaissent immédiatement si Créer, Importer ou Proposer vient d'être attribué, même si aucun de ces droits n'existait à l'ouverture de la page. Ils disparaissent dès que ces droits sont retirés. Avec seulement Importer, les boutons indiquent **Importer un dossier** et **Importer un document**, et les fenêtres présentent les sélecteurs de fichiers.
+
 Les refus s'affichent sous forme de messages courts, sans réponse HTML ni trace technique. Un refus de création laisse le formulaire ouvert ; un refus de suppression conserve les éléments et la sélection. L'interface confirme un succès seulement lorsque le traitement renvoie son résultat explicite.
 
 Sans configuration enregistrée ou avec des listes vides, aucune action documentaire n'est autorisée. Cela s'applique aussi aux administrateurs du wiki et aux comptes qui possèdent déjà les droits natifs d'édition ou de suppression. Le statut administrateur donne accès à **Paramètres** ; les droits Créer, Importer, Déplacer, Modifier, Proposer, Valider et Supprimer proviennent uniquement des groupes explicitement autorisés. Une configuration absente, inaccessible, sans objet, sans version ou de version inconnue n'active aucun droit d'action. La lecture reste soumise aux droits natifs de consultation.
@@ -141,7 +143,7 @@ L'auteur des traitements doit pouvoir lire et modifier la configuration, lire/cr
 
 ## Vérification sur l'instance
 
-1. Avant toute attribution, vérifier qu'un administrateur voit **Paramètres** mais ne peut ni créer, importer, déplacer, modifier, proposer, valider ou supprimer. Enregistrer des listes vides et refaire ce contrôle. Attribuer ensuite un seul droit à son groupe, vérifier cette action puis retirer le droit : elle doit de nouveau être bloquée.
+1. Avant toute attribution, vérifier qu'un administrateur voit **Paramètres** mais ne peut ni créer, importer, déplacer, modifier, proposer, valider ou supprimer. Enregistrer des listes vides et refaire ce contrôle. Attribuer ensuite, séparément, Créer, Importer puis Proposer à son groupe : les boutons d'ajout doivent apparaître sans recharger la page. Vérifier chaque action puis retirer le droit : les boutons doivent de nouveau disparaître.
 2. Vérifier les boutons avec un créateur sans droit Proposer, un proposant sans droit Créer, un validateur et un compte sans autorisation. Contrôler que le créateur publie directement et que le proposant attend une validation, sans sélecteur de mode. Enregistrer les paramètres, recharger, puis contrôler les appartenances à plusieurs groupes et aux sous-groupes.
 3. Proposer un document et un dossier : aucun élément publié avant validation, surlignage au bon endroit dans l'arbre existant.
 4. Importer plusieurs dossiers et fichiers. Accepter le parent puis un enfant ; refuser un autre enfant avec un motif. Vérifier l'aperçu et l'ouverture avant publication.
@@ -152,7 +154,7 @@ L'auteur des traitements doit pouvoir lire et modifier la configuration, lire/cr
 
 ## Tests du dépôt
 
-- `node tests/DocumentationPropositions.browser.test.js` : 26 parcours Chromium avec les véritables extensions et une page COMMANDE simulée ; couvre les propositions dans l'arbre, les droits automatiques, les erreurs propres, les suppressions et l'attribution puis le retrait des droits d'un administrateur. Nécessite Playwright et Chromium (`CHROMIUM_EXECUTABLE_PATH` facultatif).
+- `node tests/DocumentationPropositions.browser.test.js` : 27 parcours Chromium avec les véritables extensions et une page COMMANDE simulée ; couvre notamment l'apparition des boutons après attribution de Créer, Importer ou Proposer depuis la vraie barre `WebHome`, initialement sans droits. Nécessite Playwright et Chromium (`CHROMIUM_EXECUTABLE_PATH` facultatif).
 - `java -cp '/chemin/jars/*' tests/DocumentationVelocityTest.java` : 79 scénarios exécutant les sources Velocity avec des API XWiki simulées, dont les configurations absentes ou vides, les administrateurs sans attribution, les refus sans mutation et l'enregistrement puis la révocation des droits par groupe. JAR : Velocity 2.3, commons-lang3 et slf4j-api.
 - `java -cp '/chemin/jars/*' tests/DocumentationXWikiParsingTest.java` : vérification des trois pages avec les parseurs XWiki 2.1 et Velocity ; ajouter xwiki-rendering-wikimodel 16.10.17 aux JAR précédents.
 

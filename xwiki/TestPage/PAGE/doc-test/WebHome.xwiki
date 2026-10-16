@@ -87,10 +87,8 @@
 </script>
 <div id="notification" role="status" aria-live="polite"></div>
 <div class="doc-propositions-toolbar">
-#if($canCreate || $canImport || $canPropose)
-  <button id="doc-add-folder" type="button" class="btn btn-primary" onclick="ajouterFichier()">Ajouter un dossier</button>
-  <button id="doc-add-document" type="button" class="btn btn-primary" onclick="ajouterDocument()">Ajouter un document</button>
-#end
+  <button id="doc-add-folder" type="button" class="btn btn-primary" onclick="ajouterFichier()" hidden>Ajouter un dossier</button>
+  <button id="doc-add-document" type="button" class="btn btn-primary" onclick="ajouterDocument()" hidden>Ajouter un document</button>
   <button id="doc-proposals" type="button" class="btn btn-default">Propositions</button>
   <button id="doc-trash" type="button" class="btn btn-default">Corbeille</button>
 #if($canConfigure)

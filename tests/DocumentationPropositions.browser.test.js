@@ -101,14 +101,35 @@ async function open(page, mode = 'propositions') {
   }, mode);
 }
 
+function webHomeToolbar(permissions) {
+  const source = fs.readFileSync(path.join(codeDir, '..', 'WebHome.xwiki'), 'utf8');
+  const toolbar = source.match(/<div class="doc-propositions-toolbar">[\s\S]*?<\/div>/);
+  assert.ok(toolbar, 'the test must start from the actual WebHome toolbar');
+  // This toolbar only uses simple permission guards. Evaluate those guards as
+  // they are evaluated at the initial page request, before settings are saved.
+  // Keeping them here catches buttons omitted by Velocity, which a fixture
+  // that always invents both buttons cannot detect.
+  return toolbar[0].replace(/#if\(([^\n)]+)\)([\s\S]*?)#end/g, (_, condition, body) => {
+    const enabled = condition.split('||').some(value => {
+      const right = value.trim().match(/^\$can([A-Z][A-Za-z]*)$/);
+      assert.ok(right, 'unsupported WebHome toolbar permission guard: ' + condition);
+      const name = right[1].charAt(0).toLowerCase() + right[1].slice(1);
+      return permissions[name] === true;
+    });
+    return enabled ? body : '';
+  });
+}
+
 async function workflowPage(browser, permissions = {}, options = {}) {
   const page = await browser.newPage();
   await page.route('https://wiki.test/**', route => route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html>' }));
   await page.goto('https://wiki.test/documentation');
+  const toolbar = options.webHomeToolbar ? webHomeToolbar(permissions) :
+    '<button id="doc-settings" hidden>Paramètres</button><button id="doc-add-folder">Ajouter un dossier</button>' +
+    '<button id="doc-add-document">Ajouter un document</button>';
   await page.setContent(`<!doctype html><html><body><input name="form_token" value="test-csrf">
     <div id="notification"></div><div id="box"></div>
-    <button id="doc-settings" hidden>Paramètres</button><button id="doc-add-folder">Ajouter un dossier</button>
-    <button id="doc-add-document">Ajouter un document</button>
+    ${toolbar}
   </body></html>`);
   await page.evaluate(({ granted, groupGrants }) => {
     window.urlCommande = '/xwiki/bin/view/COMMANDE';
@@ -499,6 +520,111 @@ async function deleteInUI(page, mode) {
             grants: result.querySelectorAll('.doc-grant-data').length };
         });
         assert.deepEqual(workflow, { version: '4.4', create: 'false', delete: 'false', grants: 0 });
+      } finally { await page.close(); }
+    });
+
+    await check('The real WebHome toolbar reveals creation, import and proposal buttons after each grant without reloading', async () => {
+      const page = await workflowPage(browser, { configure: true }, { groupGrants: {}, webHomeToolbar: true });
+      try {
+        await addCreationUI(page);
+        for (const selector of ['#doc-add-folder', '#doc-add-document']) {
+          assert.equal(await page.locator(selector).count(), 1, 'WebHome must retain the button before any action grant');
+          assert.equal(await page.locator(selector).isVisible(), false);
+        }
+        const buttonHandles = await page.evaluateHandle(() => [
+          document.getElementById('doc-add-folder'), document.getElementById('doc-add-document')
+        ]);
+
+        for (const right of ['create', 'import', 'propose']) {
+          await page.locator('#doc-settings').click();
+          let dialog = page.getByRole('dialog', { name: 'Paramètres de la documentation' });
+          await dialog.waitFor();
+          assert.equal(await dialog.locator('input[type="checkbox"]:checked').count(), 0);
+          await dialog.locator('input[data-right="' + right + '"]').check();
+          await dialog.getByRole('button', { name: 'Enregistrer les autorisations' }).click();
+          await page.waitForFunction(() => !document.querySelector('dialog'));
+          assert.equal(await page.evaluate(handles => handles.every(button => button.isConnected), buttonHandles), true,
+            'granting a right must reveal the original buttons, without a page reload');
+          for (const selector of ['#doc-add-folder', '#doc-add-document']) {
+            assert.equal(await page.locator(selector).isVisible(), true, right + ' must expose both entry points');
+            assert.match(await page.locator(selector).innerText(), right === 'propose' ? /proposer/i : right === 'import' ? /importer/i : /ajouter|créer/i);
+          }
+          const manual = right !== 'import', importing = right !== 'create';
+          const mode = right === 'propose' ? 'proposal' : 'direct';
+          await page.evaluate(({ mode, root }) => {
+            testWorkflow.requests = [];
+            const body = mode === 'proposal' ?
+              '<div id="creation-result" data-code="PROPOSITION_OK" data-proposal-ref="TestPage.PAGE.doc-test.PROPOSITIONS.P1"></div>PROPOSITION_OK' :
+              '<div id="creation-result" data-code="LIEN_AJOUTE_OK" data-page-ref="' + root + '.Nouveau.WebHome"></div>LIEN_AJOUTE_OK';
+            testWorkflow.responses['ajouter un fichier'] = { body };
+            testWorkflow.responses['ajouter un document'] = { body };
+          }, { mode, root });
+
+          await page.locator('#doc-add-folder').click();
+          await page.locator('#popup').waitFor({ state: 'visible' });
+          assert.equal(await page.locator('#folder-empty-page-group').isVisible(), manual);
+          assert.equal(await page.locator('#branch-folder-picker-btn').isVisible(), importing);
+          if (right === 'import') {
+            assert.match(await page.locator('#documentation-creation-title').innerText(), /importer/i);
+            assert.match(await page.locator('#btn-popup-valide').innerText(), /importer/i);
+            await page.locator('#btn-popup-valide').click();
+            await page.waitForFunction(() => !document.getElementById('btn-popup-valide').disabled);
+            assert.equal(await page.locator('#popup').isVisible(), true);
+            assert.match(await page.locator('#documentation-popup-status').innerText(), /sélectionnez.*importer/i);
+            assert.equal(await page.evaluate(() => testWorkflow.requests.filter(request => /^ajouter un /.test(request.action)).length), 0);
+          }
+          if (manual) {
+            await page.locator('#folder-name-input').fill('Dossier ' + right);
+          } else {
+            await page.evaluate(() => {
+              const file = new File(['branch-content'], 'guide.pdf', { type: 'application/pdf' });
+              Object.defineProperty(file, 'webkitRelativePath', { value: 'Archive/guide.pdf' });
+              const transfer = new DataTransfer(); transfer.items.add(file);
+              const input = document.getElementById('branch-folder-input');
+              input.files = transfer.files;
+              input.dispatchEvent(new Event('change', { bubbles: true }));
+            });
+          }
+          assert.match(await page.locator('#btn-popup-valide').innerText(), right === 'propose' ? /proposer/i : right === 'import' ? /importer/i : /créer/i);
+          await page.locator('#btn-popup-valide').click();
+          await page.waitForFunction(() => document.getElementById('popup').style.display === 'none');
+
+          await page.locator('#doc-add-document').click();
+          await page.locator('#popup').waitFor({ state: 'visible' });
+          assert.equal(await page.locator('#document-empty-page-group').isVisible(), manual);
+          assert.equal(await page.locator('#document-file-picker-btn').isVisible(), importing);
+          if (right === 'import') {
+            assert.match(await page.locator('#documentation-creation-title').innerText(), /importer/i);
+            assert.match(await page.locator('#btn-popup-valide').innerText(), /importer/i);
+          }
+          if (manual) {
+            await page.locator('#document-name-input').fill('Document ' + right);
+          } else {
+            await page.locator('#document-file-input').setInputFiles({
+              name: 'contrat.pdf', mimeType: 'application/pdf', buffer: Buffer.from('pdf-file')
+            });
+          }
+          await page.locator('#btn-popup-valide').click();
+          await page.waitForFunction(() => document.getElementById('popup').style.display === 'none');
+          const requests = await page.evaluate(() => testWorkflow.requests.filter(request => /^ajouter un /.test(request.action)));
+          assert.equal(requests.length, right === 'import' ? 3 : 2);
+          assert.ok(requests.some(request => request.action === 'ajouter un fichier'));
+          assert.ok(requests.some(request => request.action === 'ajouter un document'));
+          assert.ok(requests.every(request => request.method === 'POST' && request.values.mode === mode &&
+            request.values.intent === (right === 'import' ? 'import' : 'create') && request.values.form_token === 'test-csrf'));
+          assert.deepEqual(await page.evaluate(() => testWorkflow.alerts), []);
+
+          await page.locator('#doc-settings').click();
+          dialog = page.getByRole('dialog', { name: 'Paramètres de la documentation' });
+          await dialog.waitFor();
+          await dialog.locator('input[data-right="' + right + '"]').uncheck();
+          await dialog.getByRole('button', { name: 'Enregistrer les autorisations' }).click();
+          await page.waitForFunction(() => !document.querySelector('dialog'));
+          assert.equal(await page.locator('#doc-add-folder').isVisible(), false);
+          assert.equal(await page.locator('#doc-add-document').isVisible(), false);
+          assert.equal(await page.locator('#doc-settings').isVisible(), true);
+        }
+        await buttonHandles.dispose();
       } finally { await page.close(); }
     });
 

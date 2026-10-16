@@ -423,7 +423,11 @@ public class DocumentationVelocityTest {
         f.render();
         check(f.can("View") && f.can("Configure") == administrator, "Native view and settings must remain independent from action grants");
         denyWrites(f);
-        check(!f.pageOutput.contains("id=\"doc-add-folder\"") && !f.pageOutput.contains("id=\"doc-add-document\""), "Unconfigured rights cannot expose creation controls");
+        for (String id : List.of("doc-add-folder", "doc-add-document")) {
+          java.util.regex.Matcher button = java.util.regex.Pattern.compile("<button\\b(?=[^>]*id=\"" + id + "\")[^>]*>").matcher(f.pageOutput);
+          check(button.find() && java.util.regex.Pattern.compile("\\s+hidden(?:\\s|=|>)").matcher(button.group()).find(),
+            "Unconfigured creation controls must exist but remain hidden until workflow permissions load: " + id);
+        }
         workflow = f.list("workflow");
         denyWrites(f);
         for (String right : List.of("create", "move", "modify", "import", "content", "propose", "review", "delete"))

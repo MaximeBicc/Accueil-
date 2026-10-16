@@ -45,7 +45,8 @@ async function documentationCreationModes() {
 function updateDocumentationCreationLabels() {
     if (!window.DocPropositions) return;
     const importing = !!(branchImportSelection && branchImportSelection.root) ||
-        documentImportSelection.some(function (item) { return item.enabled && item.file; });
+        documentImportSelection.some(function (item) { return item.enabled && item.file; }) ||
+        (!DocPropositions.modeFor("create") && !!DocPropositions.modeFor("import"));
     const mode = DocPropositions.modeFor(importing ? "import" : "create");
     const action = document.querySelector('#popupContent input[name="type"]');
     const isFolder = action && action.value === "folder";
@@ -1233,6 +1234,8 @@ async function popupValider() {
         await DocPropositions.ready;
         const importing = !!(branchImportSelection && branchImportSelection.root) ||
             documentImportSelection.some(function (item) { return item.enabled && item.file; });
+        if (!importing && !DocPropositions.modeFor("create") && DocPropositions.modeFor("import"))
+            throw new Error("Sélectionnez un fichier ou une arborescence à importer.");
         const intent = importing ? "import" : "create";
         documentationCreationContext = {mode:DocPropositions.modeFor(intent),intent:intent,
             rootParent:parentPage,proposalRefs:new Set(),proposedCount:0};

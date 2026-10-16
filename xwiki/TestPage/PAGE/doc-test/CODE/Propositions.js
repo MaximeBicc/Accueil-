@@ -153,7 +153,8 @@
         document.querySelectorAll("#doc-add-folder, #doc-add-document").forEach(function (item) {
             item.hidden = !creation;
             var proposalOnly = !can("create") && !can("import") && can("propose");
-            item.textContent = (proposalOnly ? "Proposer un " : "Ajouter un ") + (item.id === "doc-add-folder" ? "dossier" : "document");
+            var importOnly = can("import") && !can("create") && !can("propose");
+            item.textContent = (proposalOnly ? "Proposer un " : importOnly ? "Importer un " : "Ajouter un ") + (item.id === "doc-add-folder" ? "dossier" : "document");
         });
         var mapping = {"#explorer-move-btn,#explorer-move-here-btn,#architecture-validate-btn":"move",
             "#explorer-delete-btn,#architecture-delete-btn":"delete", "#sidebar-metadata-save,#sidebar-tag-add":"modify",
