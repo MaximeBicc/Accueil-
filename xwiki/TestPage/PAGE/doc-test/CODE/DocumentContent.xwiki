@@ -1,0 +1,36 @@
+{{velocity}}
+## Feuille de contenu commune : le texte utilisateur reste dans un champ inerte.
+## Le rendu restreint désactive les macros de script, sans demander Programming.
+#set($documentContentClass = 'TestPage.PAGE.doc-test.CODE.docContentClass.WebHome')
+#set($contentObject = false)
+#set($contentObject = $doc.getObject($documentContentClass))
+#set($source = '')
+#set($documentContentError = '')
+#if(!$contentObject)
+  #set($documentContentError = 'Le contenu de ce document est introuvable : son objet docContentClass est absent. Un administrateur doit vérifier le document et la classe de contenu.')
+#else
+  #set($documentContentDefinition = false)
+  #set($documentContentDefinition = $contentObject.getxWikiClass())
+  #set($documentContentSourceDefinition = false)
+  #if($documentContentDefinition)
+    #set($documentContentSourceDefinition = $documentContentDefinition.get('source'))
+  #end
+  #if(!$documentContentSourceDefinition || $documentContentSourceDefinition.classType != 'TextArea' || !$documentContentDefinition.enabledPropertyNames.contains('source'))
+    #set($documentContentError = 'La classe de contenu est incomplète : le champ source doit être une zone de texte (TextArea) active. Un administrateur doit corriger la classe docContentClass.')
+  #else
+    #set($source = "$!contentObject.getValue('source')")
+  #end
+#end
+#if($documentContentError != '')
+{{html clean="false"}}
+<div class="box warningmessage" role="alert" data-documentation-content-error="true">$documentContentError</div>
+{{/html}}
+#else
+  #set($rendered = $doc.getRenderedContentRestricted($source, 'xwiki/2.1'))
+  ## Empêcher le texte rendu de fermer la macro HTML qui le contient.
+  #set($rendered = $rendered.replace('{', '&#123;').replace('}', '&#125;'))
+{{html clean="false"}}
+$rendered
+{{/html}}
+#end
+{{/velocity}}

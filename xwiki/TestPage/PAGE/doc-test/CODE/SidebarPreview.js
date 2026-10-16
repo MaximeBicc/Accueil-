@@ -77,7 +77,18 @@ function setSidebarMetadataStatus(message, state) {
     }
 }
 
+function canEditSidebarMetadata(showError) {
+    const allowed = !!(window.DocPropositions && DocPropositions.modeFor("modify"));
+    if (!allowed && showError) {
+        setSidebarMetadataStatus(window.DocPropositions ?
+            "Vous n’avez pas l’autorisation de modifier les informations de ce document." :
+            "Les autorisations ne sont pas disponibles. Recharge la page.", "error");
+    }
+    return allowed;
+}
+
 function markSidebarMetadataDirty() {
+    if (!canEditSidebarMetadata(true)) return;
     sidebarMetadataDirty = true;
     setSidebarMetadataStatus("Modifications non enregistrées", "dirty");
 }
@@ -112,6 +123,8 @@ function renderSidebarTags() {
         remove.setAttribute("aria-label", "Retirer le mot-clé " + tag);
         remove.title = "Retirer";
         remove.textContent = "×";
+        remove.hidden = !canEditSidebarMetadata(false);
+        remove.disabled = remove.hidden;
 
         chip.appendChild(text);
         chip.appendChild(remove);
@@ -120,6 +133,7 @@ function renderSidebarTags() {
 }
 
 function addSidebarTagsFromInput() {
+    if (!canEditSidebarMetadata(true)) return;
     const input = document.getElementById("sidebar-tag-input");
 
     if (!input) return;
@@ -156,6 +170,7 @@ function addSidebarTagsFromInput() {
 }
 
 function removeSidebarTag(index) {
+    if (!canEditSidebarMetadata(true)) return;
     if (
         index < 0 ||
         index >= sidebarCurrentTags.length
@@ -168,47 +183,19 @@ function removeSidebarTag(index) {
     markSidebarMetadataDirty();
 }
 
-function getSidebarMetadataError(result) {
-    const plain = String(result || "")
-        .replace(/<[^>]*>/g, " ")
-        .replace(/\s+/g, " ")
-        .trim();
-
-    if (plain.indexOf("ERREUR_DROITS") !== -1) {
-        return "Tu n'as pas les droits pour modifier ce document.";
-    }
-
-    if (plain.indexOf("ERREUR_SOURCE_INTROUVABLE") !== -1) {
-        return "Ce document n'existe plus.";
-    }
-
-    if (plain.indexOf("ERREUR_DESCRIPTION_TROP_LONGUE") !== -1) {
-        return "La description est trop longue.";
-    }
-
-    if (plain.indexOf("ERREUR_TAGS_TROP_LONGS") !== -1) {
-        return "Il y a trop de mots-clés.";
-    }
-
-    if (plain.indexOf("ERREUR_CSRF") !== -1) {
-        return "La session de sécurité a expiré. Recharge la page.";
-    }
-
-    if (plain.indexOf("ERREUR_ELEMENT_INVALIDE") !== -1) {
-        return "Cet élément n'est pas un document modifiable.";
-    }
-
-    if (plain.indexOf("ERREUR_METADONNEES") !== -1) {
-        return "La sauvegarde des informations a échoué.";
-    }
-
-    return plain || "Impossible d'enregistrer les informations.";
-}
-
 async function saveSidebarMetadata() {
     if (!sidebarCurrentDocumentRef) {
         return;
     }
+
+    if (!window.DocPropositions) {
+        setSidebarMetadataStatus("Les autorisations ne sont pas disponibles. Recharge la page.", "error");
+        return;
+    }
+    await DocPropositions.ready;
+    if (!canEditSidebarMetadata(true)) return;
+    const saveButton = document.getElementById("sidebar-metadata-save");
+    if (saveButton && saveButton.disabled) return;
 
     // Si le dernier mot-clé est encore dans le champ, on l'ajoute
     // automatiquement avant l'enregistrement.
@@ -218,19 +205,11 @@ async function saveSidebarMetadata() {
     }
 
     const descriptionInput = document.getElementById("sidebar-desc-input");
-    const saveButton = document.getElementById("sidebar-metadata-save");
 
     const description = descriptionInput
         ? descriptionInput.value
         : "";
     const tags = sidebarCurrentTags.join(", ");
-
-    const formData = new FormData();
-    formData.set("action", "modifier metadonnees document");
-    formData.set("form_token", getSidebarFormToken());
-    formData.set("source_ref", sidebarCurrentDocumentRef);
-    formData.set("description", description);
-    formData.set("tags", tags);
 
     if (saveButton) {
         saveButton.disabled = true;
@@ -240,28 +219,19 @@ async function saveSidebarMetadata() {
     setSidebarMetadataStatus("Enregistrement...", "saving");
 
     try {
-        const response = await fetch(urlCommande, {
-            method: "POST",
-            body: formData,
-            credentials: "same-origin",
-            headers: {
-                "X-Requested-With": "XMLHttpRequest"
-            }
+        const parameters = await DocPropositions.postActionParameters("modify", {
+            source_ref:sidebarCurrentDocumentRef, description:description, tags:tags
         });
-
-        const result = await response.text();
-
-        if (result.indexOf("METADONNEES_OK") === -1) {
-            throw new Error(getSidebarMetadataError(result));
+        const parsed = await DocPropositions.request("modifier metadonnees document", parameters);
+        const result = parsed.getElementById("creation-result");
+        const code = result && result.getAttribute("data-code") || parsed.body.textContent.trim();
+        if (code === "PROPOSITION_OK") {
+            sidebarMetadataDirty = false;
+            setSidebarMetadataStatus("Modification proposée, en attente de validation", "success");
+            return;
         }
-
-        const parsed = new DOMParser().parseFromString(
-            result,
-            "text/html"
-        );
-        const metadataResult = parsed.getElementById(
-            "metadata-result"
-        );
+        const metadataResult = parsed.getElementById("metadata-result");
+        if (code !== "METADONNEES_OK" || !metadataResult) throw new Error("Les informations n’ont pas pu être enregistrées.");
         const modified = metadataResult
             ? metadataResult.getAttribute("data-modified") || ""
             : "";
@@ -301,15 +271,13 @@ async function saveSidebarMetadata() {
         );
 
         setSidebarMetadataStatus(
-            error && error.message
-                ? error.message
-                : "Impossible d'enregistrer.",
+            DocPropositions.errorMessage(error, "Impossible d’enregistrer les informations."),
             "error"
         );
     } finally {
         if (saveButton) {
-            saveButton.disabled = false;
-            saveButton.textContent = "Enregistrer";
+            saveButton.disabled = !DocPropositions.modeFor("modify");
+            saveButton.textContent = DocPropositions.modeFor("modify") === "proposal" ? "Proposer la modification" : "Enregistrer";
         }
     }
 }

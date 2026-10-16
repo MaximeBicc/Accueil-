@@ -2,6 +2,8 @@ var explorerPendingMove = null;
 var explorerSelectionMode = false;
 var architectureState = null;
 var architectureDraggedRef = null;
+var architectureExplorerBox = null;
+var documentationProposalBusy = false;
 
 function LienPerso(url, zone) {
     zone.innerHTML = "<p style='color: #6b7280; padding: 10px;'>Chargement...</p>";
@@ -451,6 +453,9 @@ function createSpan(box) {
     initExplorerSidebarAccordion(box);
     initExplorerSearch(box);
     initExplorerManagement(box);
+    if (window.DocPropositions && typeof window.DocPropositions.applyPermissions === "function") {
+        window.DocPropositions.applyPermissions();
+    }
 }
 
 function getExplorerFormToken() {
@@ -587,69 +592,86 @@ function filterTopLevelSelection(items) {
     return kept;
 }
 
-async function postExplorerAction(parameters) {
-    const data = new FormData();
-    data.set("form_token", getExplorerFormToken());
-
-    Object.keys(parameters).forEach(function(key) {
-        data.set(key, parameters[key]);
-    });
-
-    const response = await fetch(urlCommande, {
-        method: "POST",
-        body: data,
-        credentials: "same-origin",
-        headers: {
-            "X-Requested-With": "XMLHttpRequest"
-        }
-    });
-
-    return response.text();
+function getExplorerActionError(result, fallback, status) {
+    const api = window.DocPropositions;
+    const message = fallback || "L’opération documentaire n’a pas pu être effectuée.";
+    if (api && typeof api.responseError === "function") {
+        return api.responseError(String(result || ""), message, status) || message;
+    }
+    // Une réponse XWiki peut contenir une page d’exception entière : ne jamais
+    // l’afficher telle quelle dans les messages destinés à l’utilisateur.
+    const codes = {
+        ERREUR_DROITS_SERVICE: "La page COMMANDE doit être enregistrée par un administrateur XWiki.",
+        ERREUR_DROITS: "Vous n’avez pas les droits nécessaires pour cette opération.",
+        ERREUR_DESTINATION_EXISTE: "Un élément portant le même nom existe déjà dans la destination.",
+        ERREUR_DESTINATION_DANS_SOURCE: "Un dossier ne peut pas être déplacé dans lui-même ou dans un de ses descendants.",
+        ERREUR_DEPLACEMENT_IDENTIQUE: "Cet élément se trouve déjà dans ce dossier.",
+        ERREUR_RACINE_PROTEGEE: "La racine doc-test ne peut pas être déplacée ou supprimée.",
+        ERREUR_SOURCE_INTROUVABLE: "L’élément source n’existe plus.",
+        ERREUR_DESTINATION_INTROUVABLE: "Le dossier de destination n’existe plus.",
+        ERREUR_SUPPRESSION: "La suppression a échoué.",
+        ERREUR_DEPLACEMENT: "Le déplacement a échoué."
+    };
+    const code = String(result || "").match(/\bERREUR_[A-Z_]+\b/);
+    return code && codes[code[0]] ? codes[code[0]] : message;
 }
 
-function getExplorerActionError(result) {
-    const plain = String(result || "")
-        .replace(/<[^>]*>/g, " ")
-        .replace(/\s+/g, " ")
-        .trim();
-
-    if (plain.indexOf("ERREUR_DROITS") !== -1) {
-        return "Tu n'as pas les droits nécessaires pour cette opération.";
+function getExplorerErrorMessage(error, fallback) {
+    const api = window.DocPropositions;
+    if (api && typeof api.errorMessage === "function") {
+        return api.errorMessage(error, fallback);
     }
-
-    if (plain.indexOf("ERREUR_DESTINATION_EXISTE") !== -1) {
-        return "Un élément portant le même nom existe déjà dans la destination.";
+    const message = error && typeof error.message === "string" ? error.message : "";
+    if (!message || message.length > 240 || /[<>{}]|ERREUR_|Exception|\bat [\w.$]+\(/.test(message)) {
+        return getExplorerActionError(message, fallback);
     }
+    return message;
+}
 
-    if (plain.indexOf("ERREUR_DESTINATION_DANS_SOURCE") !== -1) {
-        return "Un dossier ne peut pas être déplacé dans lui-même ou dans un de ses descendants.";
+async function requireExplorerRight(right) {
+    const api = window.DocPropositions;
+    if (api && api.ready) await api.ready;
+    if (!api || typeof api.can !== "function" || typeof api.modeFor !== "function") {
+        throw new Error("Les autorisations n’ont pas pu être chargées. Rechargez la page avant de réessayer.");
     }
-
-    if (plain.indexOf("ERREUR_DEPLACEMENT_IDENTIQUE") !== -1) {
-        return "Cet élément se trouve déjà dans ce dossier.";
+    if (right === "delete" ? !api.can("delete") : !api.modeFor(right)) {
+        throw new Error(right === "delete"
+            ? "Vous n’avez pas le droit de supprimer des documents ou des dossiers."
+            : "Vous n’avez pas le droit de déplacer des éléments ni de proposer leur déplacement.");
     }
+    return api;
+}
 
-    if (plain.indexOf("ERREUR_RACINE_PROTEGEE") !== -1) {
-        return "La racine doc-test ne peut pas être déplacée ou supprimée.";
+function documentationCanMove() {
+    const api = window.DocPropositions;
+    return !!(api && typeof api.modeFor === "function" && api.modeFor("move"));
+}
+
+async function postExplorerAction(parameters) {
+    const right = parameters.action === "supprimer element" ? "delete" :
+        parameters.action === "deplacer element" ? "move" : "";
+    if (!right) throw new Error("Cette opération documentaire est inconnue.");
+    const api = await requireExplorerRight(right);
+    if (typeof api.postActionParameters !== "function" || typeof api.request !== "function") {
+        throw new Error("Rechargez la page pour charger les commandes et les autorisations de la documentation.");
     }
-
-    if (plain.indexOf("ERREUR_SOURCE_INTROUVABLE") !== -1) {
-        return "L'élément source n'existe plus.";
+    // Les suppressions, comme les déplacements, vérifient la version du
+    // document avant le POST ; aucune mutation ne part sans autorisation.
+    const values = await api.postActionParameters(right, parameters);
+    const response = await api.request(values.action, values);
+    const result = typeof response === "string" ? response : response && response.rawText || "";
+    if (typeof api.responseError === "function") {
+        const error = api.responseError(result, "L’opération documentaire n’a pas pu être effectuée.");
+        if (error) throw new Error(error);
     }
+    return result;
+}
 
-    if (plain.indexOf("ERREUR_DESTINATION_INTROUVABLE") !== -1) {
-        return "Le dossier de destination n'existe plus.";
-    }
-
-    if (plain.indexOf("ERREUR_SUPPRESSION") !== -1) {
-        return "La suppression a échoué.";
-    }
-
-    if (plain.indexOf("ERREUR_DEPLACEMENT") !== -1) {
-        return "Le déplacement a échoué.";
-    }
-
-    return plain || "Une erreur inconnue s'est produite.";
+function explorerActionSucceeded(result, code) {
+    const parsed = new DOMParser().parseFromString(String(result || ""), "text/html");
+    if (parsed.querySelector("#documentation-error,.xwikirenderingerror,.xwikirenderingerrordescription,.box.errormessage")) return false;
+    const text = parsed.body ? parsed.body.textContent : "";
+    return text.split(/\s+/).indexOf(code) !== -1;
 }
 
 async function moveExplorerItem(sourceRef, destinationRef) {
@@ -659,7 +681,15 @@ async function moveExplorerItem(sourceRef, destinationRef) {
         target_parent_ref: destinationRef
     });
 
-    if (result.indexOf("DEPLACEMENT_OK") === -1) {
+    if (explorerActionSucceeded(result, "PROPOSITION_OK")) {
+        const proposal = new DOMParser().parseFromString(result, "text/html").getElementById("creation-result");
+        return {
+            oldRef: sourceRef, newRef: sourceRef, proposed: true,
+            proposalRef: proposal ? proposal.getAttribute("data-proposal-ref") || proposal.getAttribute("data-page-ref") : ""
+        };
+    }
+
+    if (!explorerActionSucceeded(result, "DEPLACEMENT_OK")) {
         throw new Error(getExplorerActionError(result));
     }
 
@@ -676,34 +706,289 @@ async function moveExplorerItem(sourceRef, destinationRef) {
     };
 }
 
-async function deleteExplorerItems(box, items) {
-    const filtered = filterTopLevelSelection(items);
+async function fetchExplorerDeletionPlan(items) {
+    const selectionRef = "deletion:selection";
+    const state = { complete: true, rootRef: selectionRef, nodes: Object.create(null), icons: {} };
+    state.nodes[selectionRef] = { ref: selectionRef, type: "root", parentRef: "", title: "Sélection" };
+    const snapshots = new Map();
+    const previews = await Promise.all(items.map(async function(item) {
+        const response = await fetch(urlCommande + "?xpage=plain&action=" + encodeURIComponent("apercu suppression") +
+            "&source_ref=" + encodeURIComponent(item.ref), { method: "GET", credentials: "same-origin" });
+        const html = await response.text();
+        if (!response.ok) throw new Error(getExplorerActionError(html, "Impossible de vérifier les éléments à supprimer.", response.status));
+        const parsed = new DOMParser().parseFromString(html, "text/html");
+        const marker = parsed.getElementById("deletion-preview-data");
+        const snapshot = parsed.getElementById("deletion-preview-snapshot");
+        if (!marker || marker.getAttribute("data-complete") !== "true" || marker.getAttribute("data-ref") !== item.ref ||
+            !snapshot || !snapshot.value.trim()) {
+            throw new Error(getExplorerErrorMessage({ message: marker && marker.getAttribute("data-message") },
+                "L’arborescence complète n’a pas pu être chargée. La suppression est bloquée ; rechargez la page avant de réessayer."));
+        }
+        const nodes = Array.from(parsed.querySelectorAll(".deletion-node-data")).map(function(element) {
+            return {
+                ref: element.getAttribute("data-ref") || "",
+                parentRef: element.getAttribute("data-parent-ref") || "",
+                title: element.getAttribute("data-title") || element.getAttribute("data-ref") || "",
+                type: element.getAttribute("data-type") || "",
+                version: element.getAttribute("data-version") || ""
+            };
+        });
+        if (!nodes.length || !nodes.some(function(node) { return node.ref === item.ref && !node.parentRef; })) {
+            throw new Error("Un élément sélectionné n’existe plus dans l’arborescence. Rechargez la page avant de supprimer.");
+        }
+        const folderIcon = parsed.getElementById("architecture-icon-folder-template");
+        const documentIcon = parsed.getElementById("architecture-icon-document-template");
+        return { item: item, nodes: nodes, snapshot: snapshot.value, icons: {
+            folder: folderIcon ? folderIcon.innerHTML : "", document: documentIcon ? documentIcon.innerHTML : ""
+        } };
+    }));
+    previews.forEach(function(preview) {
+        snapshots.set(preview.item.ref, preview.snapshot);
+        if (!state.icons.folder) state.icons.folder = preview.icons.folder;
+        if (!state.icons.document) state.icons.document = preview.icons.document;
+        preview.nodes.forEach(function(node) {
+            if (!node.ref || !node.version || state.nodes[node.ref] ||
+                (node.ref !== preview.item.ref && !node.parentRef)) {
+                throw new Error("L’arborescence a changé ou est incomplète. Rechargez la page avant de supprimer.");
+            }
+            if (node.ref === preview.item.ref) node.parentRef = selectionRef;
+            state.nodes[node.ref] = node;
+        });
+    });
+    const plan = getExplorerDeletionPlan(state, items);
+    plan.snapshots = snapshots;
+    return plan;
+}
 
-    if (filtered.length === 0) {
+function getExplorerDeletionPlan(state, items) {
+    if (!state || state.complete !== true || !state.nodes || !state.nodes[state.rootRef]) {
+        throw new Error("L’arborescence complète n’a pas pu être chargée. La suppression est bloquée ; rechargez la page avant de réessayer.");
+    }
+    const selected = new Map();
+    items.forEach(function(item) {
+        const node = state.nodes[item.ref];
+        if (!node || node.type === "root" || (node.type !== "folder" && node.type !== "document")) {
+            throw new Error("Un élément sélectionné n’existe plus dans l’arborescence. Rechargez la page avant de supprimer.");
+        }
+        selected.set(node.ref, node);
+    });
+    const roots = [];
+    selected.forEach(function(node) {
+        let parentRef = node.parentRef;
+        let selectedAncestor = false;
+        const visited = new Set([node.ref]);
+        while (parentRef && parentRef !== state.rootRef) {
+            if (visited.has(parentRef) || !state.nodes[parentRef]) {
+                throw new Error("L’arborescence a changé ou est incomplète. Rechargez la page avant de supprimer.");
+            }
+            visited.add(parentRef);
+            if (selected.has(parentRef) && selected.get(parentRef).type === "folder") selectedAncestor = true;
+            parentRef = state.nodes[parentRef].parentRef;
+        }
+        if (parentRef !== state.rootRef) {
+            throw new Error("Un élément sélectionné ne fait plus partie de cette arborescence. Rechargez la page avant de supprimer.");
+        }
+        if (!selectedAncestor) roots.push(node);
+    });
+    const children = new Map();
+    Object.keys(state.nodes).forEach(function(ref) {
+        const node = state.nodes[ref];
+        if (!children.has(node.parentRef)) children.set(node.parentRef, []);
+        children.get(node.parentRef).push(node);
+    });
+    const sortNodes = function(a, b) {
+        if (a.type !== b.type) return a.type === "folder" ? -1 : 1;
+        return a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
+    };
+    children.forEach(function(nodes) { nodes.sort(sortNodes); });
+    roots.sort(sortNodes);
+    const included = new Map();
+    const visit = function(node) {
+        if (included.has(node.ref) || (node.type !== "folder" && node.type !== "document")) {
+            throw new Error("L’arborescence est incohérente. La suppression est bloquée ; rechargez la page avant de réessayer.");
+        }
+        included.set(node.ref, node);
+        (children.get(node.ref) || []).forEach(visit);
+    };
+    roots.forEach(visit);
+    if (included.size !== Object.keys(state.nodes).length - 1) {
+        throw new Error("L’arborescence est incohérente. La suppression est bloquée ; rechargez la page avant de réessayer.");
+    }
+    return { roots: roots, children: children, included: included, icons: state.icons || {} };
+}
+
+function confirmExplorerDeletion(plan) {
+    return new Promise(function(resolve) {
+        const previousFocus = document.activeElement;
+        const modal = document.createElement("div");
+        modal.id = "explorer-delete-confirmation-modal";
+        modal.className = "architecture-modal-overlay explorer-delete-confirmation";
+        const panel = document.createElement("div");
+        panel.className = "architecture-modal-panel";
+        panel.setAttribute("role", "dialog");
+        panel.setAttribute("aria-modal", "true");
+        panel.setAttribute("aria-labelledby", "explorer-delete-confirmation-title");
+        panel.setAttribute("aria-describedby", "explorer-delete-confirmation-summary");
+        const header = document.createElement("div");
+        header.className = "architecture-modal-header";
+        const heading = document.createElement("h3");
+        heading.id = "explorer-delete-confirmation-title";
+        heading.textContent = "Confirmer la suppression";
+        header.appendChild(heading);
+        const summary = document.createElement("p");
+        summary.id = "explorer-delete-confirmation-summary";
+        summary.className = "architecture-modal-info explorer-delete-summary";
+        let folderCount = 0;
+        plan.included.forEach(function(node) { if (node.type === "folder") folderCount++; });
+        summary.textContent = plan.included.size + " élément(s) seront supprimés : " +
+            folderCount + " dossier(s) et " + (plan.included.size - folderCount) +
+            " document(s), dossiers sélectionnés et tous leurs enfants et sous-enfants compris.";
+        const tree = document.createElement("div");
+        tree.id = "explorer-delete-confirmation-tree";
+        tree.className = "architecture-tree-editor";
+        tree.setAttribute("aria-label", "Éléments qui seront supprimés");
+        const renderBranch = function(node) {
+            const item = document.createElement("li");
+            item.className = "architecture-item";
+            const descendants = plan.children.get(node.ref) || [];
+            const row = document.createElement("div");
+            row.className = "architecture-row";
+            row.setAttribute("data-delete-ref", node.ref);
+            row.setAttribute("data-type", node.type);
+            const toggle = document.createElement("button");
+            toggle.type = "button";
+            toggle.className = "architecture-toggle";
+            if (descendants.length) {
+                toggle.setAttribute("aria-expanded", "true");
+                toggle.setAttribute("aria-label", "Plier " + node.title);
+                toggle.addEventListener("click", function() {
+                    const collapsed = item.classList.toggle("architecture-item-collapsed");
+                    toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+                    toggle.setAttribute("aria-label", (collapsed ? "Déplier " : "Plier ") + node.title);
+                });
+            } else {
+                toggle.classList.add("architecture-toggle-empty");
+                toggle.disabled = true;
+                toggle.setAttribute("aria-hidden", "true");
+            }
+            const icon = document.createElement("span");
+            icon.className = "architecture-node-icon architecture-xwiki-icon";
+            icon.setAttribute("aria-hidden", "true");
+            icon.innerHTML = node.type === "folder" ? plan.icons.folder || "" : plan.icons.document || "";
+            const type = document.createElement("span");
+            type.className = "architecture-type";
+            type.textContent = node.type === "folder" ? "Dossier" : "Document";
+            const title = document.createElement("span");
+            title.className = "architecture-title";
+            title.textContent = node.title;
+            title.title = node.title;
+            row.appendChild(toggle);
+            row.appendChild(icon);
+            row.appendChild(type);
+            row.appendChild(title);
+            item.appendChild(row);
+            if (descendants.length) {
+                const list = document.createElement("ul");
+                list.className = "architecture-children";
+                descendants.forEach(function(child) { list.appendChild(renderBranch(child)); });
+                item.appendChild(list);
+            }
+            return item;
+        };
+        const roots = document.createElement("ul");
+        roots.className = "architecture-root-list";
+        plan.roots.forEach(function(node) { roots.appendChild(renderBranch(node)); });
+        tree.appendChild(roots);
+        const footer = document.createElement("div");
+        footer.className = "architecture-modal-footer";
+        const cancel = document.createElement("button");
+        cancel.id = "explorer-delete-confirmation-cancel";
+        cancel.type = "button";
+        cancel.className = "btn btn-default";
+        cancel.textContent = "Annuler";
+        const confirm = document.createElement("button");
+        confirm.id = "explorer-delete-confirmation-confirm";
+        confirm.type = "button";
+        confirm.className = "btn btn-danger";
+        confirm.textContent = "Supprimer les " + plan.included.size + " élément(s)";
+        const finish = function(accepted) {
+            modal.remove();
+            resolve(accepted);
+            Promise.resolve().then(function() {
+                if (previousFocus && previousFocus.isConnected && typeof previousFocus.focus === "function") previousFocus.focus();
+            });
+        };
+        cancel.addEventListener("click", function() { finish(false); });
+        confirm.addEventListener("click", function() { finish(true); });
+        modal.addEventListener("click", function(event) { if (event.target === modal) finish(false); });
+        modal.addEventListener("keydown", function(event) {
+            if (event.key === "Escape") {
+                event.preventDefault();
+                event.stopPropagation();
+                finish(false);
+            } else if (event.key === "Tab") {
+                const focusable = Array.from(panel.querySelectorAll("button:not([disabled])")).filter(function(button) {
+                    return button.getClientRects().length > 0;
+                });
+                const first = focusable[0];
+                const last = focusable[focusable.length - 1];
+                if (event.shiftKey && document.activeElement === first) {
+                    event.preventDefault(); last.focus();
+                } else if (!event.shiftKey && document.activeElement === last) {
+                    event.preventDefault(); first.focus();
+                }
+            }
+        });
+        footer.appendChild(cancel);
+        footer.appendChild(confirm);
+        panel.appendChild(header);
+        panel.appendChild(summary);
+        panel.appendChild(tree);
+        panel.appendChild(footer);
+        modal.appendChild(panel);
+        document.body.appendChild(modal);
+        cancel.focus();
+    });
+}
+
+async function deleteExplorerItems(box, items) {
+    if (box.hasAttribute("data-explorer-delete-busy")) return;
+    box.setAttribute("data-explorer-delete-busy", "true");
+    try {
+        await requireExplorerRight("delete");
+    } catch (error) {
+        box.removeAttribute("data-explorer-delete-busy");
+        alert(getExplorerErrorMessage(error, "Vous n’avez pas le droit de supprimer ces éléments."));
         return;
     }
+    let filtered = filterTopLevelSelection(items);
 
-    const folderCount = filtered.filter(function(item) {
-        return item.type === "folder";
-    }).length;
-
-    let confirmation =
-        "Supprimer " + filtered.length + " élément(s) sélectionné(s) ?";
-
-    if (folderCount > 0) {
-        confirmation +=
-            "\n\nLes dossiers sélectionnés seront supprimés avec tous leurs enfants.";
-    }
-
-    if (!window.confirm(confirmation)) {
+    if (filtered.length === 0) {
+        box.removeAttribute("data-explorer-delete-busy");
         return;
     }
 
     const deleteButton = box.querySelector("#explorer-delete-btn");
-
-    if (deleteButton) {
-        deleteButton.disabled = true;
+    let deletionPlan = null;
+    box.setAttribute("data-explorer-delete-busy", "true");
+    if (deleteButton) deleteButton.disabled = true;
+    try {
+        if (items.some(function(item) { return item.type === "folder"; })) {
+            deletionPlan = await fetchExplorerDeletionPlan(filtered);
+            filtered = deletionPlan.roots;
+            if (!(await confirmExplorerDeletion(deletionPlan))) return;
+        } else if (!window.confirm("Supprimer " + filtered.length + " élément(s) sélectionné(s) ?")) {
+            return;
+        }
+    } catch (error) {
+        alert(getExplorerErrorMessage(error, "Impossible de vérifier les éléments à supprimer. La suppression est bloquée."));
+        return;
+    } finally {
+        box.removeAttribute("data-explorer-delete-busy");
+        if (deleteButton) deleteButton.disabled = false;
     }
+    box.setAttribute("data-explorer-delete-busy", "true");
+    if (deleteButton) deleteButton.disabled = true;
 
     const failures = [];
     let successCount = 0;
@@ -717,12 +1002,17 @@ async function deleteExplorerItems(box, items) {
         }
 
         try {
-            const result = await postExplorerAction({
+            const parameters = {
                 action: "supprimer element",
                 source_ref: item.ref
-            });
+            };
+            if (deletionPlan) {
+                parameters.delete_snapshot = deletionPlan.snapshots.get(item.ref);
+                parameters.base_version = item.version;
+            }
+            const result = await postExplorerAction(parameters);
 
-            if (result.indexOf("SUPPRESSION_OK") === -1) {
+            if (!explorerActionSucceeded(result, "SUPPRESSION_OK")) {
                 throw new Error(getExplorerActionError(result));
             }
 
@@ -730,17 +1020,19 @@ async function deleteExplorerItems(box, items) {
         } catch (error) {
             failures.push(
                 item.title + " : " +
-                (error && error.message ? error.message : String(error))
+                getExplorerErrorMessage(error, "L’opération documentaire a échoué.")
             );
         }
     }
 
-    explorerSelectionMode = false;
-
-    const currentRef = getCurrentExplorerPageRef(box);
-
-    if (currentRef) {
-        LienPerso(currentRef, box);
+    box.removeAttribute("data-explorer-delete-busy");
+    if (deleteButton) deleteButton.textContent = "Supprimer";
+    if (successCount > 0) {
+        explorerSelectionMode = false;
+        const currentRef = getCurrentExplorerPageRef(box);
+        if (currentRef) LienPerso(currentRef, box);
+    } else {
+        updateExplorerSelectionState(box);
     }
 
     if (failures.length > 0) {
@@ -749,10 +1041,18 @@ async function deleteExplorerItems(box, items) {
             filtered.length + ".\n\nÉchecs :\n" +
             failures.join("\n")
         );
+    } else if (window.DocPropositions && typeof window.DocPropositions.notify === "function") {
+        window.DocPropositions.notify(successCount + " élément(s) supprimé(s).");
     }
 }
 
-function startDirectExplorerMove(box) {
+async function startDirectExplorerMove(box) {
+    try {
+        await requireExplorerRight("move");
+    } catch (error) {
+        alert(getExplorerErrorMessage(error, "Vous n’avez pas le droit de déplacer ces éléments."));
+        return;
+    }
     const selected = filterTopLevelSelection(
         getSelectedExplorerItems(box)
     );
@@ -815,6 +1115,12 @@ function updateMoveDestinationBar(box) {
 }
 
 async function confirmDirectExplorerMove(box) {
+    try {
+        await requireExplorerRight("move");
+    } catch (error) {
+        alert(getExplorerErrorMessage(error, "Vous n’avez pas le droit de déplacer ces éléments."));
+        return;
+    }
     const items = getPendingMoveItems();
 
     if (items.length === 0) {
@@ -843,9 +1149,10 @@ async function confirmDirectExplorerMove(box) {
         return;
     }
 
+    const verb = documentationMovesAreProposals() ? "Proposer le déplacement de " : "Déplacer ";
     const confirmation = items.length === 1
-        ? 'Déplacer "' + items[0].title + '" dans "' + destinationTitle + '" ?'
-        : "Déplacer " + items.length + ' éléments dans "' + destinationTitle + '" ?';
+        ? verb + '"' + items[0].title + '" dans "' + destinationTitle + '" ?'
+        : verb + items.length + ' éléments dans "' + destinationTitle + '" ?';
 
     if (!window.confirm(confirmation)) {
         return;
@@ -859,6 +1166,7 @@ async function confirmDirectExplorerMove(box) {
 
     const failures = [];
     let successCount = 0;
+    let proposalCount = 0;
 
     for (let i = 0; i < items.length; i++) {
         const item = items[i];
@@ -869,22 +1177,25 @@ async function confirmDirectExplorerMove(box) {
         }
 
         try {
-            await moveExplorerItem(item.ref, destinationRef);
+            const result = await moveExplorerItem(item.ref, destinationRef);
+            if (result.proposed) proposalCount++;
             successCount++;
         } catch (error) {
             failures.push(
                 item.title + " : " +
-                (error && error.message ? error.message : String(error))
+                getExplorerErrorMessage(error, "L’opération documentaire a échoué.")
             );
         }
     }
 
-    explorerPendingMove = null;
-    LienPerso(destinationRef, box);
+    if (successCount > 0) {
+        explorerPendingMove = null;
+        LienPerso(destinationRef, box);
+    }
 
     if (failures.length > 0) {
         alert(
-            successCount + " élément(s) déplacé(s) sur " +
+            successCount + " opération(s) enregistrée(s) sur " +
             items.length + ".\n\nÉchecs :\n" +
             failures.join("\n")
         );
@@ -894,6 +1205,7 @@ async function confirmDirectExplorerMove(box) {
         moveHereButton.disabled = false;
         moveHereButton.textContent = "Déplacer ici";
     }
+    if (proposalCount > 0) await openDocumentationProposals(box);
 }
 
 function normalizeExplorerSearchText(value) {
@@ -1428,6 +1740,22 @@ function initExplorerManagement(box) {
         });
     }
 
+    box.querySelectorAll("#explorer-proposals-btn, #doc-proposals").forEach(function(button) {
+        if (button.hasAttribute("data-doc-proposals-ready")) return;
+        button.setAttribute("data-doc-proposals-ready", "true");
+        button.addEventListener("click", function() {
+            openDocumentationProposals(box);
+        });
+    });
+
+    box.querySelectorAll("#explorer-trash-btn, #doc-trash").forEach(function(button) {
+        if (button.hasAttribute("data-doc-trash-ready")) return;
+        button.setAttribute("data-doc-trash-ready", "true");
+        button.addEventListener("click", function() {
+            openDocumentationTrash(box);
+        });
+    });
+
     if (moveHereButton) {
         moveHereButton.addEventListener("click", function() {
             confirmDirectExplorerMove(box);
@@ -1442,6 +1770,590 @@ function initExplorerManagement(box) {
 
     updateExplorerSelectionState(box);
     updateMoveDestinationBar(box);
+}
+
+function documentationCanReview() {
+    return !!(window.DocPropositions && window.DocPropositions.can("review"));
+}
+
+function documentationMovesAreProposals() {
+    return !!(window.DocPropositions && window.DocPropositions.modeFor && window.DocPropositions.modeFor("move") === "proposal");
+}
+
+function documentationProposalLabel(node) {
+    const labels = {
+        create: "Création proposée",
+        import: "Import proposé",
+        move: "Déplacement proposé",
+        modify: "Métadonnées proposées",
+        content: "Contenu proposé"
+    };
+    return node.status === "rejected" ? "Refusée" : (labels[node.operation] || "Proposition");
+}
+
+async function readDocumentationProposals(mode) {
+    let result;
+    if (window.DocPropositions && typeof window.DocPropositions.request === "function") {
+        result = await window.DocPropositions.request(mode, {});
+    } else {
+        const response = await fetch(urlCommande + "?xpage=plain&action=" + encodeURIComponent(mode), {
+            credentials: "same-origin"
+        });
+        if (!response.ok) throw new Error("Impossible de charger les propositions.");
+        result = await response.text();
+    }
+    const parsed = typeof result === "string"
+        ? new DOMParser().parseFromString(result, "text/html")
+        : result;
+    if (!parsed || typeof parsed.querySelectorAll !== "function") {
+        throw new Error("Réponse des propositions invalide.");
+    }
+    const error = parsed.querySelector(".doc-proposal-error");
+    if (error) throw new Error(error.textContent || "Accès aux propositions refusé.");
+    return Array.prototype.map.call(parsed.querySelectorAll(".doc-proposal-data"), function(element) {
+        function data(name) { return element.getAttribute("data-" + name) || ""; }
+        const ref = data("ref");
+        return {
+            id: "proposal:" + ref, ref: ref, currentRef: ref, proposalRef: ref,
+            proposed: true, type: data("type") === "folder" ? "folder" : "document",
+            title: data("title") || ref, operation: data("operation"),
+            targetParentRef: data("parent-ref"), parentProposalRef: data("parent-proposal-ref"),
+            sourceRef: data("source-ref"), batchId: data("batch-id"),
+            status: mode === "corbeille" ? "rejected" : data("status"),
+            creator: data("author"), created: data("submitted-at"),
+            description: data("description"), tags: data("tags"), kind: data("kind"),
+            url: data("url"), urlPreview: data("url-preview"), version: data("version"),
+            reviewComment: data("review-comment"), rejectedAt: data("deleted-at"), expiresAt: data("expires-at"),
+            canRestore: /^(true|1)$/.test(data("can-restore")),
+            canEdit: element.hasAttribute("data-can-edit") ? /^(true|1)$/.test(data("can-edit")) : documentationCanReview()
+        };
+    }).filter(function(node) { return !!node.proposalRef; });
+}
+
+function mergeDocumentationProposals(nodes) {
+    const state = architectureState;
+    const groups = {};
+    nodes.forEach(function(node) { state.nodes[node.id] = node; });
+    nodes.forEach(function(node) {
+        const proposedParent = "proposal:" + node.parentProposalRef;
+        const source = state.nodes[node.sourceRef];
+        let parent = node.parentProposalRef && state.nodes[proposedParent]
+            ? proposedParent
+            : node.targetParentRef;
+        if (!state.nodes[parent]) parent = source && state.nodes[source.parentRef] ? source.parentRef : state.rootRef;
+        if (node.batchId && !node.parentProposalRef) {
+            const groupId = "proposal-batch:" + node.batchId + ":" + parent;
+            if (!groups[groupId]) {
+                groups[groupId] = {
+                    id: groupId, ref: groupId, type: "folder", proposed: true, proposalGroup: true,
+                    title: "Import groupé", batchId: node.batchId, status: node.status,
+                    parentRef: parent, originalParentRef: parent
+                };
+                state.nodes[groupId] = groups[groupId];
+            }
+            parent = groupId;
+        }
+        // Une proposition incohérente reste consultable à la racine sans créer de boucle.
+        node.parentRef = parent === node.id ? state.rootRef : parent;
+        node.originalParentRef = node.parentRef;
+    });
+    nodes.forEach(function(node) {
+        if (architectureWouldCreateCycle(node.id, node.parentRef)) {
+            node.parentRef = state.rootRef;
+            node.originalParentRef = state.rootRef;
+        }
+    });
+    state.proposalCount = nodes.length;
+}
+
+async function setDocumentationProposalOverlay(mode) {
+    if (!architectureState) return;
+    const state = architectureState;
+    const requestNumber = state.overlayRequest = (state.overlayRequest || 0) + 1;
+    const nodes = mode ? await readDocumentationProposals(mode) : [];
+    if (architectureState !== state || state.overlayRequest !== requestNumber) return;
+    Object.keys(state.nodes).forEach(function(ref) {
+        if (state.nodes[ref].proposed) delete state.nodes[ref];
+    });
+    state.overlayMode = mode || "";
+    state.selected = {};
+    state.proposalCount = 0;
+    if (mode) mergeDocumentationProposals(nodes);
+    const details = document.getElementById("architecture-proposal-details");
+    if (details) details.hidden = true;
+    const modal = document.getElementById("explorer-architecture-modal");
+    if (modal) {
+        modal.classList.toggle("architecture-review-mode", !!mode);
+        modal.querySelectorAll("[data-architecture-overlay]").forEach(function(button) {
+            button.setAttribute("aria-pressed", button.getAttribute("data-architecture-overlay") === state.overlayMode ? "true" : "false");
+        });
+    }
+    const description = document.getElementById("architecture-instruction");
+    if (description) description.textContent = mode === "corbeille"
+        ? "Les propositions refusées restent visibles sept jours dans la corbeille."
+        : mode === "propositions"
+            ? "Les propositions en couleur montrent leur destination prévue. Tu peux les renommer ou les déplacer, puis valider un élément, ses enfants ou un import groupé."
+            : "Coche les éléments à supprimer ou fais-les glisser pour les déplacer.";
+    renderArchitectureTree();
+}
+
+function documentationSafeURL(url) {
+    if (!url) return "";
+    try {
+        const parsed = new URL(url, window.location.href);
+        return parsed.origin === window.location.origin && /^(https?:)$/.test(parsed.protocol) ? parsed.href : "";
+    } catch (error) { return ""; }
+}
+
+function showDocumentationProposalDetails(node) {
+    const details = document.getElementById("architecture-proposal-details");
+    if (!details || !node || !node.proposalRef) return;
+    details.innerHTML = "";
+    details.hidden = false;
+    const header = document.createElement("div");
+    header.className = "architecture-proposal-details-header";
+    const title = document.createElement("strong");
+    title.textContent = node.title + " — " + documentationProposalLabel(node);
+    header.appendChild(title);
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "btn btn-xs btn-default";
+    close.textContent = "Fermer l’aperçu";
+    close.addEventListener("click", function() { details.hidden = true; });
+    header.appendChild(close);
+    details.appendChild(header);
+    const metadata = document.createElement("p");
+    const parts = [];
+    if (node.creator) parts.push("Proposée par " + node.creator);
+    if (node.created) parts.push(node.created);
+    if (node.batchId) parts.push("Import groupé");
+    if (node.sourceRef) {
+        const source = architectureState && architectureState.nodes[node.sourceRef];
+        parts.push("Élément d’origine : " + (source ? source.title : node.sourceRef));
+    }
+    if (node.parentProposalRef) {
+        const parent = architectureState && architectureState.nodes["proposal:" + node.parentProposalRef];
+        parts.push("Dossier proposé : " + (parent ? parent.title : "en attente de validation"));
+    }
+    if (node.reviewComment) parts.push("Motif du refus : " + node.reviewComment);
+    if (node.expiresAt) parts.push("Suppression de la corbeille : " + node.expiresAt);
+    metadata.textContent = parts.join(" · ");
+    details.appendChild(metadata);
+    if (node.description || node.tags) {
+        const proposedMetadata = document.createElement("p");
+        proposedMetadata.textContent = [node.description, node.tags && "Mots-clés : " + node.tags].filter(Boolean).join(" · ");
+        details.appendChild(proposedMetadata);
+    }
+    const openURL = documentationSafeURL(node.url);
+    if (openURL) {
+        const open = document.createElement("a");
+        open.href = openURL;
+        open.target = "_blank";
+        open.rel = "noopener noreferrer";
+        open.className = "btn btn-xs btn-default";
+        open.textContent = "Ouvrir la proposition dans un nouvel onglet";
+        details.appendChild(open);
+    }
+    const previewURL = documentationSafeURL(node.urlPreview);
+    if (node.type === "document" && previewURL) {
+        const frame = document.createElement("iframe");
+        frame.src = previewURL;
+        frame.title = "Aperçu de la proposition : " + node.title;
+        frame.className = "architecture-proposal-preview";
+        // Le lecteur PDF natif de Chromium ne fonctionne pas dans une iframe sandboxée.
+        // Le serveur ne marque PDF que les pièces jointes de type application/pdf.
+        if (node.kind !== "pdf") frame.setAttribute("sandbox", "allow-same-origin allow-downloads");
+        details.appendChild(frame);
+    }
+}
+
+async function decideDocumentationProposal(node, decision) {
+    if (!node || !window.DocPropositions || documentationProposalBusy) return;
+    if (!documentationCanReview() && !(decision === "restore" && node.status === "rejected" && node.canRestore)) return;
+    let reason = "";
+    if (decision === "reject") {
+        reason = window.prompt("Motif du refus (obligatoire) :", "");
+        if (reason === null) return;
+        if (!reason.trim()) { alert("Indiquez un motif pour refuser la proposition."); return; }
+    }
+    setDocumentationProposalBusy(true);
+    try {
+        await window.DocPropositions.proposalAction(node.proposalRef, decision, reason, node.version);
+        await refreshDocumentationProposalArchitecture();
+        refreshDocumentationExplorer();
+    } catch (error) {
+        alert(error && error.message ? error.message : "Impossible d’enregistrer cette décision.");
+    } finally {
+        setDocumentationProposalBusy(false);
+    }
+}
+
+function documentationProposalIsPending(node) {
+    return !!(node && node.proposalRef && node.status === "pending");
+}
+
+function documentationCanEditProposal(node) {
+    return documentationProposalIsPending(node) && node.canEdit === true &&
+        ["create", "import", "move", "modify", "content"].indexOf(node.operation) !== -1;
+}
+
+function setDocumentationProposalBusy(busy) {
+    documentationProposalBusy = busy;
+    const modal = document.getElementById("explorer-architecture-modal");
+    if (modal) modal.querySelectorAll("[data-architecture-proposal-decision], [data-architecture-proposal-bulk], [data-architecture-proposal-edit], [data-architecture-overlay]")
+        .forEach(function(button) { button.disabled = busy; });
+}
+
+function refreshDocumentationExplorer() {
+    if (architectureExplorerBox && typeof initialPageRef !== "undefined") LienPerso(initialPageRef, architectureExplorerBox);
+}
+
+async function refreshDocumentationProposalArchitecture(render) {
+    const previous = architectureState;
+    if (!previous) throw new Error("L’architecture a été fermée. Rouvre les propositions pour vérifier le résultat.");
+    const next = await fetchArchitectureState();
+    const mode = previous.overlayMode || "propositions";
+    const proposals = await readDocumentationProposals(mode);
+    if (architectureState !== previous) throw new Error("L’affichage a changé. Rouvre les propositions pour vérifier le résultat.");
+    next.collapsed = previous.collapsed || {};
+    next.overlayMode = mode;
+    architectureState = next;
+    mergeDocumentationProposals(proposals);
+    const details = document.getElementById("architecture-proposal-details");
+    if (details) details.hidden = true;
+    if (render !== false) renderArchitectureTree();
+    setDocumentationProposalBusy(documentationProposalBusy);
+}
+
+function createDocumentationProposalDialog(id, title) {
+    const previousFocus = document.activeElement;
+    const view = document.createElement("dialog");
+    view.id = id;
+    view.className = "doc-propositions-dialog documentation-proposal-dialog";
+    const heading = document.createElement("h3");
+    heading.id = id + "-title";
+    heading.textContent = title;
+    view.setAttribute("aria-labelledby", heading.id);
+    const body = document.createElement("div");
+    body.className = "doc-propositions-dialog-body";
+    const status = document.createElement("p");
+    status.id = id.replace(/-dialog$/, "-status");
+    status.setAttribute("role", "status");
+    status.setAttribute("aria-live", "polite");
+    const footer = document.createElement("div");
+    footer.className = "doc-propositions-dialog-actions";
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "btn btn-default";
+    close.textContent = "Annuler";
+    const result = {dialog:view, body:body, status:status, footer:footer, closeButton:close, busy:false};
+    result.close = function() {
+        if (result.busy) return;
+        view.close();
+        view.remove();
+        if (previousFocus && previousFocus.isConnected) previousFocus.focus();
+        else {
+            const fallback = document.querySelector("#explorer-architecture-modal button:not([disabled])");
+            if (fallback) fallback.focus();
+        }
+    };
+    close.addEventListener("click", result.close);
+    view.addEventListener("cancel", function(event) { event.preventDefault(); result.close(); });
+    footer.appendChild(close);
+    view.append(heading, body, status, footer);
+    document.body.appendChild(view);
+    view.showModal();
+    return result;
+}
+
+// Les regroupements d’import servent à l’affichage, pas de dossiers supplémentaires.
+function getDocumentationProposalChildren(nodeRef, index) {
+    const result = [];
+    const seen = {};
+    function visit(ref) {
+        if (seen[ref]) return;
+        seen[ref] = true;
+        (index ? index[ref] || [] : getArchitectureChildren(ref)).forEach(function(child) {
+            if (child.proposalGroup) visit(child.id);
+            else result.push(child);
+        });
+    }
+    visit(nodeRef);
+    return result;
+}
+
+function collectDocumentationProposalScope(node, scope) {
+    if (!node || !architectureState || ["batch", "children", "descendants"].indexOf(scope) === -1) return [];
+    if (scope === "batch") {
+        if (!node.batchId) return [];
+        return Object.keys(architectureState.nodes).map(function(ref) { return architectureState.nodes[ref]; })
+            .filter(function(item) { return documentationProposalIsPending(item) && item.batchId === node.batchId; });
+    }
+    const result = documentationProposalIsPending(node) ? [node] : [];
+    const visited = {};
+    const index = {};
+    Object.keys(architectureState.nodes).forEach(function(ref) {
+        const child = architectureState.nodes[ref];
+        (index[child.parentRef] || (index[child.parentRef] = [])).push(child);
+    });
+    function visit(ref) {
+        if (visited[ref]) return;
+        visited[ref] = true;
+        getDocumentationProposalChildren(ref, index).forEach(function(child) {
+            if (documentationProposalIsPending(child)) result.push(child);
+            if (scope === "descendants") visit(child.id);
+        });
+    }
+    visit(node.id);
+    return result;
+}
+
+function planDocumentationProposalValidation(nodes) {
+    const remaining = new Map(nodes.map(function(node) { return [node.proposalRef, node]; }));
+    const selected = new Set(remaining.keys());
+    const ordered = [], blocked = new Map();
+    while (remaining.size) {
+        let progressed = false;
+        for (const [ref, node] of remaining) {
+            const parent = node.parentProposalRef;
+            if (parent && remaining.has(parent)) continue;
+            if (parent && (!selected.has(parent) || blocked.has(parent)))
+                blocked.set(ref, "Le dossier parent doit être validé séparément ou inclus dans la sélection.");
+            else ordered.push(node);
+            remaining.delete(ref);
+            progressed = true;
+        }
+        if (!progressed) {
+            remaining.forEach(function(node, ref) { blocked.set(ref, "Une boucle entre les dossiers proposés empêche la validation."); });
+            break;
+        }
+    }
+    return {ordered:ordered, blocked:blocked};
+}
+
+function openDocumentationProposalBulk(node, scope) {
+    if (!documentationCanReview() || documentationProposalBusy) return;
+    const selected = collectDocumentationProposalScope(node, scope);
+    if (!selected.length) return;
+    const plan = planDocumentationProposalValidation(selected);
+    const view = createDocumentationProposalDialog("documentation-proposal-bulk-dialog", "Confirmer la validation groupée");
+    const summary = document.createElement("p");
+    summary.textContent = scope === "batch" ? "Tout l’import groupé : " + selected.length + " proposition(s)." :
+        (scope === "children" ? "Enfants directs" : "Enfants et sous-enfants") + " de « " + node.title + " » : " + selected.length + " proposition(s)" +
+        (documentationProposalIsPending(node) ? ", y compris ce dossier." : ". Le dossier publié reste inchangé.");
+    view.body.appendChild(summary);
+    const list = document.createElement("ol");
+    list.className = "documentation-proposal-bulk-list";
+    const statuses = new Map();
+    selected.forEach(function(item) {
+        const row = document.createElement("li");
+        row.setAttribute("data-proposal-ref", item.proposalRef);
+        const title = document.createElement("strong"); title.textContent = item.title;
+        const status = document.createElement("span");
+        status.textContent = plan.blocked.get(item.proposalRef) || "En attente";
+        status.className = plan.blocked.has(item.proposalRef) ? "documentation-proposal-result-error" : "";
+        row.append(title, status); list.appendChild(row); statuses.set(item.proposalRef, status);
+    });
+    view.body.appendChild(list);
+    const confirm = document.createElement("button");
+    confirm.id = "documentation-proposal-bulk-confirm";
+    confirm.type = "button"; confirm.className = "btn btn-primary";
+    confirm.textContent = "Valider " + plan.ordered.length + " proposition(s)";
+    confirm.disabled = !plan.ordered.length;
+    view.footer.appendChild(confirm);
+    if (plan.blocked.size) view.status.textContent = plan.blocked.size + " proposition(s) bloquée(s) : aucun dossier hors de cette sélection ne sera validé.";
+    confirm.addEventListener("click", async function() {
+        if (documentationProposalBusy || view.busy) return;
+        if (!documentationCanReview()) {
+            view.status.textContent = "Le droit de validation est nécessaire. Aucune proposition n’a été envoyée.";
+            confirm.disabled = true;
+            return;
+        }
+        view.busy = true; view.closeButton.disabled = true; confirm.disabled = true;
+        view.dialog.setAttribute("aria-busy", "true");
+        view.status.textContent = "Vérification des propositions avant validation…";
+        setDocumentationProposalBusy(true);
+        const accepted = new Set(), failed = new Set(plan.blocked.keys());
+        let interrupted = false;
+        let needsRefresh = false;
+        try {
+            // Actualiser avant la première écriture permet de détecter une modification concurrente.
+            await refreshDocumentationProposalArchitecture(false);
+            for (const item of plan.ordered) {
+                if (!documentationCanReview()) throw new Error("Le droit de validation a été retiré. La validation groupée a été interrompue.");
+                const status = statuses.get(item.proposalRef);
+                const current = architectureState && architectureState.nodes["proposal:" + item.proposalRef];
+                let blocked = "";
+                if (!documentationProposalIsPending(current)) blocked = "Cette proposition n’est plus en attente. Recharge l’arbre.";
+                else if (current.version !== item.version) blocked = "Cette proposition a changé. Examine sa nouvelle version avant de la valider.";
+                else if (current.parentProposalRef && !accepted.has(current.parentProposalRef)) blocked =
+                    failed.has(current.parentProposalRef) ? "Non traitée : la validation du dossier parent a échoué." : "Non traitée : le dossier parent n’est pas validé dans cette sélection.";
+                if (blocked) {
+                    failed.add(item.proposalRef); status.textContent = blocked;
+                    status.className = "documentation-proposal-result-error";
+                    continue;
+                }
+                status.textContent = "Validation en cours…";
+                view.status.textContent = "Validation de « " + item.title + " » — " + accepted.size + " confirmation(s) sur " + selected.length + ".";
+                needsRefresh = true;
+                try {
+                    await window.DocPropositions.proposalAction(current.proposalRef, "accept", "", current.version);
+                    accepted.add(item.proposalRef);
+                    status.textContent = "Validation confirmée";
+                    status.className = "documentation-proposal-result-success";
+                } catch (error) {
+                    failed.add(item.proposalRef);
+                    status.textContent = getExplorerErrorMessage(error, "La validation n’a pas pu être confirmée.");
+                    status.className = "documentation-proposal-result-error";
+                }
+                // Relire les parents et les sources déplacées avant l’élément suivant.
+                // Les documents ajoutés n’ont pas d’enfants : leurs versions restent contrôlées par chaque POST.
+                if (current.type === "folder" || ["move", "modify", "content"].indexOf(current.operation) !== -1) {
+                    await refreshDocumentationProposalArchitecture(false);
+                    needsRefresh = false;
+                }
+            }
+            if (needsRefresh) await refreshDocumentationProposalArchitecture(false);
+        } catch (error) {
+            interrupted = true;
+            view.status.textContent = getExplorerErrorMessage(error, "Impossible d’actualiser l’arbre. La validation groupée a été interrompue.");
+            plan.ordered.forEach(function(item) {
+                if (!accepted.has(item.proposalRef) && !failed.has(item.proposalRef)) {
+                    statuses.get(item.proposalRef).textContent = "Non traitée : actualisation nécessaire.";
+                    statuses.get(item.proposalRef).className = "documentation-proposal-result-error";
+                }
+            });
+        } finally {
+            const report = accepted.size + " validation(s) confirmée(s) sur " + selected.length + ". " +
+                (selected.length - accepted.size) + " élément(s) non confirmé(s) par cette opération, à vérifier.";
+            view.status.textContent = report + (interrupted ? " " + view.status.textContent : "");
+            if (window.DocPropositions && window.DocPropositions.notify) window.DocPropositions.notify(report);
+            if (architectureState) renderArchitectureTree();
+            if (accepted.size) refreshDocumentationExplorer();
+            view.busy = false; view.closeButton.disabled = false; view.closeButton.textContent = "Fermer";
+            view.dialog.setAttribute("aria-busy", "false");
+            setDocumentationProposalBusy(false);
+        }
+    });
+}
+
+function documentationProposalDestinationAllowed(node, destination) {
+    if (!destination || destination.proposalGroup || (destination.type !== "root" && destination.type !== "folder")) return false;
+    if (destination.proposed && !documentationProposalIsPending(destination)) return false;
+    if (architectureWouldCreateCycle(node.id, destination.id)) return false;
+    if (["move", "modify", "content"].indexOf(node.operation) !== -1 && node.type === "folder" && node.sourceRef) {
+        const sourcePrefix = node.sourceRef.replace(/\.WebHome$/, "") + ".";
+        let cursor = destination;
+        const seen = {};
+        while (cursor && !seen[cursor.id]) {
+            if (cursor.id === node.sourceRef || (!cursor.proposed && cursor.id.indexOf(sourcePrefix) === 0)) return false;
+            seen[cursor.id] = true;
+            cursor = architectureState.nodes[cursor.parentRef];
+        }
+    }
+    return true;
+}
+
+function openDocumentationProposalEditor(node) {
+    if (!documentationCanEditProposal(node) || documentationProposalBusy) return;
+    const view = createDocumentationProposalDialog("documentation-proposal-edit-dialog", "Renommer ou déplacer la proposition");
+    const label = document.createElement("label");
+    label.htmlFor = "documentation-proposal-title"; label.textContent = "Nom";
+    const title = document.createElement("input");
+    title.id = label.htmlFor; title.className = "form-control"; title.type = "text";
+    title.required = true; title.maxLength = 255; title.value = node.title;
+    view.body.append(label, title);
+    const destinations = new Map();
+    {
+        const fieldset = document.createElement("fieldset");
+        fieldset.className = "documentation-proposal-destinations";
+        const legend = document.createElement("legend"); legend.textContent = "Dossier de destination";
+        fieldset.appendChild(legend);
+        const selectedRef = node.parentProposalRef ? "proposal:" + node.parentProposalRef : node.targetParentRef;
+        const seen = {};
+        function branch(ref) {
+            if (seen[ref]) return null;
+            seen[ref] = true;
+            const destination = architectureState.nodes[ref];
+            if (!destination || !documentationProposalDestinationAllowed(node, destination)) return null;
+            const item = document.createElement("li");
+            const label = document.createElement("label");
+            const radio = document.createElement("input");
+            radio.type = "radio"; radio.name = "documentation-proposal-destination"; radio.value = ref;
+            radio.checked = ref === selectedRef;
+            const name = document.createElement("span");
+            name.textContent = destination.title + (destination.proposed ? " (dossier proposé)" : "");
+            label.append(radio, name); item.appendChild(label);
+            if (destination.proposed) item.classList.add("documentation-proposal-destination-proposed");
+            destinations.set(ref, destination);
+            const children = document.createElement("ul");
+            getDocumentationProposalChildren(ref).forEach(function(child) {
+                const childBranch = branch(child.id);
+                if (childBranch) children.appendChild(childBranch);
+            });
+            if (children.childNodes.length) item.appendChild(children);
+            return item;
+        }
+        const tree = document.createElement("ul");
+        tree.className = "documentation-proposal-destination-tree";
+        const root = branch(architectureState.rootRef);
+        if (root) tree.appendChild(root);
+        fieldset.appendChild(tree); view.body.appendChild(fieldset);
+    }
+    const help = document.createElement("p");
+    help.textContent = "Ces changements restent dans la proposition jusqu’à sa validation.";
+    view.body.appendChild(help);
+    const save = document.createElement("button");
+    save.id = "documentation-proposal-edit-save";
+    save.type = "button"; save.className = "btn btn-primary"; save.textContent = "Enregistrer la proposition";
+    view.footer.appendChild(save);
+    save.addEventListener("click", async function() {
+        const name = title.value.trim();
+        if (!name) { view.status.textContent = "Indique un nom pour cette proposition."; title.focus(); return; }
+        const selected = view.body.querySelector('input[name="documentation-proposal-destination"]:checked');
+        const parent = selected && destinations.get(selected.value);
+        if (!parent || !documentationProposalDestinationAllowed(node, parent)) {
+            view.status.textContent = "Choisis un dossier de destination valide."; return;
+        }
+        view.busy = true; view.closeButton.disabled = true; save.disabled = true;
+        view.dialog.setAttribute("aria-busy", "true");
+        view.status.textContent = "Enregistrement de la proposition…";
+        setDocumentationProposalBusy(true);
+        try {
+            await window.DocPropositions.updateProposal(node.proposalRef, {
+                title:name,
+                parent_ref:parent.proposed ? parent.targetParentRef : parent.currentRef || parent.ref,
+                parent_proposal_ref:parent.proposed ? parent.proposalRef : ""
+            }, node.version);
+            await refreshDocumentationProposalArchitecture();
+            const updated = architectureState.nodes["proposal:" + node.proposalRef];
+            if (updated) {
+                let cursor = updated;
+                const seen = {};
+                while (cursor && !seen[cursor.id]) {
+                    seen[cursor.id] = true; setArchitectureCollapsed(cursor.id, false);
+                    cursor = architectureState.nodes[cursor.parentRef];
+                }
+                renderArchitectureTree();
+                showDocumentationProposalDetails(updated);
+            }
+            view.busy = false; view.close();
+            if (window.DocPropositions.notify) window.DocPropositions.notify("La proposition a été enregistrée. Elle attend toujours sa validation.");
+        } catch (error) {
+            view.status.textContent = getExplorerErrorMessage(error, "Impossible d’enregistrer la proposition.");
+            view.busy = false; view.closeButton.disabled = false; save.disabled = false;
+            view.dialog.setAttribute("aria-busy", "false");
+        } finally { setDocumentationProposalBusy(false); }
+    });
+    title.focus();
+}
+
+function openDocumentationProposals(box) {
+    return openArchitectureEditor(box || document.getElementById("box"), "propositions");
+}
+
+function openDocumentationTrash(box) {
+    return openArchitectureEditor(box || document.getElementById("box"), "corbeille");
 }
 
 async function fetchArchitectureState() {
@@ -1618,15 +2530,22 @@ function renderArchitectureBranch(nodeRef) {
     row.setAttribute("data-architecture-ref", nodeRef);
     row.setAttribute("data-type", node.type);
 
-    if (node.type !== "root") {
+    const proposalActions = document.createElement("span");
+    proposalActions.className = "architecture-proposal-actions";
+    if (node.proposed) {
+        row.classList.add("architecture-row-proposed");
+        row.classList.toggle("architecture-row-rejected", node.status === "rejected");
+    }
+
+    if (node.type !== "root" && !architectureState.overlayMode && documentationCanMove()) {
         row.draggable = true;
     }
 
-    if (node.type === "root" || node.type === "folder") {
+    if (!architectureState.overlayMode && documentationCanMove() && (node.type === "root" || node.type === "folder")) {
         row.classList.add("architecture-drop-target");
     }
 
-    if (node.parentRef !== node.originalParentRef) {
+    if (!node.proposed && node.parentRef !== node.originalParentRef) {
         row.classList.add("architecture-row-changed");
     }
 
@@ -1678,10 +2597,16 @@ function renderArchitectureBranch(nodeRef) {
     const title = document.createElement("span");
     title.className = "architecture-title";
     title.textContent = node.title;
+    if (node.proposalRef) {
+        title.setAttribute("role", "button");
+        title.setAttribute("tabindex", "0");
+        title.setAttribute("data-architecture-proposal-preview", nodeRef);
+        title.setAttribute("aria-label", "Examiner la proposition : " + node.title);
+    }
 
     row.appendChild(toggle);
 
-    if (node.type !== "root") {
+    if (node.type !== "root" && !architectureState.overlayMode) {
         const select = document.createElement("input");
         select.type = "checkbox";
         select.className = "architecture-select-input";
@@ -1707,6 +2632,66 @@ function renderArchitectureBranch(nodeRef) {
     row.appendChild(type);
     row.appendChild(title);
 
+    if (node.proposed) {
+        const badge = document.createElement("span");
+        badge.className = "architecture-proposal-status";
+        badge.textContent = node.proposalGroup ? "Groupe d’import" : documentationProposalLabel(node);
+        row.appendChild(badge);
+
+        if (node.proposalRef) {
+            const preview = document.createElement("button");
+            preview.type = "button";
+            preview.className = "btn btn-xs btn-default";
+            preview.textContent = node.type === "document" ? "Aperçu" : "Détails";
+            preview.setAttribute("data-architecture-proposal-preview", nodeRef);
+            proposalActions.appendChild(preview);
+
+            if (documentationCanEditProposal(node)) {
+                const edit = document.createElement("button");
+                edit.type = "button"; edit.className = "btn btn-xs btn-default";
+                edit.textContent = "Renommer / déplacer";
+                edit.setAttribute("data-architecture-proposal-edit", nodeRef);
+                edit.disabled = documentationProposalBusy;
+                proposalActions.appendChild(edit);
+            }
+
+            if (documentationCanReview() || (node.status === "rejected" && node.canRestore)) {
+                const decisions = node.status === "rejected"
+                    ? [["restore", "Restaurer"]]
+                    : [["accept", "Valider"], ["reject", "Refuser"]];
+                decisions.forEach(function(decision) {
+                    const button = document.createElement("button");
+                    button.type = "button";
+                    button.className = "btn btn-xs " + (decision[0] === "reject" ? "btn-danger" : "btn-default");
+                    button.textContent = decision[1];
+                    button.setAttribute("data-architecture-proposal-decision", decision[0]);
+                    button.setAttribute("data-architecture-proposal-ref", nodeRef);
+                    button.disabled = documentationProposalBusy;
+                    proposalActions.appendChild(button);
+                });
+            }
+        }
+    }
+
+    if (architectureState.overlayMode === "propositions" && documentationCanReview() && (node.type === "folder" || node.type === "root")) {
+        const scopes = node.proposalGroup ? [["batch", "Valider tout l’import groupé"]] : [
+            ["children", documentationProposalIsPending(node) ? "Valider ce dossier et ses enfants directs" : "Valider les enfants directs"],
+            ["descendants", documentationProposalIsPending(node) ? "Valider toute cette branche" : "Valider tous les descendants"]
+        ];
+        scopes.forEach(function(scope) {
+            const selection = collectDocumentationProposalScope(node, scope[0]);
+            if (!selection.some(function(item) { return item.id !== node.id; })) return;
+            const button = document.createElement("button");
+            button.type = "button"; button.className = "btn btn-xs btn-default";
+            button.textContent = scope[1];
+            button.setAttribute("data-architecture-proposal-bulk", scope[0]);
+            button.setAttribute("data-architecture-proposal-ref", nodeRef);
+            button.disabled = documentationProposalBusy;
+            proposalActions.appendChild(button);
+        });
+    }
+    if (proposalActions.childNodes.length) row.appendChild(proposalActions);
+
     if (hasChildren) {
         const childCount = document.createElement("span");
         childCount.className = "architecture-child-count";
@@ -1714,7 +2699,7 @@ function renderArchitectureBranch(nodeRef) {
         row.appendChild(childCount);
     }
 
-    if (node.parentRef !== node.originalParentRef) {
+    if (!node.proposed && node.parentRef !== node.originalParentRef) {
         const changed = document.createElement("span");
         changed.className = "architecture-changed-label";
         changed.textContent = "Déplacé";
@@ -1818,7 +2803,7 @@ function getSelectedArchitectureNodes() {
             return architectureState.nodes[ref];
         })
         .filter(function(node) {
-            return !!node && node.type !== "root";
+            return !!node && node.type !== "root" && !node.proposed;
         });
 }
 
@@ -1856,6 +2841,7 @@ function getArchitectureChangedNodes() {
         .filter(function(node) {
             return (
                 node.type !== "root" &&
+                !node.proposed &&
                 node.parentRef !== node.originalParentRef
             );
         });
@@ -1876,9 +2862,11 @@ function updateArchitectureSummary() {
     const selected = getSelectedArchitectureNodes();
 
     if (count) {
-        count.textContent = changed.length > 0
-            ? changed.length + " déplacement(s) prévu(s)"
-            : "Aucun déplacement prévu";
+        count.textContent = architectureState.overlayMode
+            ? architectureState.proposalCount + (architectureState.overlayMode === "corbeille" ? " proposition(s) refusée(s)" : " proposition(s) en attente")
+            : changed.length > 0
+                ? changed.length + " déplacement(s) prévu(s)"
+                : "Aucun déplacement prévu";
     }
 
     if (selectedCount) {
@@ -1912,6 +2900,9 @@ function renderArchitectureTree() {
 
     tree.appendChild(list);
     updateArchitectureSummary();
+    if (window.DocPropositions && typeof window.DocPropositions.applyPermissions === "function") {
+        window.DocPropositions.applyPermissions();
+    }
 }
 
 function bindArchitectureDragAndDrop() {
@@ -1922,6 +2913,29 @@ function bindArchitectureDragAndDrop() {
     }
 
     tree.addEventListener("click", function(event) {
+        const bulk = event.target.closest("[data-architecture-proposal-bulk]");
+        const edit = event.target.closest("[data-architecture-proposal-edit]");
+        if (bulk || edit) {
+            event.preventDefault(); event.stopPropagation();
+            const nodeRef = bulk ? bulk.getAttribute("data-architecture-proposal-ref") : edit.getAttribute("data-architecture-proposal-edit");
+            const node = architectureState && architectureState.nodes[nodeRef];
+            if (bulk) openDocumentationProposalBulk(node, bulk.getAttribute("data-architecture-proposal-bulk"));
+            else openDocumentationProposalEditor(node);
+            return;
+        }
+        const decision = event.target.closest("[data-architecture-proposal-decision]");
+        const preview = event.target.closest("[data-architecture-proposal-preview]");
+        if (decision || preview) {
+            event.preventDefault();
+            event.stopPropagation();
+            const nodeRef = decision
+                ? decision.getAttribute("data-architecture-proposal-ref")
+                : preview.getAttribute("data-architecture-proposal-preview");
+            const node = architectureState && architectureState.nodes[nodeRef];
+            if (decision) decideDocumentationProposal(node, decision.getAttribute("data-architecture-proposal-decision"));
+            else showDocumentationProposalDetails(node);
+            return;
+        }
         const toggle = event.target.closest(".architecture-toggle");
 
         if (!toggle || toggle.disabled) {
@@ -1944,6 +2958,13 @@ function bindArchitectureDragAndDrop() {
 
         setArchitectureCollapsed(ref, !isCollapsed);
         renderArchitectureTree();
+    });
+
+    tree.addEventListener("keydown", function(event) {
+        if ((event.key === "Enter" || event.key === " ") && event.target.matches("[data-architecture-proposal-preview][role=button]")) {
+            event.preventDefault();
+            event.target.click();
+        }
     });
 
     tree.addEventListener("change", function(event) {
@@ -1991,7 +3012,7 @@ function bindArchitectureDragAndDrop() {
             ? architectureState.nodes[ref]
             : null;
 
-        if (!node || node.type === "root") {
+        if (!node || node.type === "root" || node.proposed || architectureState.overlayMode || !documentationCanMove()) {
             event.preventDefault();
             return;
         }
@@ -2051,6 +3072,11 @@ function bindArchitectureDragAndDrop() {
         }
 
         event.preventDefault();
+        if (!documentationCanMove()) {
+            architectureDraggedRef = null;
+            alert("Vous n’avez pas le droit de déplacer des éléments ni de proposer leur déplacement.");
+            return;
+        }
 
         const targetRef = target.getAttribute(
             "data-architecture-ref"
@@ -2077,6 +3103,9 @@ function bindArchitectureDragAndDrop() {
         if (
             !source ||
             !targetNode ||
+            source.proposed ||
+            targetNode.proposed ||
+            architectureState.overlayMode ||
             (
                 targetNode.type !== "root" &&
                 targetNode.type !== "folder"
@@ -2168,105 +3197,79 @@ function updateArchitectureCurrentRefs(
 }
 
 async function deleteArchitectureSelection(box) {
-    if (!architectureState) {
-        return;
-    }
-
-    const changed = getArchitectureChangedNodes();
-
-    // Supprimer alors que des déplacements ne sont pas encore validés peut
-    // rendre la prévisualisation incohérente par rapport à l'arbre réel.
-    if (changed.length > 0) {
-        alert(
-            "Valide ou réinitialise d'abord les déplacements en attente avant de supprimer."
-        );
-        return;
-    }
-
-    const selected = getTopLevelSelectedArchitectureNodes();
-
-    if (selected.length === 0) {
-        return;
-    }
-
-    const folderCount = selected.filter(function(item) {
-        return item.type === "folder";
-    }).length;
-
-    let confirmation =
-        "Supprimer " + selected.length + " élément(s) sélectionné(s) ?";
-
-    if (folderCount > 0) {
-        confirmation +=
-            "\n\nLes dossiers sélectionnés seront supprimés avec tous leurs enfants.";
-    }
-
-    if (!window.confirm(confirmation)) {
-        return;
-    }
-
-    const deleteButton = document.getElementById(
-        "architecture-delete-btn"
-    );
-    const failures = [];
-    let successCount = 0;
-
-    if (deleteButton) {
-        deleteButton.disabled = true;
-    }
-
-    for (let i = 0; i < selected.length; i++) {
-        const item = selected[i];
-
-        if (deleteButton) {
-            deleteButton.textContent =
-                "Suppression " + (i + 1) + "/" + selected.length;
-        }
-
-        try {
-            const result = await postExplorerAction({
-                action: "supprimer element",
-                source_ref: item.ref
-            });
-
-            if (result.indexOf("SUPPRESSION_OK") === -1) {
-                throw new Error(getExplorerActionError(result));
-            }
-
-            successCount++;
-        } catch (error) {
-            failures.push(
-                item.title + " : " +
-                (error && error.message ? error.message : String(error))
-            );
-        }
-    }
-
+    if (!architectureState || box.hasAttribute("data-explorer-delete-busy")) return;
+    box.setAttribute("data-explorer-delete-busy", "true");
+    const deleteButton = document.getElementById("architecture-delete-btn");
+    const modal = document.getElementById("explorer-architecture-modal");
+    if (deleteButton) deleteButton.disabled = true;
     try {
-        architectureState = await fetchArchitectureState();
-        renderArchitectureTree();
+        await requireExplorerRight("delete");
+        // La suppression porte sur l'arbre publié, avant tout déplacement en attente.
+        if (getArchitectureChangedNodes().length > 0) {
+            alert("Valide ou réinitialise d'abord les déplacements en attente avant de supprimer.");
+            return;
+        }
+        let selected = getTopLevelSelectedArchitectureNodes();
+        if (!selected.length) return;
+        let deletionPlan = null;
+        if (selected.some(function(item) { return item.type === "folder"; })) {
+            deletionPlan = await fetchExplorerDeletionPlan(selected);
+            if (modal && !modal.isConnected) return;
+            if (!(await confirmExplorerDeletion(deletionPlan))) return;
+            selected = deletionPlan.roots;
+        } else if (!window.confirm("Supprimer " + selected.length + " élément(s) sélectionné(s) ?")) {
+            return;
+        }
+        const failures = [];
+        let successCount = 0;
+        for (let i = 0; i < selected.length; i++) {
+            const item = selected[i];
+            if (deleteButton) deleteButton.textContent = "Suppression " + (i + 1) + "/" + selected.length;
+            try {
+                const parameters = { action: "supprimer element", source_ref: item.ref };
+                if (deletionPlan) {
+                    parameters.delete_snapshot = deletionPlan.snapshots.get(item.ref);
+                    parameters.base_version = item.version;
+                }
+                const result = await postExplorerAction(parameters);
+                if (!explorerActionSucceeded(result, "SUPPRESSION_OK")) throw new Error(getExplorerActionError(result));
+                successCount++;
+            } catch (error) {
+                failures.push(item.title + " : " + getExplorerErrorMessage(error, "L’opération documentaire a échoué."));
+            }
+        }
+        if (successCount > 0) {
+            try {
+                architectureState = await fetchArchitectureState();
+                renderArchitectureTree();
+            } catch (error) {
+                closeArchitectureEditor();
+            }
+            explorerSelectionMode = false;
+            explorerPendingMove = null;
+            if (typeof initialPageRef !== "undefined") LienPerso(initialPageRef, box);
+        }
+        if (failures.length > 0) {
+            alert(successCount + " élément(s) supprimé(s) sur " + selected.length + ".\n\nÉchecs :\n" + failures.join("\n"));
+        } else if (window.DocPropositions && typeof window.DocPropositions.notify === "function") {
+            window.DocPropositions.notify(successCount + " élément(s) supprimé(s).");
+        }
     } catch (error) {
-        closeArchitectureEditor();
-    }
-
-    explorerSelectionMode = false;
-    explorerPendingMove = null;
-
-    if (typeof initialPageRef !== "undefined") {
-        LienPerso(initialPageRef, box);
-    }
-
-    if (failures.length > 0) {
-        alert(
-            successCount + " élément(s) supprimé(s) sur " +
-            selected.length + ".\n\nÉchecs :\n" +
-            failures.join("\n")
-        );
+        alert(getExplorerErrorMessage(error, "Impossible de vérifier les éléments à supprimer. La suppression est bloquée."));
+    } finally {
+        box.removeAttribute("data-explorer-delete-busy");
+        if (architectureState) updateArchitectureSummary();
     }
 }
 
 async function validateArchitectureChanges(box) {
     if (!architectureState) {
+        return;
+    }
+    try {
+        await requireExplorerRight("move");
+    } catch (error) {
+        alert(getExplorerErrorMessage(error, "Vous n’avez pas le droit de déplacer ces éléments."));
         return;
     }
 
@@ -2279,7 +3282,7 @@ async function validateArchitectureChanges(box) {
 
     if (
         !window.confirm(
-            "Appliquer " + changes.length +
+            (documentationMovesAreProposals() ? "Proposer " : "Appliquer ") + changes.length +
             " déplacement(s) à l'arborescence ?"
         )
     ) {
@@ -2300,6 +3303,7 @@ async function validateArchitectureChanges(box) {
     );
     const failures = [];
     let successCount = 0;
+    let proposalCount = 0;
 
     if (validateButton) {
         validateButton.disabled = true;
@@ -2330,6 +3334,12 @@ async function validateArchitectureChanges(box) {
                 targetNode.currentRef
             );
 
+            if (result.proposed) {
+                proposalCount++;
+                successCount++;
+                continue;
+            }
+
             if (!result.newRef) {
                 throw new Error(
                     "La nouvelle référence n'a pas été retournée."
@@ -2346,35 +3356,44 @@ async function validateArchitectureChanges(box) {
         } catch (error) {
             failures.push(
                 node.title + " : " +
-                (
-                    error && error.message
-                        ? error.message
-                        : String(error)
-                )
+                getExplorerErrorMessage(error, "Le déplacement a échoué.")
             );
         }
     }
 
-    closeArchitectureEditor();
-
-    explorerPendingMove = null;
-    explorerSelectionMode = false;
-
-    if (typeof initialPageRef !== "undefined") {
-        LienPerso(initialPageRef, box);
+    if (successCount > 0) {
+        closeArchitectureEditor();
+        explorerPendingMove = null;
+        explorerSelectionMode = false;
+        if (typeof initialPageRef !== "undefined") LienPerso(initialPageRef, box);
+    } else if (validateButton) {
+        validateButton.disabled = false;
+        validateButton.textContent = documentationMovesAreProposals()
+            ? "Proposer les déplacements" : "Valider les déplacements";
     }
 
     if (failures.length > 0) {
         alert(
-            successCount + " déplacement(s) appliqué(s) sur " +
+            successCount + " opération(s) enregistrée(s) sur " +
             changes.length + ".\n\nÉchecs :\n" +
             failures.join("\n")
         );
     }
+    if (proposalCount > 0) await openDocumentationProposals(box);
 }
 
-async function openArchitectureEditor(box) {
+async function openArchitectureEditor(box, overlayMode) {
+    const existing = document.getElementById("explorer-architecture-modal");
+    if (existing && architectureState && overlayMode) {
+        try {
+            await setDocumentationProposalOverlay(architectureState.overlayMode === overlayMode ? "" : overlayMode);
+        } catch (error) {
+            alert(error && error.message ? error.message : "Impossible de charger les propositions.");
+        }
+        return;
+    }
     try {
+        if (window.DocPropositions && window.DocPropositions.ready) await window.DocPropositions.ready;
         architectureState = await fetchArchitectureState();
     } catch (error) {
         alert(
@@ -2386,6 +3405,7 @@ async function openArchitectureEditor(box) {
     }
 
     closeArchitectureEditorButKeepState();
+    architectureExplorerBox = box;
 
     const modal = document.createElement("div");
     modal.id = "explorer-architecture-modal";
@@ -2393,6 +3413,9 @@ async function openArchitectureEditor(box) {
 
     const panel = document.createElement("div");
     panel.className = "architecture-modal-panel";
+    panel.setAttribute("role", "dialog");
+    panel.setAttribute("aria-modal", "true");
+    panel.setAttribute("aria-labelledby", "architecture-modal-title");
 
     const header = document.createElement("div");
     header.className = "architecture-modal-header";
@@ -2400,6 +3423,7 @@ async function openArchitectureEditor(box) {
     const headerText = document.createElement("div");
 
     const title = document.createElement("h3");
+    title.id = "architecture-modal-title";
     title.textContent = "Architecture documentaire";
 
     const help = document.createElement("p");
@@ -2432,6 +3456,7 @@ async function openArchitectureEditor(box) {
     selectionCount.textContent = "Aucune sélection";
 
     const instruction = document.createElement("span");
+    instruction.id = "architecture-instruction";
     instruction.textContent =
         "Coche les éléments à supprimer ou fais-les glisser pour les déplacer.";
 
@@ -2457,6 +3482,24 @@ async function openArchitectureEditor(box) {
     treeActions.appendChild(collapseAllButton);
     treeActions.appendChild(expandAllButton);
 
+    [["propositions", "Propositions"], ["corbeille", "Corbeille"]].forEach(function(view) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "btn btn-xs btn-default";
+        button.textContent = view[1];
+        button.setAttribute("data-architecture-overlay", view[0]);
+        button.setAttribute("aria-pressed", "false");
+        button.addEventListener("click", async function() {
+            button.disabled = true;
+            try {
+                await setDocumentationProposalOverlay(architectureState.overlayMode === view[0] ? "" : view[0]);
+            } catch (error) {
+                alert(error && error.message ? error.message : "Impossible de charger les propositions.");
+            } finally { button.disabled = false; }
+        });
+        treeActions.appendChild(button);
+    });
+
     info.appendChild(count);
     info.appendChild(selectionCount);
     info.appendChild(instruction);
@@ -2465,6 +3508,12 @@ async function openArchitectureEditor(box) {
     const tree = document.createElement("div");
     tree.id = "architecture-tree";
     tree.className = "architecture-tree-editor";
+
+    const details = document.createElement("section");
+    details.id = "architecture-proposal-details";
+    details.className = "architecture-proposal-details";
+    details.setAttribute("aria-label", "Détails de la proposition");
+    details.hidden = true;
 
     const footer = document.createElement("div");
     footer.className = "architecture-modal-footer";
@@ -2482,6 +3531,7 @@ async function openArchitectureEditor(box) {
     const clearSelectionButton = document.createElement("button");
     clearSelectionButton.type = "button";
     clearSelectionButton.className = "btn btn-default";
+    clearSelectionButton.setAttribute("data-architecture-published-action", "true");
     clearSelectionButton.textContent = "Désélectionner";
     clearSelectionButton.addEventListener("click", function() {
         clearArchitectureSelection();
@@ -2490,6 +3540,7 @@ async function openArchitectureEditor(box) {
     const resetButton = document.createElement("button");
     resetButton.type = "button";
     resetButton.className = "btn btn-default";
+    resetButton.setAttribute("data-architecture-published-action", "true");
     resetButton.textContent = "Réinitialiser";
     resetButton.addEventListener("click", function() {
         resetArchitectureEditor();
@@ -2507,7 +3558,7 @@ async function openArchitectureEditor(box) {
     validateButton.type = "button";
     validateButton.id = "architecture-validate-btn";
     validateButton.className = "btn btn-primary";
-    validateButton.textContent = "Valider les déplacements";
+    validateButton.textContent = documentationMovesAreProposals() ? "Proposer les déplacements" : "Valider les déplacements";
     validateButton.addEventListener("click", function() {
         validateArchitectureChanges(box);
     });
@@ -2521,6 +3572,7 @@ async function openArchitectureEditor(box) {
     panel.appendChild(header);
     panel.appendChild(info);
     panel.appendChild(tree);
+    panel.appendChild(details);
     panel.appendChild(footer);
     modal.appendChild(panel);
 
@@ -2528,6 +3580,13 @@ async function openArchitectureEditor(box) {
 
     renderArchitectureTree();
     bindArchitectureDragAndDrop();
+    if (overlayMode) {
+        try {
+            await setDocumentationProposalOverlay(overlayMode);
+        } catch (error) {
+            alert(error && error.message ? error.message : "Impossible de charger les propositions.");
+        }
+    }
 }
 
 function closeArchitectureEditorButKeepState() {

@@ -29,3 +29,9 @@ Première version de la page d'accueil du wiki, pensée pour XWiki Syntax 2.1.
 - Prise en charge de `prefers-reduced-motion`.
 
 Aucun framework front-end externe n'est requis.
+
+## Documentation : propositions et corbeille
+
+La page `TestPage.PAGE.doc-test.WebHome` conserve son explorateur. **Propositions** ajoute les demandes à l'arbre existant ; **Corbeille** affiche les refus pendant sept jours. Les droits par groupe se règlent dans **Paramètres**, réservé aux administrateurs.
+
+L'installation des pages Velocity, extensions et classes XWiki est décrite dans [docs/DOCUMENTATION_VALIDATION.md](docs/DOCUMENTATION_VALIDATION.md).

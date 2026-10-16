@@ -1,42 +1,112 @@
 {{velocity}}
-{{html}}
-#if($isGuest)
-  {{warning}}
-Vous devez être connecté pour consulter vos liens.
-  {{/warning}}
+## Début du calcul des autorisations (identique dans WebHome et COMMANDE).
+## Vérifier les droits dans ce rendu, sans dépendre des macros d’une autre page.
+#set($mainParent = 'TestPage.PAGE.doc-test.WebHome')
+#set($mainSpace = 'TestPage.PAGE.doc-test')
+#set($configurationClass = 'TestPage.PAGE.doc-test.CODE.docConfigurationClass.WebHome')
+#set($configurationRef = 'TestPage.PAGE.doc-test.CODE.Configuration.WebHome')
+#set($now = $datetool.date)
+#set($nowMillis = $now.time)
+#set($trashCutoff = $nowMillis - 604800000)
+#set($currentUserReference = $xcontext.userReference)
+#set($isAuthenticated = $currentUserReference && $currentUserReference.name != 'XWikiGuest')
+#set($currentUser = '')
+#if($currentUserReference)
+  #set($currentUser = $services.model.serialize($currentUserReference))
+#end
+#set($canConfigure = $xwiki.hasWikiAdminRights())
+#set($canView = $xwiki.hasAccessLevel('view', $xcontext.user, $mainParent))
+#set($canCreate = false)
+#set($canMove = false)
+#set($canModify = false)
+#set($canImport = false)
+#set($canContent = false)
+#set($canPropose = false)
+#set($canReview = false)
+#set($canDelete = false)
+#set($configuration = false)
+#set($configuration = $xwiki.getDocumentAsAuthor($configurationRef))
+#set($configurationObject = false)
+#if($configuration)
+  #set($configurationObject = $configuration.getObject($configurationClass))
+#end
+## Administrer les paramètres ne donne aucun droit documentaire implicite.
+## Les listes de groupes sont la seule source des droits, même pour un administrateur.
+#if($canView && $isAuthenticated && $configuration && $configurationObject && "$!configurationObject.getValue('schemaVersion')" == '1')
+  #set($docPermissionMembershipByWiki = {})
+  #set($docPermissionGranted = {})
+  #set($docPermissionGuest = $services.model.resolveDocument('XWiki.XWikiGuest'))
+  #foreach($docPermissionField in ['createGroups', 'moveGroups', 'modifyGroups', 'importGroups', 'contentGroups', 'proposeGroups', 'reviewGroups', 'deleteGroups'])
+    #set($discard = $docPermissionGranted.put($docPermissionField, false))
+    #set($docPermissionGroups = "$!configurationObject.getValue($docPermissionField)")
+    #foreach($docPermissionGroupLine in $docPermissionGroups.split('[\r\n]+'))
+      #set($docPermissionGroup = $docPermissionGroupLine.replaceAll('^\s+|\s+$', ''))
+      #if($docPermissionGroup != '')
+        #set($docPermissionGroupReference = $services.model.resolveDocument($docPermissionGroup))
+        #if(!$docPermissionGroupReference.equals($docPermissionGuest))
+          #set($docPermissionWiki = $docPermissionGroupReference.wikiReference.name)
+          #if(!$docPermissionMembershipByWiki.containsKey($docPermissionWiki))
+            #set($discard = $docPermissionMembershipByWiki.put($docPermissionWiki, $services.user.group.getGroups($currentUserReference, $docPermissionGroupReference.wikiReference, true)))
+          #end
+          #if($docPermissionMembershipByWiki.get($docPermissionWiki).contains($docPermissionGroupReference))
+            #set($discard = $docPermissionGranted.put($docPermissionField, true))
+          #end
+        #end
+      #end
+    #end
+  #end
+  #set($canCreate = $docPermissionGranted.get('createGroups'))
+  #set($canMove = $docPermissionGranted.get('moveGroups'))
+  #set($canModify = $docPermissionGranted.get('modifyGroups'))
+  #set($canImport = $docPermissionGranted.get('importGroups'))
+  #set($canContent = $docPermissionGranted.get('contentGroups'))
+  #set($canPropose = $docPermissionGranted.get('proposeGroups'))
+  #set($canReview = $docPermissionGranted.get('reviewGroups'))
+  #set($canDelete = $docPermissionGranted.get('deleteGroups'))
+#end
+## Configuration absente, vide, illisible ou inconnue : aucun droit d’action.
+## Fin du calcul des autorisations.
+#set($discard = $xwiki.jsx.use('TestPage.PAGE.doc-test.CODE.LienPerso'))
+#set($discard = $xwiki.jsx.use('TestPage.PAGE.doc-test.CODE.Popup'))
+#set($discard = $xwiki.jsx.use('TestPage.PAGE.doc-test.CODE.SidebarPreview'))
+#set($discard = $xwiki.jsx.use('TestPage.PAGE.doc-test.CODE.Propositions'))
+#set($discard = $xwiki.ssx.use('TestPage.PAGE.doc-test.CODE.FileExplorer'))
+#set($discard = $xwiki.ssx.use('TestPage.PAGE.doc-test.CODE.Breadcrumb'))
+#set($discard = $xwiki.ssx.use('TestPage.PAGE.doc-test.CODE.Popup'))
+#set($discard = $xwiki.ssx.use('TestPage.PAGE.doc-test.CODE.SidebarPreview'))
+#set($discard = $xwiki.ssx.use('TestPage.PAGE.doc-test.CODE.Propositions'))
+{{html clean="false"}}
+#if(!$isAuthenticated || !$canView)
+<div class="alert alert-warning">Vous devez être connecté avec un compte autorisé pour consulter la documentation.</div>
 #else
-
-
-#set($parentPage = 'TestPage.PAGE.doc-test.WebHome')  ## Page racine par défaut
+#set($parentPage = 'TestPage.PAGE.doc-test.WebHome')
 #set($csrfToken = $services.csrf.getToken())
-
 <script>
-  // Variables globales lues par le JavaScript
   var initialPageRef = "$escapetool.javascript($parentPage)";
-  var urlCommande = "$escapetool.javascript($xwiki.getURL("TestPage.PAGE.doc-test.COMMANDE", "view"))";
+  var urlCommande = "$escapetool.javascript($xwiki.getURL('TestPage.PAGE.doc-test.COMMANDE', 'view'))";
 </script>
-
-<div id="notification"></div>
-<button class="btn btn-primary" onclick="ajouterFichier()">Ajouter un fichier</button>
-<button class="btn btn-primary" onclick="ajouterDocument()">Ajouter un Document</button>
-
-<div id="popup" class="popup">
+<div id="notification" role="status" aria-live="polite"></div>
+<div class="doc-propositions-toolbar">
+  <button id="doc-add-folder" type="button" class="btn btn-primary" onclick="ajouterFichier()" hidden>Ajouter un dossier</button>
+  <button id="doc-add-document" type="button" class="btn btn-primary" onclick="ajouterDocument()" hidden>Ajouter un document</button>
+  <button id="doc-proposals" type="button" class="btn btn-default">Propositions</button>
+  <button id="doc-trash" type="button" class="btn btn-default">Corbeille</button>
+#if($canConfigure)
+  <button id="doc-settings" type="button" class="btn btn-default">Paramètres</button>
+#end
+</div>
+<div id="popup" class="popup" role="dialog" aria-modal="true" aria-label="Ajouter à la documentation">
   <div class="popupContent">
-    <span class="close">&times;</span>
-    <form id="formulairePopup">
+    <button type="button" class="close" onclick="popupAnnuler()" aria-label="Fermer">&times;</button>
+    <form id="formulairePopup" onsubmit="event.preventDefault(); popupValider();">
       <input type="hidden" name="form_token" value="$escapetool.xml($csrfToken)"/>
       <div id="popupContent"></div>
       <button type="button" id="btn-popup-valide" class="btn btn-primary" onclick="popupValider()">Valider</button>
     </form>
-    <button class="btn btn-primary" onclick="popupAnnuler()">Annuler</button>
+    <button type="button" class="btn btn-default" onclick="popupAnnuler()">Annuler</button>
   </div>
 </div>
-
-<!-- Le conteneur "box" démarre vide et sera alimenté instantanément par LienPerso -->
-<div id="box">
-  <p style="color: #6b7280; font-size: 14px; padding: 10px;">Chargement de l'explorateur...</p>
-</div>
-
+<div id="box"><p>Chargement de l’explorateur…</p></div>
 #end
 {{/html}}
 {{/velocity}}
