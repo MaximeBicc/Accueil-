@@ -2,6 +2,7 @@ let branchImportSelection = null;
 let branchImportNodeMap = {};
 let branchImportNextNodeId = 1;
 let documentImportSelection = [];
+let documentationCreationContext = null;
 
 function ajouterFichier() {
     const pageData = document.getElementById("pageData");
@@ -15,7 +16,7 @@ function ajouterFichier() {
 <h4>Ajouter un dossier</h4>
 <input type="hidden" name="action" value="ajouter un fichier" />
 <input type="hidden" name="type" value="folder" />
-<input type="hidden" name="page" value="${parentPage}" />
+<input type="hidden" name="page" value="${escapeDocumentText(parentPage)}" />
 
 <div class="form-group">
     <label for="folder-name-input">Créer un dossier vide</label>
@@ -43,7 +44,7 @@ function ajouterFichier() {
 
     <p class="help-block">
         Les dossiers, sous-dossiers et fichiers sont recréés dans la même arborescence.
-        Les Word deviennent des pages XWiki éditables, les PDF gardent leur affichage,
+        Les Word deviennent des pages XWiki éditables lorsque l’importeur Office est disponible, les PDF gardent leur affichage,
         et les autres fichiers sont conservés comme pièces jointes sur leur propre page.
     </p>
 
@@ -91,6 +92,7 @@ function ajouterFichier() {
     }
 
     document.getElementById("popup").style.display = "block";
+    if (window.DocPropositions) DocPropositions.ready.then(function(){DocPropositions.applyPermissions();});
 }
 
 async function chooseBranchDirectory() {
@@ -675,7 +677,7 @@ function ajouterDocument() {
 <h4>Ajouter un ou plusieurs documents</h4>
 <input type="hidden" name="action" value="ajouter un document" />
 <input type="hidden" name="type" value="document" />
-<input type="hidden" name="page" value="${parentPage}" />
+<input type="hidden" name="page" value="${escapeDocumentText(parentPage)}" />
 
 <div class="form-group" id="document-empty-page-group">
     <label for="document-name-input">Créer une page vide</label>
@@ -761,6 +763,7 @@ function ajouterDocument() {
     }
 
     document.getElementById("popup").style.display = "block";
+    if (window.DocPropositions) DocPropositions.ready.then(function(){DocPropositions.applyPermissions();});
 }
 
 function renderDocumentSelectionPreview() {
@@ -968,67 +971,45 @@ async function uploadImportedDocument(uploadUrl, file, safeName, formToken) {
 }
 
 async function sendCreationRequest(formulaire, parentPage, importInfo, formToken, creationType) {
+    await DocPropositions.ready;
     const formData = new FormData(formulaire);
     const type = creationType || "document";
-
+    const context = documentationCreationContext || {
+        mode: DocPropositions.modeFor(importInfo.file ? "import" : "create"),
+        intent: importInfo.file ? "import" : "create", rootParent: parentPage, proposalRefs: new Set()
+    };
+    if (!context.mode) throw new Error("Votre groupe ne dispose pas de ce droit.");
     formData.set("action", type === "folder" ? "ajouter un fichier" : "ajouter un document");
     formData.set("type", type);
-    formData.set("page", parentPage);
+    formData.set("mode", context.mode);
+    formData.set("intent", context.intent);
+    formData.set("batch_id", DocPropositions.batchId() || "");
+    const proposedParent = context.proposalRefs.has(parentPage);
+    formData.set("page", proposedParent ? context.rootParent : parentPage);
+    formData.set("parent_proposal_ref", proposedParent ? parentPage : "");
     formData.set("nom_fichier", importInfo.pageName || "");
-    formData.set(
-        "technical_name",
-        importInfo.technicalName || getTechnicalPageName(importInfo.pageName || "")
-    );
+    formData.set("technical_name", importInfo.technicalName || getTechnicalPageName(importInfo.pageName || ""));
     formData.set("source_filename", importInfo.safeName || "");
     formData.set("source_kind", importInfo.kind || "");
-
-    if (importInfo.file && importInfo.kind === "word") {
-        formData.append("filePath", importInfo.file, importInfo.safeName);
-    }
-
+    if (importInfo.file) formData.append("filePath", importInfo.file, importInfo.safeName || importInfo.file.name);
     const response = await fetch(urlCommande, {
-        method: "POST",
-        body: formData,
-        credentials: "same-origin",
-        headers: { "X-Requested-With": "XMLHttpRequest" }
+        method: "POST", body: formData, credentials: "same-origin",
+        headers: {"X-Requested-With": "XMLHttpRequest"}
     });
-
-    const resultat = await response.text();
-
-    if (!resultat.includes("LIEN_AJOUTE_OK")) {
-        throw new Error(resultat);
+    const result = await response.text();
+    const proposed = result.includes("PROPOSITION_OK");
+    if (!response.ok || (!proposed && !result.includes("LIEN_AJOUTE_OK"))) throw new Error(result);
+    const parsed = new DOMParser().parseFromString(result, "text/html");
+    const creation = parsed.getElementById("creation-result");
+    const proposalRef = creation ? creation.getAttribute("data-proposal-ref") || "" : "";
+    const pageRef = proposalRef || (creation ? creation.getAttribute("data-page-ref") : "");
+    if (!pageRef) throw new Error("REFERENCE_PAGE_INTROUVABLE");
+    if (proposed) {
+        context.proposalRefs.add(pageRef);
+        context.proposedCount = (context.proposedCount || 0) + 1;
     }
-
-    const parsed = new DOMParser().parseFromString(resultat, "text/html");
-    const creationResult = parsed.getElementById("creation-result");
-    const pageRef = creationResult
-        ? creationResult.getAttribute("data-page-ref")
-        : "";
-    const uploadUrl = creationResult
-        ? creationResult.getAttribute("data-upload-url")
-        : "";
-
-    if (!pageRef) {
-        throw new Error("REFERENCE_PAGE_INTROUVABLE");
-    }
-
-    if (importInfo.file) {
-        if (!uploadUrl) {
-            throw new Error("URL_UPLOAD_INTROUVABLE");
-        }
-
-        await uploadImportedDocument(
-            uploadUrl,
-            importInfo.file,
-            importInfo.safeName,
-            formToken
-        );
-    }
-
-    return {
-        pageRef: pageRef,
-        uploadUrl: uploadUrl
-    };
+    // The file is saved by COMMANDE with the page/proposal in the same request.
+    return {pageRef:pageRef, proposalRef:proposalRef, proposed:proposed};
 }
 
 function formatDocumentImportError(error, pageName) {
@@ -1187,12 +1168,20 @@ async function popupValider() {
         : null;
     const button = document.getElementById("btn-popup-valide");
 
-    if (!formulaire || !parentPage || !box || !actionInput) return;
+    if (!formulaire || !parentPage || !box || !actionInput || (button && button.disabled)) return;
 
     try {
         if (button) {
             button.disabled = true;
         }
+        await DocPropositions.ready;
+        const importing = !!(branchImportSelection && branchImportSelection.root) ||
+            documentImportSelection.some(function (item) { return item.enabled && item.file; });
+        const intent = importing ? "import" : "create";
+        documentationCreationContext = {mode:DocPropositions.modeFor(intent),intent:intent,
+            rootParent:parentPage,proposalRefs:new Set(),proposedCount:0};
+        if (!documentationCreationContext.mode) throw new Error("Votre groupe ne dispose pas de ce droit.");
+        DocPropositions.beginBatch();
 
         if (actionInput.value === "ajouter un fichier") {
             const formToken = formTokenInput ? formTokenInput.value : "";
@@ -1320,9 +1309,13 @@ async function popupValider() {
             alert("Erreur lors de la création : " + message);
         }
     } finally {
-        if (button) {
-            button.disabled = false;
-            button.textContent = "Valider";
+        const proposedCount = documentationCreationContext ? documentationCreationContext.proposedCount : 0;
+        documentationCreationContext = null;
+        if (window.DocPropositions) DocPropositions.endBatch();
+        if (button) { button.disabled = false; button.textContent = "Valider"; }
+        if (proposedCount && document.getElementById("popup").style.display === "none") {
+            DocPropositions.notify(proposedCount + " élément(s) proposé(s), en attente de validation.");
+            if (typeof openDocumentationProposals === "function") openDocumentationProposals(box);
         }
     }
 }
@@ -1335,10 +1328,10 @@ function popupAnnuler() {
 
 document.addEventListener("DOMContentLoaded", function() {
     const popup = document.getElementById("popup");
-    const closeButtons = document.getElementsByClassName("close");
+    if (!popup) return;
+    const span = popup.querySelector(".close");
 
-    if (closeButtons.length > 0) {
-        const span = closeButtons[closeButtons.length - 1];
+    if (span) {
         span.onclick = function() {
             branchImportSelection = null;
             documentImportSelection = [];

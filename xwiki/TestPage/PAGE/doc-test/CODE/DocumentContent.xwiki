@@ -1,0 +1,15 @@
+{{velocity}}
+## Feuille de contenu commune : le texte utilisateur reste dans un champ inerte.
+## Le rendu restreint désactive les macros de script, sans demander Programming.
+#set($contentObject = $doc.getObject('TestPage.PAGE.doc-test.CODE.docContentClass.WebHome'))
+#set($source = '')
+#if($contentObject)
+  #set($source = "$!contentObject.getValue('source')")
+#end
+#set($rendered = $doc.getRenderedContentRestricted($source, 'xwiki/2.1'))
+## Empêcher le texte rendu de fermer la macro HTML qui le contient.
+#set($rendered = $rendered.replace('{', '&#123;').replace('}', '&#125;'))
+{{html clean="false"}}
+$rendered
+{{/html}}
+{{/velocity}}

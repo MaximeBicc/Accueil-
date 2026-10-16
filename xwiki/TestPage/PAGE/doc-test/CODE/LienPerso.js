@@ -2,6 +2,7 @@ var explorerPendingMove = null;
 var explorerSelectionMode = false;
 var architectureState = null;
 var architectureDraggedRef = null;
+var architectureExplorerBox = null;
 
 function LienPerso(url, zone) {
     zone.innerHTML = "<p style='color: #6b7280; padding: 10px;'>Chargement...</p>";
@@ -588,6 +589,9 @@ function filterTopLevelSelection(items) {
 }
 
 async function postExplorerAction(parameters) {
+    if (parameters.action === "deplacer element" && window.DocPropositions && window.DocPropositions.postActionParameters) {
+        parameters = await window.DocPropositions.postActionParameters("move", parameters);
+    }
     const data = new FormData();
     data.set("form_token", getExplorerFormToken());
 
@@ -658,6 +662,14 @@ async function moveExplorerItem(sourceRef, destinationRef) {
         source_ref: sourceRef,
         target_parent_ref: destinationRef
     });
+
+    if (result.indexOf("PROPOSITION_OK") !== -1) {
+        const proposal = new DOMParser().parseFromString(result, "text/html").getElementById("creation-result");
+        return {
+            oldRef: sourceRef, newRef: sourceRef, proposed: true,
+            proposalRef: proposal ? proposal.getAttribute("data-proposal-ref") || proposal.getAttribute("data-page-ref") : ""
+        };
+    }
 
     if (result.indexOf("DEPLACEMENT_OK") === -1) {
         throw new Error(getExplorerActionError(result));
@@ -843,9 +855,10 @@ async function confirmDirectExplorerMove(box) {
         return;
     }
 
+    const verb = documentationMovesAreProposals() ? "Proposer le déplacement de " : "Déplacer ";
     const confirmation = items.length === 1
-        ? 'Déplacer "' + items[0].title + '" dans "' + destinationTitle + '" ?'
-        : "Déplacer " + items.length + ' éléments dans "' + destinationTitle + '" ?';
+        ? verb + '"' + items[0].title + '" dans "' + destinationTitle + '" ?'
+        : verb + items.length + ' éléments dans "' + destinationTitle + '" ?';
 
     if (!window.confirm(confirmation)) {
         return;
@@ -859,6 +872,7 @@ async function confirmDirectExplorerMove(box) {
 
     const failures = [];
     let successCount = 0;
+    let proposalCount = 0;
 
     for (let i = 0; i < items.length; i++) {
         const item = items[i];
@@ -869,7 +883,8 @@ async function confirmDirectExplorerMove(box) {
         }
 
         try {
-            await moveExplorerItem(item.ref, destinationRef);
+            const result = await moveExplorerItem(item.ref, destinationRef);
+            if (result.proposed) proposalCount++;
             successCount++;
         } catch (error) {
             failures.push(
@@ -884,7 +899,7 @@ async function confirmDirectExplorerMove(box) {
 
     if (failures.length > 0) {
         alert(
-            successCount + " élément(s) déplacé(s) sur " +
+            successCount + " opération(s) enregistrée(s) sur " +
             items.length + ".\n\nÉchecs :\n" +
             failures.join("\n")
         );
@@ -894,6 +909,7 @@ async function confirmDirectExplorerMove(box) {
         moveHereButton.disabled = false;
         moveHereButton.textContent = "Déplacer ici";
     }
+    if (proposalCount > 0) await openDocumentationProposals(box);
 }
 
 function normalizeExplorerSearchText(value) {
@@ -1428,6 +1444,22 @@ function initExplorerManagement(box) {
         });
     }
 
+    box.querySelectorAll("#explorer-proposals-btn, #doc-proposals").forEach(function(button) {
+        if (button.hasAttribute("data-doc-proposals-ready")) return;
+        button.setAttribute("data-doc-proposals-ready", "true");
+        button.addEventListener("click", function() {
+            openDocumentationProposals(box);
+        });
+    });
+
+    box.querySelectorAll("#explorer-trash-btn, #doc-trash").forEach(function(button) {
+        if (button.hasAttribute("data-doc-trash-ready")) return;
+        button.setAttribute("data-doc-trash-ready", "true");
+        button.addEventListener("click", function() {
+            openDocumentationTrash(box);
+        });
+    });
+
     if (moveHereButton) {
         moveHereButton.addEventListener("click", function() {
             confirmDirectExplorerMove(box);
@@ -1442,6 +1474,233 @@ function initExplorerManagement(box) {
 
     updateExplorerSelectionState(box);
     updateMoveDestinationBar(box);
+}
+
+function documentationCanReview() {
+    return !!(window.DocPropositions && window.DocPropositions.can("review"));
+}
+
+function documentationMovesAreProposals() {
+    return !!(window.DocPropositions && window.DocPropositions.modeFor && window.DocPropositions.modeFor("move") === "proposal");
+}
+
+function documentationProposalLabel(node) {
+    const labels = {
+        create: "Création proposée",
+        import: "Import proposé",
+        move: "Déplacement proposé",
+        modify: "Métadonnées proposées",
+        content: "Contenu proposé"
+    };
+    return node.status === "rejected" ? "Refusée" : (labels[node.operation] || "Proposition");
+}
+
+async function readDocumentationProposals(mode) {
+    let result;
+    if (window.DocPropositions && typeof window.DocPropositions.request === "function") {
+        result = await window.DocPropositions.request(mode, {});
+    } else {
+        const response = await fetch(urlCommande + "?xpage=plain&action=" + encodeURIComponent(mode), {
+            credentials: "same-origin"
+        });
+        if (!response.ok) throw new Error("Impossible de charger les propositions.");
+        result = await response.text();
+    }
+    const parsed = typeof result === "string"
+        ? new DOMParser().parseFromString(result, "text/html")
+        : result;
+    if (!parsed || typeof parsed.querySelectorAll !== "function") {
+        throw new Error("Réponse des propositions invalide.");
+    }
+    const error = parsed.querySelector(".doc-proposal-error");
+    if (error) throw new Error(error.textContent || "Accès aux propositions refusé.");
+    return Array.prototype.map.call(parsed.querySelectorAll(".doc-proposal-data"), function(element) {
+        function data(name) { return element.getAttribute("data-" + name) || ""; }
+        const ref = data("ref");
+        return {
+            id: "proposal:" + ref, ref: ref, currentRef: ref, proposalRef: ref,
+            proposed: true, type: data("type") === "folder" ? "folder" : "document",
+            title: data("title") || ref, operation: data("operation"),
+            targetParentRef: data("parent-ref"), parentProposalRef: data("parent-proposal-ref"),
+            sourceRef: data("source-ref"), batchId: data("batch-id"),
+            status: mode === "corbeille" ? "rejected" : data("status"),
+            creator: data("author"), created: data("submitted-at"),
+            description: data("description"), tags: data("tags"), kind: data("kind"),
+            url: data("url"), urlPreview: data("url-preview"), version: data("version"),
+            reviewComment: data("review-comment"), rejectedAt: data("deleted-at"), expiresAt: data("expires-at")
+        };
+    }).filter(function(node) { return !!node.proposalRef; });
+}
+
+function mergeDocumentationProposals(nodes) {
+    const state = architectureState;
+    const groups = {};
+    nodes.forEach(function(node) { state.nodes[node.id] = node; });
+    nodes.forEach(function(node) {
+        const proposedParent = "proposal:" + node.parentProposalRef;
+        const source = state.nodes[node.sourceRef];
+        let parent = node.parentProposalRef && state.nodes[proposedParent]
+            ? proposedParent
+            : node.targetParentRef;
+        if (!state.nodes[parent]) parent = source && state.nodes[source.parentRef] ? source.parentRef : state.rootRef;
+        if (node.batchId && !node.parentProposalRef) {
+            const groupId = "proposal-batch:" + node.batchId + ":" + parent;
+            if (!groups[groupId]) {
+                groups[groupId] = {
+                    id: groupId, ref: groupId, type: "folder", proposed: true, proposalGroup: true,
+                    title: "Import groupé", batchId: node.batchId, status: node.status,
+                    parentRef: parent, originalParentRef: parent
+                };
+                state.nodes[groupId] = groups[groupId];
+            }
+            parent = groupId;
+        }
+        // Une proposition incohérente reste consultable à la racine sans créer de boucle.
+        node.parentRef = parent === node.id ? state.rootRef : parent;
+        node.originalParentRef = node.parentRef;
+    });
+    nodes.forEach(function(node) {
+        if (architectureWouldCreateCycle(node.id, node.parentRef)) {
+            node.parentRef = state.rootRef;
+            node.originalParentRef = state.rootRef;
+        }
+    });
+    state.proposalCount = nodes.length;
+}
+
+async function setDocumentationProposalOverlay(mode) {
+    if (!architectureState) return;
+    const state = architectureState;
+    const requestNumber = state.overlayRequest = (state.overlayRequest || 0) + 1;
+    const nodes = mode ? await readDocumentationProposals(mode) : [];
+    if (architectureState !== state || state.overlayRequest !== requestNumber) return;
+    Object.keys(state.nodes).forEach(function(ref) {
+        if (state.nodes[ref].proposed) delete state.nodes[ref];
+    });
+    state.overlayMode = mode || "";
+    state.selected = {};
+    state.proposalCount = 0;
+    if (mode) mergeDocumentationProposals(nodes);
+    const details = document.getElementById("architecture-proposal-details");
+    if (details) details.hidden = true;
+    const modal = document.getElementById("explorer-architecture-modal");
+    if (modal) {
+        modal.classList.toggle("architecture-review-mode", !!mode);
+        modal.querySelectorAll("[data-architecture-overlay]").forEach(function(button) {
+            button.setAttribute("aria-pressed", button.getAttribute("data-architecture-overlay") === state.overlayMode ? "true" : "false");
+        });
+    }
+    const description = document.getElementById("architecture-instruction");
+    if (description) description.textContent = mode === "corbeille"
+        ? "Les propositions refusées restent visibles sept jours dans la corbeille."
+        : mode === "propositions"
+            ? "Les propositions en couleur sont ajoutées à l’arbre à leur destination prévue. Examine chaque élément avant de le valider ou de le refuser."
+            : "Coche les éléments à supprimer ou fais-les glisser pour les déplacer.";
+    renderArchitectureTree();
+}
+
+function documentationSafeURL(url) {
+    if (!url) return "";
+    try {
+        const parsed = new URL(url, window.location.href);
+        return parsed.origin === window.location.origin && /^(https?:)$/.test(parsed.protocol) ? parsed.href : "";
+    } catch (error) { return ""; }
+}
+
+function showDocumentationProposalDetails(node) {
+    const details = document.getElementById("architecture-proposal-details");
+    if (!details || !node || !node.proposalRef) return;
+    details.innerHTML = "";
+    details.hidden = false;
+    const header = document.createElement("div");
+    header.className = "architecture-proposal-details-header";
+    const title = document.createElement("strong");
+    title.textContent = node.title + " — " + documentationProposalLabel(node);
+    header.appendChild(title);
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "btn btn-xs btn-default";
+    close.textContent = "Fermer l’aperçu";
+    close.addEventListener("click", function() { details.hidden = true; });
+    header.appendChild(close);
+    details.appendChild(header);
+    const metadata = document.createElement("p");
+    const parts = [];
+    if (node.creator) parts.push("Proposée par " + node.creator);
+    if (node.created) parts.push(node.created);
+    if (node.batchId) parts.push("Import groupé");
+    if (node.sourceRef) {
+        const source = architectureState && architectureState.nodes[node.sourceRef];
+        parts.push("Élément d’origine : " + (source ? source.title : node.sourceRef));
+    }
+    if (node.parentProposalRef) {
+        const parent = architectureState && architectureState.nodes["proposal:" + node.parentProposalRef];
+        parts.push("Dossier proposé : " + (parent ? parent.title : "en attente de validation"));
+    }
+    if (node.reviewComment) parts.push("Motif du refus : " + node.reviewComment);
+    if (node.expiresAt) parts.push("Suppression de la corbeille : " + node.expiresAt);
+    metadata.textContent = parts.join(" · ");
+    details.appendChild(metadata);
+    if (node.description || node.tags) {
+        const proposedMetadata = document.createElement("p");
+        proposedMetadata.textContent = [node.description, node.tags && "Mots-clés : " + node.tags].filter(Boolean).join(" · ");
+        details.appendChild(proposedMetadata);
+    }
+    const openURL = documentationSafeURL(node.url);
+    if (openURL) {
+        const open = document.createElement("a");
+        open.href = openURL;
+        open.target = "_blank";
+        open.rel = "noopener noreferrer";
+        open.className = "btn btn-xs btn-default";
+        open.textContent = "Ouvrir la proposition dans un nouvel onglet";
+        details.appendChild(open);
+    }
+    const previewURL = documentationSafeURL(node.urlPreview);
+    if (node.type === "document" && previewURL) {
+        const frame = document.createElement("iframe");
+        frame.src = previewURL;
+        frame.title = "Aperçu de la proposition : " + node.title;
+        frame.className = "architecture-proposal-preview";
+        // Le lecteur PDF natif de Chromium ne fonctionne pas dans une iframe sandboxée.
+        // Le serveur ne marque PDF que les pièces jointes de type application/pdf.
+        if (node.kind !== "pdf") frame.setAttribute("sandbox", "allow-same-origin allow-downloads");
+        details.appendChild(frame);
+    }
+}
+
+async function decideDocumentationProposal(node, decision) {
+    if (!node || !documentationCanReview() || !window.DocPropositions) return;
+    let reason = "";
+    if (decision === "reject") {
+        reason = window.prompt("Motif du refus (obligatoire) :", "");
+        if (reason === null) return;
+        if (!reason.trim()) { alert("Indiquez un motif pour refuser la proposition."); return; }
+    }
+    const modal = document.getElementById("explorer-architecture-modal");
+    const buttons = modal ? modal.querySelectorAll("[data-architecture-proposal-decision]") : [];
+    buttons.forEach(function(button) { button.disabled = true; });
+    try {
+        await window.DocPropositions.proposalAction(node.proposalRef, decision, reason, node.version);
+        const mode = architectureState && architectureState.overlayMode;
+        const collapsed = architectureState && architectureState.collapsed;
+        architectureState = await fetchArchitectureState();
+        architectureState.collapsed = collapsed || {};
+        await setDocumentationProposalOverlay(mode);
+        if (architectureExplorerBox && typeof initialPageRef !== "undefined") LienPerso(initialPageRef, architectureExplorerBox);
+    } catch (error) {
+        alert(error && error.message ? error.message : "Impossible d’enregistrer cette décision.");
+    } finally {
+        buttons.forEach(function(button) { button.disabled = false; });
+    }
+}
+
+function openDocumentationProposals(box) {
+    return openArchitectureEditor(box || document.getElementById("box"), "propositions");
+}
+
+function openDocumentationTrash(box) {
+    return openArchitectureEditor(box || document.getElementById("box"), "corbeille");
 }
 
 async function fetchArchitectureState() {
@@ -1618,15 +1877,20 @@ function renderArchitectureBranch(nodeRef) {
     row.setAttribute("data-architecture-ref", nodeRef);
     row.setAttribute("data-type", node.type);
 
-    if (node.type !== "root") {
+    if (node.proposed) {
+        row.classList.add("architecture-row-proposed");
+        row.classList.toggle("architecture-row-rejected", node.status === "rejected");
+    }
+
+    if (node.type !== "root" && !architectureState.overlayMode) {
         row.draggable = true;
     }
 
-    if (node.type === "root" || node.type === "folder") {
+    if (!architectureState.overlayMode && (node.type === "root" || node.type === "folder")) {
         row.classList.add("architecture-drop-target");
     }
 
-    if (node.parentRef !== node.originalParentRef) {
+    if (!node.proposed && node.parentRef !== node.originalParentRef) {
         row.classList.add("architecture-row-changed");
     }
 
@@ -1678,10 +1942,16 @@ function renderArchitectureBranch(nodeRef) {
     const title = document.createElement("span");
     title.className = "architecture-title";
     title.textContent = node.title;
+    if (node.proposalRef) {
+        title.setAttribute("role", "button");
+        title.setAttribute("tabindex", "0");
+        title.setAttribute("data-architecture-proposal-preview", nodeRef);
+        title.setAttribute("aria-label", "Examiner la proposition : " + node.title);
+    }
 
     row.appendChild(toggle);
 
-    if (node.type !== "root") {
+    if (node.type !== "root" && !architectureState.overlayMode) {
         const select = document.createElement("input");
         select.type = "checkbox";
         select.className = "architecture-select-input";
@@ -1707,6 +1977,40 @@ function renderArchitectureBranch(nodeRef) {
     row.appendChild(type);
     row.appendChild(title);
 
+    if (node.proposed) {
+        const badge = document.createElement("span");
+        badge.className = "architecture-proposal-status";
+        badge.textContent = node.proposalGroup ? "Groupe d’import" : documentationProposalLabel(node);
+        row.appendChild(badge);
+
+        if (node.proposalRef) {
+            const actions = document.createElement("span");
+            actions.className = "architecture-proposal-actions";
+            const preview = document.createElement("button");
+            preview.type = "button";
+            preview.className = "btn btn-xs btn-default";
+            preview.textContent = node.type === "document" ? "Aperçu" : "Détails";
+            preview.setAttribute("data-architecture-proposal-preview", nodeRef);
+            actions.appendChild(preview);
+
+            if (documentationCanReview()) {
+                const decisions = node.status === "rejected"
+                    ? [["restore", "Restaurer"]]
+                    : [["accept", "Valider"], ["reject", "Refuser"]];
+                decisions.forEach(function(decision) {
+                    const button = document.createElement("button");
+                    button.type = "button";
+                    button.className = "btn btn-xs " + (decision[0] === "reject" ? "btn-danger" : "btn-default");
+                    button.textContent = decision[1];
+                    button.setAttribute("data-architecture-proposal-decision", decision[0]);
+                    button.setAttribute("data-architecture-proposal-ref", nodeRef);
+                    actions.appendChild(button);
+                });
+            }
+            row.appendChild(actions);
+        }
+    }
+
     if (hasChildren) {
         const childCount = document.createElement("span");
         childCount.className = "architecture-child-count";
@@ -1714,7 +2018,7 @@ function renderArchitectureBranch(nodeRef) {
         row.appendChild(childCount);
     }
 
-    if (node.parentRef !== node.originalParentRef) {
+    if (!node.proposed && node.parentRef !== node.originalParentRef) {
         const changed = document.createElement("span");
         changed.className = "architecture-changed-label";
         changed.textContent = "Déplacé";
@@ -1818,7 +2122,7 @@ function getSelectedArchitectureNodes() {
             return architectureState.nodes[ref];
         })
         .filter(function(node) {
-            return !!node && node.type !== "root";
+            return !!node && node.type !== "root" && !node.proposed;
         });
 }
 
@@ -1856,6 +2160,7 @@ function getArchitectureChangedNodes() {
         .filter(function(node) {
             return (
                 node.type !== "root" &&
+                !node.proposed &&
                 node.parentRef !== node.originalParentRef
             );
         });
@@ -1876,9 +2181,11 @@ function updateArchitectureSummary() {
     const selected = getSelectedArchitectureNodes();
 
     if (count) {
-        count.textContent = changed.length > 0
-            ? changed.length + " déplacement(s) prévu(s)"
-            : "Aucun déplacement prévu";
+        count.textContent = architectureState.overlayMode
+            ? architectureState.proposalCount + (architectureState.overlayMode === "corbeille" ? " proposition(s) refusée(s)" : " proposition(s) en attente")
+            : changed.length > 0
+                ? changed.length + " déplacement(s) prévu(s)"
+                : "Aucun déplacement prévu";
     }
 
     if (selectedCount) {
@@ -1922,6 +2229,19 @@ function bindArchitectureDragAndDrop() {
     }
 
     tree.addEventListener("click", function(event) {
+        const decision = event.target.closest("[data-architecture-proposal-decision]");
+        const preview = event.target.closest("[data-architecture-proposal-preview]");
+        if (decision || preview) {
+            event.preventDefault();
+            event.stopPropagation();
+            const nodeRef = decision
+                ? decision.getAttribute("data-architecture-proposal-ref")
+                : preview.getAttribute("data-architecture-proposal-preview");
+            const node = architectureState && architectureState.nodes[nodeRef];
+            if (decision) decideDocumentationProposal(node, decision.getAttribute("data-architecture-proposal-decision"));
+            else showDocumentationProposalDetails(node);
+            return;
+        }
         const toggle = event.target.closest(".architecture-toggle");
 
         if (!toggle || toggle.disabled) {
@@ -1944,6 +2264,13 @@ function bindArchitectureDragAndDrop() {
 
         setArchitectureCollapsed(ref, !isCollapsed);
         renderArchitectureTree();
+    });
+
+    tree.addEventListener("keydown", function(event) {
+        if ((event.key === "Enter" || event.key === " ") && event.target.matches("[data-architecture-proposal-preview][role=button]")) {
+            event.preventDefault();
+            event.target.click();
+        }
     });
 
     tree.addEventListener("change", function(event) {
@@ -1991,7 +2318,7 @@ function bindArchitectureDragAndDrop() {
             ? architectureState.nodes[ref]
             : null;
 
-        if (!node || node.type === "root") {
+        if (!node || node.type === "root" || node.proposed || architectureState.overlayMode) {
             event.preventDefault();
             return;
         }
@@ -2077,6 +2404,9 @@ function bindArchitectureDragAndDrop() {
         if (
             !source ||
             !targetNode ||
+            source.proposed ||
+            targetNode.proposed ||
+            architectureState.overlayMode ||
             (
                 targetNode.type !== "root" &&
                 targetNode.type !== "folder"
@@ -2279,7 +2609,7 @@ async function validateArchitectureChanges(box) {
 
     if (
         !window.confirm(
-            "Appliquer " + changes.length +
+            (documentationMovesAreProposals() ? "Proposer " : "Appliquer ") + changes.length +
             " déplacement(s) à l'arborescence ?"
         )
     ) {
@@ -2300,6 +2630,7 @@ async function validateArchitectureChanges(box) {
     );
     const failures = [];
     let successCount = 0;
+    let proposalCount = 0;
 
     if (validateButton) {
         validateButton.disabled = true;
@@ -2329,6 +2660,12 @@ async function validateArchitectureChanges(box) {
                 oldCurrentRef,
                 targetNode.currentRef
             );
+
+            if (result.proposed) {
+                proposalCount++;
+                successCount++;
+                continue;
+            }
 
             if (!result.newRef) {
                 throw new Error(
@@ -2366,15 +2703,26 @@ async function validateArchitectureChanges(box) {
 
     if (failures.length > 0) {
         alert(
-            successCount + " déplacement(s) appliqué(s) sur " +
+            successCount + " opération(s) enregistrée(s) sur " +
             changes.length + ".\n\nÉchecs :\n" +
             failures.join("\n")
         );
     }
+    if (proposalCount > 0) await openDocumentationProposals(box);
 }
 
-async function openArchitectureEditor(box) {
+async function openArchitectureEditor(box, overlayMode) {
+    const existing = document.getElementById("explorer-architecture-modal");
+    if (existing && architectureState && overlayMode) {
+        try {
+            await setDocumentationProposalOverlay(architectureState.overlayMode === overlayMode ? "" : overlayMode);
+        } catch (error) {
+            alert(error && error.message ? error.message : "Impossible de charger les propositions.");
+        }
+        return;
+    }
     try {
+        if (window.DocPropositions && window.DocPropositions.ready) await window.DocPropositions.ready;
         architectureState = await fetchArchitectureState();
     } catch (error) {
         alert(
@@ -2386,6 +2734,7 @@ async function openArchitectureEditor(box) {
     }
 
     closeArchitectureEditorButKeepState();
+    architectureExplorerBox = box;
 
     const modal = document.createElement("div");
     modal.id = "explorer-architecture-modal";
@@ -2393,6 +2742,9 @@ async function openArchitectureEditor(box) {
 
     const panel = document.createElement("div");
     panel.className = "architecture-modal-panel";
+    panel.setAttribute("role", "dialog");
+    panel.setAttribute("aria-modal", "true");
+    panel.setAttribute("aria-labelledby", "architecture-modal-title");
 
     const header = document.createElement("div");
     header.className = "architecture-modal-header";
@@ -2400,6 +2752,7 @@ async function openArchitectureEditor(box) {
     const headerText = document.createElement("div");
 
     const title = document.createElement("h3");
+    title.id = "architecture-modal-title";
     title.textContent = "Architecture documentaire";
 
     const help = document.createElement("p");
@@ -2432,6 +2785,7 @@ async function openArchitectureEditor(box) {
     selectionCount.textContent = "Aucune sélection";
 
     const instruction = document.createElement("span");
+    instruction.id = "architecture-instruction";
     instruction.textContent =
         "Coche les éléments à supprimer ou fais-les glisser pour les déplacer.";
 
@@ -2457,6 +2811,24 @@ async function openArchitectureEditor(box) {
     treeActions.appendChild(collapseAllButton);
     treeActions.appendChild(expandAllButton);
 
+    [["propositions", "Propositions"], ["corbeille", "Corbeille"]].forEach(function(view) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "btn btn-xs btn-default";
+        button.textContent = view[1];
+        button.setAttribute("data-architecture-overlay", view[0]);
+        button.setAttribute("aria-pressed", "false");
+        button.addEventListener("click", async function() {
+            button.disabled = true;
+            try {
+                await setDocumentationProposalOverlay(architectureState.overlayMode === view[0] ? "" : view[0]);
+            } catch (error) {
+                alert(error && error.message ? error.message : "Impossible de charger les propositions.");
+            } finally { button.disabled = false; }
+        });
+        treeActions.appendChild(button);
+    });
+
     info.appendChild(count);
     info.appendChild(selectionCount);
     info.appendChild(instruction);
@@ -2465,6 +2837,12 @@ async function openArchitectureEditor(box) {
     const tree = document.createElement("div");
     tree.id = "architecture-tree";
     tree.className = "architecture-tree-editor";
+
+    const details = document.createElement("section");
+    details.id = "architecture-proposal-details";
+    details.className = "architecture-proposal-details";
+    details.setAttribute("aria-label", "Détails de la proposition");
+    details.hidden = true;
 
     const footer = document.createElement("div");
     footer.className = "architecture-modal-footer";
@@ -2482,6 +2860,7 @@ async function openArchitectureEditor(box) {
     const clearSelectionButton = document.createElement("button");
     clearSelectionButton.type = "button";
     clearSelectionButton.className = "btn btn-default";
+    clearSelectionButton.setAttribute("data-architecture-published-action", "true");
     clearSelectionButton.textContent = "Désélectionner";
     clearSelectionButton.addEventListener("click", function() {
         clearArchitectureSelection();
@@ -2490,6 +2869,7 @@ async function openArchitectureEditor(box) {
     const resetButton = document.createElement("button");
     resetButton.type = "button";
     resetButton.className = "btn btn-default";
+    resetButton.setAttribute("data-architecture-published-action", "true");
     resetButton.textContent = "Réinitialiser";
     resetButton.addEventListener("click", function() {
         resetArchitectureEditor();
@@ -2507,7 +2887,7 @@ async function openArchitectureEditor(box) {
     validateButton.type = "button";
     validateButton.id = "architecture-validate-btn";
     validateButton.className = "btn btn-primary";
-    validateButton.textContent = "Valider les déplacements";
+    validateButton.textContent = documentationMovesAreProposals() ? "Proposer les déplacements" : "Valider les déplacements";
     validateButton.addEventListener("click", function() {
         validateArchitectureChanges(box);
     });
@@ -2521,6 +2901,7 @@ async function openArchitectureEditor(box) {
     panel.appendChild(header);
     panel.appendChild(info);
     panel.appendChild(tree);
+    panel.appendChild(details);
     panel.appendChild(footer);
     modal.appendChild(panel);
 
@@ -2528,6 +2909,13 @@ async function openArchitectureEditor(box) {
 
     renderArchitectureTree();
     bindArchitectureDragAndDrop();
+    if (overlayMode) {
+        try {
+            await setDocumentationProposalOverlay(overlayMode);
+        } catch (error) {
+            alert(error && error.message ? error.message : "Impossible de charger les propositions.");
+        }
+    }
 }
 
 function closeArchitectureEditorButKeepState() {

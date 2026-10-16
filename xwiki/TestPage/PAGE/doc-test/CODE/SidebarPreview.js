@@ -225,13 +225,6 @@ async function saveSidebarMetadata() {
         : "";
     const tags = sidebarCurrentTags.join(", ");
 
-    const formData = new FormData();
-    formData.set("action", "modifier metadonnees document");
-    formData.set("form_token", getSidebarFormToken());
-    formData.set("source_ref", sidebarCurrentDocumentRef);
-    formData.set("description", description);
-    formData.set("tags", tags);
-
     if (saveButton) {
         saveButton.disabled = true;
         saveButton.textContent = "Enregistrement...";
@@ -240,28 +233,17 @@ async function saveSidebarMetadata() {
     setSidebarMetadataStatus("Enregistrement...", "saving");
 
     try {
-        const response = await fetch(urlCommande, {
-            method: "POST",
-            body: formData,
-            credentials: "same-origin",
-            headers: {
-                "X-Requested-With": "XMLHttpRequest"
-            }
+        const parameters = await DocPropositions.postActionParameters("modify", {
+            source_ref:sidebarCurrentDocumentRef, description:description, tags:tags
         });
-
-        const result = await response.text();
-
-        if (result.indexOf("METADONNEES_OK") === -1) {
-            throw new Error(getSidebarMetadataError(result));
+        const parsed = await DocPropositions.request("modifier metadonnees document", parameters);
+        if (parsed.rawText.indexOf("PROPOSITION_OK") !== -1) {
+            sidebarMetadataDirty = false;
+            setSidebarMetadataStatus("Modification proposée, en attente de validation", "success");
+            return;
         }
-
-        const parsed = new DOMParser().parseFromString(
-            result,
-            "text/html"
-        );
-        const metadataResult = parsed.getElementById(
-            "metadata-result"
-        );
+        if (parsed.rawText.indexOf("METADONNEES_OK") === -1) throw new Error("Les informations n’ont pas pu être enregistrées.");
+        const metadataResult = parsed.getElementById("metadata-result");
         const modified = metadataResult
             ? metadataResult.getAttribute("data-modified") || ""
             : "";

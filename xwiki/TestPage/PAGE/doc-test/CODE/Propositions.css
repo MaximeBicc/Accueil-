@@ -1,0 +1,97 @@
+/* Les propositions complètent l’arbre documentaire existant. */
+.architecture-row-proposed {
+    background: #fff7db;
+    border-color: #b77912;
+    border-inline-start: 4px solid #b77912;
+}
+.architecture-row-rejected {
+    background: #fff1f0;
+    border-color: #b54343;
+    border-inline-start-color: #b54343;
+}
+.architecture-proposal-status {
+    flex-shrink: 0;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: #f9e5ae;
+    color: #684708;
+    font-size: 11px;
+    font-weight: 600;
+}
+.architecture-row-rejected .architecture-proposal-status {
+    background: #f9d7d5;
+    color: #822f2f;
+}
+.architecture-proposal-actions {
+    display: flex;
+    flex-wrap: wrap;
+    flex-shrink: 0;
+    gap: 4px;
+    margin-inline-start: auto;
+}
+.architecture-title[data-architecture-proposal-preview] {
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+[data-architecture-overlay][aria-pressed="true"] {
+    border-color: #7d5918;
+    background: #fff0c2;
+    color: #5c4213;
+}
+.architecture-review-mode #architecture-selection-count,
+.architecture-review-mode #architecture-delete-btn,
+.architecture-review-mode #architecture-validate-btn,
+.architecture-review-mode [data-architecture-published-action] {
+    display: none;
+}
+.architecture-proposal-details {
+    flex: 0 1 46%;
+    overflow: auto;
+    padding: 12px 20px;
+    border-top: 1px solid #d1d5db;
+    background: #fffdf6;
+}
+.architecture-proposal-details[hidden] { display: none; }
+.architecture-proposal-details-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+.architecture-proposal-details p {
+    margin: 0 0 8px;
+    color: #4b5563;
+    overflow-wrap: anywhere;
+    font-size: 12px;
+}
+.architecture-proposal-preview {
+    display: block;
+    width: 100%;
+    height: 280px;
+    margin-top: 10px;
+    border: 1px solid #d1d5db;
+    background: #fff;
+}
+@media (max-width: 700px) {
+    .architecture-row-proposed { flex-wrap: wrap; }
+    .architecture-proposal-actions { margin-inline-start: 34px; }
+    .architecture-proposal-details { padding: 10px; }
+}
+
+.doc-propositions-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:14px 0; }
+.doc-propositions-toolbar label { margin:0; }
+.doc-propositions-toolbar select { width:auto; max-width:240px; }
+.doc-propositions-dialog { width:min(1050px,95vw); max-height:90vh; padding:24px; border:1px solid #cbd5e1; border-radius:8px; overflow:auto; color:#243247; }
+.doc-propositions-dialog::backdrop { background:rgba(15,23,42,.5); }
+.doc-propositions-dialog h3 { margin-top:0; }
+.doc-propositions-dialog-body { overflow:auto; }
+.doc-propositions-dialog-body label { display:block; width:100%; margin:12px 0; }
+.doc-propositions-dialog-body textarea { width:100%; font-family:monospace; }
+.doc-propositions-dialog-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:18px; }
+.doc-permissions-table th, .doc-permissions-table td { padding:10px; text-align:center; }
+.doc-permissions-table th:first-child { text-align:left; min-width:180px; }
+.doc-permissions-table input { width:17px; height:17px; }
+
+.doc-propositions-toolbar [hidden], #box [hidden], #explorer-architecture-modal [hidden] { display:none !important; }

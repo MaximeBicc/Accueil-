@@ -1,42 +1,54 @@
 {{velocity}}
-{{html}}
-#if($isGuest)
-  {{warning}}
-Vous devez être connecté pour consulter vos liens.
-  {{/warning}}
+#includeMacros('TestPage.PAGE.doc-test.CODE.Permissions')
+#documentationPermissions()
+#set($discard = $xwiki.jsx.use('TestPage.PAGE.doc-test.CODE.LienPerso'))
+#set($discard = $xwiki.jsx.use('TestPage.PAGE.doc-test.CODE.Popup'))
+#set($discard = $xwiki.jsx.use('TestPage.PAGE.doc-test.CODE.SidebarPreview'))
+#set($discard = $xwiki.jsx.use('TestPage.PAGE.doc-test.CODE.Propositions'))
+#set($discard = $xwiki.ssx.use('TestPage.PAGE.doc-test.CODE.FileExplorer'))
+#set($discard = $xwiki.ssx.use('TestPage.PAGE.doc-test.CODE.Breadcrumb'))
+#set($discard = $xwiki.ssx.use('TestPage.PAGE.doc-test.CODE.Popup'))
+#set($discard = $xwiki.ssx.use('TestPage.PAGE.doc-test.CODE.SidebarPreview'))
+#set($discard = $xwiki.ssx.use('TestPage.PAGE.doc-test.CODE.Propositions'))
+{{html clean="false"}}
+#if(!$isAuthenticated || !$canView)
+<div class="alert alert-warning">Vous devez être connecté avec un compte autorisé pour consulter la documentation.</div>
 #else
-
-
-#set($parentPage = 'TestPage.PAGE.doc-test.WebHome')  ## Page racine par défaut
+#set($parentPage = 'TestPage.PAGE.doc-test.WebHome')
 #set($csrfToken = $services.csrf.getToken())
-
 <script>
-  // Variables globales lues par le JavaScript
   var initialPageRef = "$escapetool.javascript($parentPage)";
-  var urlCommande = "$escapetool.javascript($xwiki.getURL("TestPage.PAGE.doc-test.COMMANDE", "view"))";
+  var urlCommande = "$escapetool.javascript($xwiki.getURL('TestPage.PAGE.doc-test.COMMANDE', 'view'))";
 </script>
-
-<div id="notification"></div>
-<button class="btn btn-primary" onclick="ajouterFichier()">Ajouter un fichier</button>
-<button class="btn btn-primary" onclick="ajouterDocument()">Ajouter un Document</button>
-
-<div id="popup" class="popup">
+<div id="notification" role="status" aria-live="polite"></div>
+<div class="doc-propositions-toolbar">
+#if($canCreate || $canImport || $canPropose)
+  <button id="doc-add-folder" type="button" class="btn btn-primary" onclick="ajouterFichier()">Ajouter un dossier</button>
+  <button id="doc-add-document" type="button" class="btn btn-primary" onclick="ajouterDocument()">Ajouter un document</button>
+#end
+  <label for="doc-contribution-mode">Contribution</label>
+  <select id="doc-contribution-mode" class="form-control">
+    <option value="direct">Directe selon mes droits</option>
+    <option value="proposal">Proposer pour validation</option>
+  </select>
+  <button id="doc-proposals" type="button" class="btn btn-default">Propositions</button>
+  <button id="doc-trash" type="button" class="btn btn-default">Corbeille</button>
+#if($canConfigure)
+  <button id="doc-settings" type="button" class="btn btn-default">Paramètres</button>
+#end
+</div>
+<div id="popup" class="popup" role="dialog" aria-modal="true" aria-label="Ajouter à la documentation">
   <div class="popupContent">
-    <span class="close">&times;</span>
-    <form id="formulairePopup">
+    <button type="button" class="close" onclick="popupAnnuler()" aria-label="Fermer">&times;</button>
+    <form id="formulairePopup" onsubmit="event.preventDefault(); popupValider();">
       <input type="hidden" name="form_token" value="$escapetool.xml($csrfToken)"/>
       <div id="popupContent"></div>
       <button type="button" id="btn-popup-valide" class="btn btn-primary" onclick="popupValider()">Valider</button>
     </form>
-    <button class="btn btn-primary" onclick="popupAnnuler()">Annuler</button>
+    <button type="button" class="btn btn-default" onclick="popupAnnuler()">Annuler</button>
   </div>
 </div>
-
-<!-- Le conteneur "box" démarre vide et sera alimenté instantanément par LienPerso -->
-<div id="box">
-  <p style="color: #6b7280; font-size: 14px; padding: 10px;">Chargement de l'explorateur...</p>
-</div>
-
+<div id="box"><p>Chargement de l’explorateur…</p></div>
 #end
 {{/html}}
 {{/velocity}}
