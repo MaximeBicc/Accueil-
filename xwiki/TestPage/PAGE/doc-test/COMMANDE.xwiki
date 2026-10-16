@@ -91,6 +91,7 @@
 #set($parentDoc = false)
 #set($officeDocument = false)
 #set($officeArtifacts = {})
+#set($publicationMovedBeforeChanges = false)
 #set($wrapperContent = '{{include reference="TestPage.PAGE.doc-test.CODE.DocumentContent" context="current" author="target" /}}')
 
 #macro(docOutput $value)$escapetool.xml($value).replace('{', '&#123;').replace('}', '&#125;')#end
@@ -162,6 +163,25 @@
   #end
 #end
 
+## Vérifier le stockage avant toute publication, notamment avant un déplacement suivi d'une modification.
+#macro(checkDocumentSourceStorage $sourceStorageObject $sourceRequiresRenderer)
+  #set($sourceRenderer = false)
+  #set($sourceRenderer = $xwiki.getDocumentAsAuthor('TestPage.PAGE.doc-test.CODE.DocumentContent'))
+  #set($sourceRendererBody = "$!sourceRenderer.content")
+  #if($sourceRequiresRenderer && (!$sourceRenderer || $sourceRenderer.isNew() || $sourceRendererBody.replaceAll('^\s+|\s+$', '') == ''))
+    #docError('ERREUR_RENDU_CONTENU' 'La page technique TestPage.PAGE.doc-test.CODE.DocumentContent est absente. Installez DocumentContent à cette référence exacte, sans .WebHome.')
+  #end
+  #set($sourceStorageDefinition = false)
+  #set($sourceStorageDefinition = $sourceStorageObject.getxWikiClass())
+  #set($sourceFieldDefinition = false)
+  #if($sourceStorageDefinition)
+    #set($sourceFieldDefinition = $sourceStorageDefinition.get('source'))
+  #end
+  #if(!$sourceFieldDefinition || $sourceFieldDefinition.classType != 'TextArea' || !$sourceStorageDefinition.enabledPropertyNames.contains('source'))
+    #docError('ERREUR_CLASSE_CONTENU' 'La classe docContentClass doit définir un champ source de type TextArea actif et non interprété.')
+  #end
+#end
+
 ## Les sources wiki restent dans un champ TextArea non interprété ; seule cette enveloppe constante est signée.
 #macro(setDocumentSource $sourceDocument $sourceText)
   #set($sourceContentObject = false)
@@ -172,11 +192,20 @@
   #if(!$sourceContentObject)
     #docError('ERREUR_CLASSE_CONTENU' 'La classe docContentClass doit être installée.')
   #else
-    #set($discard = $sourceContentObject.set('source', $sourceText))
-    #if("$!sourceContentObject.getValue('source')" != $sourceText)
-      #docError('ERREUR_CLASSE_CONTENU' 'Le champ source doit être une zone de texte non interprétée.')
-    #else
-      #set($discard = $sourceDocument.setContent($wrapperContent))
+    #set($sourceRequiresRenderer = true)
+    #set($sourcePreviewObject = false)
+    #set($sourcePreviewObject = $sourceDocument.getObject($proposalClassPath))
+    #if($sourceText == '' && $sourcePreviewObject && "$!sourcePreviewObject.getValue('type')" == 'folder')
+      #set($sourceRequiresRenderer = false)
+    #end
+    #checkDocumentSourceStorage($sourceContentObject $sourceRequiresRenderer)
+    #if($errorCode == '')
+      #set($discard = $sourceContentObject.set('source', $sourceText))
+      #if("$!sourceContentObject.getValue('source')" != $sourceText)
+        #docError('ERREUR_CLASSE_CONTENU' 'Le champ source doit être une zone de texte non interprétée.')
+      #else
+        #set($discard = $sourceDocument.setContent($wrapperContent))
+      #end
     #end
   #end
 #end
@@ -294,29 +323,78 @@
       #end
     #end
   #end
+  #if(($operation == 'modify' || $operation == 'content') && $parentRef == '' && $sourceDoc)
+    #set($parentRef = "$!sourceDoc.parent")
+  #end
+  #if(($operation == 'move' || $operation == 'modify' || $operation == 'content' || $action == 'modifier proposition') && ($title.contains('{{') || $title.contains('}}')))
+    #docError('ERREUR_TITRE' 'Le titre ne peut pas contenir de délimiteurs de macro XWiki.')
+  #elseif(($operation == 'move' || $operation == 'modify' || $operation == 'content' || $action == 'modifier proposition') && ($title.replaceAll('^\s+|\s+$', '') == '' || $title.length() > 255))
+    #docError('ERREUR_CHAMPS' 'Le titre doit contenir de 1 à 255 caractères.')
+  #end
   #if($description.length() > 4000 || $tags.length() > 1000 || $content.length() > 2000000)
     #docError('ERREUR_CONTENU_TROP_LONG' 'La description, les mots-clés ou le contenu dépassent la taille autorisée.')
   #end
-  #if($operation == 'create' || $operation == 'import' || $operation == 'move')
-    #if($parentProposalRef != '')
-      #checkProposalRef($parentProposalRef $proposalSpace)
-      #if(!$validProposalRef)
-        #docError('ERREUR_DESTINATION_INVALIDE' 'La proposition de dossier est invalide.')
-      #else
-        #set($parentProposalDoc = false)
-        #set($parentProposalDoc = $xwiki.getDocumentAsAuthor($parentProposalRef))
-        #set($parentProposalObject = false)
-        #if($parentProposalDoc)
-          #set($parentProposalObject = $parentProposalDoc.getObject($proposalClassPath))
+  #if($operation == 'create' || $operation == 'import' || $operation == 'move' || (($operation == 'modify' || $operation == 'content') && ($publishing || $action == 'modifier proposition') && ($parentRef != "$!sourceDoc.parent" || $parentProposalRef != '')))
+    ## Résoudre toute la chaîne, sans laisser créer de cycle entre dossiers proposés.
+    ## L'ancrage publié est calculé côté serveur plutôt que repris du client.
+    #set($destinationVisited = [])
+    #if("$!proposalRef" != '')
+      #set($discard = $destinationVisited.add($proposalRef))
+    #end
+    #set($destinationCursor = $parentProposalRef)
+    #foreach($destinationDepth in [0..500])
+      #if($destinationCursor == '' || $errorCode != '')
+        #break
+      #end
+      #if($destinationCursor != '' && $errorCode == '')
+        #checkProposalRef($destinationCursor $proposalSpace)
+        #if(!$validProposalRef)
+          #docError('ERREUR_DESTINATION_INVALIDE' 'La proposition de dossier est invalide.')
+        #elseif($destinationVisited.contains($destinationCursor))
+          #docError('ERREUR_CYCLE_PROPOSITION' 'Un dossier proposé ne peut pas être placé dans lui-même ou dans ses descendants.')
+        #else
+          #set($discard = $destinationVisited.add($destinationCursor))
+          #set($parentProposalDoc = false)
+          #set($parentProposalDoc = $xwiki.getDocumentAsAuthor($destinationCursor))
+          #set($parentProposalObject = false)
+          #if($parentProposalDoc)
+            #set($parentProposalObject = $parentProposalDoc.getObject($proposalClassPath))
+          #end
+          #if(!$parentProposalObject || $parentProposalDoc.isNew() || "$!parentProposalObject.getValue('type')" != 'folder' || ("$!parentProposalObject.getValue('author')" != $currentUser && !$canReview))
+            #docError('ERREUR_DESTINATION_INVALIDE' 'La proposition de dossier est inaccessible.')
+          #elseif("$!parentProposalDoc.content" != $wrapperContent)
+            #docError('ERREUR_CONTENU_PROPOSITION' 'Le contenu technique du dossier proposé a été modifié.')
+          #elseif("$!parentProposalObject.getValue('status')" == 'accepted')
+            #set($parentRef = "$!parentProposalObject.getValue('publishedRef')")
+            #set($destinationCursor = '')
+          #elseif($publishing)
+            #docError('ERREUR_DEPENDANCE_PROPOSITION' 'Validez d’abord le dossier proposé dans lequel cet élément doit être placé.')
+          #elseif("$!parentProposalObject.getValue('status')" != 'pending')
+            #docError('ERREUR_DESTINATION_INVALIDE' 'Le dossier proposé a été refusé.')
+          #else
+            #set($parentRef = "$!parentProposalObject.getValue('parentRef')")
+            #set($destinationCursor = "$!parentProposalObject.getValue('parentProposalRef')")
+          #end
         #end
-        #if(!$parentProposalObject || "$!parentProposalObject.getValue('type')" != 'folder' || ("$!parentProposalObject.getValue('author')" != $currentUser && !$canReview))
-          #docError('ERREUR_DESTINATION_INVALIDE' 'La proposition de dossier est inaccessible.')
-        #elseif("$!parentProposalObject.getValue('status')" == 'accepted')
-          #set($parentRef = "$!parentProposalObject.getValue('publishedRef')")
-        #elseif($publishing)
-          #docError('ERREUR_DEPENDANCE_PROPOSITION' 'Validez d’abord le dossier proposé dans lequel cet élément doit être placé.')
-        #elseif("$!parentProposalObject.getValue('status')" != 'pending')
-          #docError('ERREUR_DESTINATION_INVALIDE' 'Le dossier proposé a été refusé.')
+      #end
+    #end
+    #if($destinationCursor != '' && $errorCode == '')
+      #docError('ERREUR_CYCLE_PROPOSITION' 'La chaîne des dossiers proposés dépasse la profondeur autorisée.')
+    #end
+    #if($errorCode == '' && $operation == 'move' && $elementType == 'folder')
+      #set($destinationSourceClean = $sourceRef.substring(0, $sourceRef.length() - 8))
+      #set($destinationParentClean = $parentRef)
+      #if($parentRef.endsWith('.WebHome'))
+        #set($destinationParentClean = $parentRef.substring(0, $parentRef.length() - 8))
+      #end
+      #if($destinationParentClean == $destinationSourceClean || $destinationParentClean.startsWith("${destinationSourceClean}."))
+        #docError('ERREUR_DESTINATION_DANS_SOURCE' 'Un dossier ne peut pas être déplacé dans lui-même ou dans ses descendants.')
+      #end
+      #foreach($destinationAncestor in $destinationVisited)
+        #set($destinationAncestorDoc = $xwiki.getDocumentAsAuthor($destinationAncestor))
+        #set($destinationAncestorObject = $destinationAncestorDoc.getObject($proposalClassPath))
+        #if($destinationAncestorObject && "$!destinationAncestorObject.getValue('operation')" == 'move' && "$!destinationAncestorObject.getValue('sourceRef')" == $sourceRef && $destinationAncestor != "$!proposalRef")
+          #docError('ERREUR_CYCLE_PROPOSITION' 'Un dossier ne peut pas être placé dans une autre proposition de son propre déplacement.')
         #end
       #end
     #end
@@ -376,7 +454,138 @@
   #end
 #end
 
+## Le refactoring profond supprime les sous-espaces physiques, pas les seuls enfants logiques.
+## L'aperçu et la confirmation utilisent donc exactement la même liste et les mêmes versions.
+#macro(collectDeletionPreview $deletionRootRef)
+  #set($deletionComplete = true)
+  #set($deletionMessage = '')
+  #set($deletionNodes = [])
+  #set($deletionSnapshot = '')
+  #set($deletionRefs = [])
+  #checkDocumentationRef($deletionRootRef)
+  #if(!$validDocumentationRef || $deletionRootRef == $mainParent || !$canDelete || !$xwiki.hasAccessLevel('view', $xcontext.user, $deletionRootRef))
+    #set($deletionComplete = false)
+    #set($deletionMessage = 'Vous ne pouvez pas préparer la suppression de cet élément.')
+  #else
+    #set($deletionRootDoc = $xwiki.getDocumentAsAuthor($deletionRootRef))
+    #set($deletionRootObject = $deletionRootDoc.getObject($className))
+    #set($deletionRootType = "$!deletionRootObject.getValue('type')")
+    #if($deletionRootDoc.isNew() || !$deletionRootObject || ($deletionRootType != 'folder' && $deletionRootType != 'document'))
+      #set($deletionComplete = false)
+      #set($deletionMessage = 'Cet élément est introuvable ou ne fait pas partie de la documentation.')
+    #else
+      #set($discard = $deletionRefs.add($deletionRootRef))
+      #set($deletionRootSpace = $deletionRootRef.substring(0, $deletionRootRef.length() - 8))
+      #if($deletionRootType == 'folder')
+        #set($deletionPrefix = $deletionRootSpace.replace('!', '!!').replace('_', '!_'))
+        #set($deletionPrefix = "${deletionPrefix}.%")
+        #set($deletionPhysicalRefs = $services.query.hql("select distinct doc.fullName from XWikiDocument doc where doc.space = :deletionSpace or doc.space like :deletionPrefix escape '!' order by doc.fullName").bindValue('deletionSpace', $deletionRootSpace).bindValue('deletionPrefix', $deletionPrefix).setLimit(501).execute())
+        #if($deletionPhysicalRefs.size() > 500)
+          #set($deletionComplete = false)
+          #set($deletionMessage = 'Ce dossier dépasse la limite de 500 pages. Réduisez son contenu avant de le supprimer.')
+        #end
+        #foreach($deletionPhysicalRef in $deletionPhysicalRefs)
+          #if(!$deletionRefs.contains($deletionPhysicalRef))
+            #set($discard = $deletionRefs.add($deletionPhysicalRef))
+          #end
+        #end
+      #end
+      #foreach($deletionRef in $deletionRefs)
+        #set($deletionInsideRoot = $deletionRef == $deletionRootRef || $deletionRef.startsWith("${deletionRootSpace}."))
+        #checkDocumentationRef($deletionRef)
+        #if(!$validDocumentationRef)
+          #checkDocumentationRef("${deletionRef}.WebHome")
+        #end
+        #if(!$deletionInsideRoot || !$validDocumentationRef || !$xwiki.hasAccessLevel('view', $xcontext.user, $deletionRef))
+          #set($deletionComplete = false)
+          #set($deletionMessage = 'L’aperçu ne peut pas afficher toutes les pages de ce dossier. La suppression est bloquée.')
+        #else
+          #set($deletionDoc = $xwiki.getDocumentAsAuthor($deletionRef))
+          #if(!$deletionDoc || $deletionDoc.isNew())
+            #set($deletionComplete = false)
+            #set($deletionMessage = 'Le dossier a changé pendant la préparation. Rechargez l’aperçu.')
+          #else
+            #set($deletionObject = false)
+            #set($deletionObject = $deletionDoc.getObject($className))
+            #set($deletionType = 'document')
+            #if($deletionObject && "$!deletionObject.getValue('type')" == 'folder')
+              #set($deletionType = 'folder')
+            #end
+            #set($deletionParentRef = '')
+            #if($deletionRef != $deletionRootRef)
+              #set($deletionParentSpace = $deletionRef)
+              #if($deletionRef.endsWith('.WebHome'))
+                #set($deletionParentSpace = $deletionRef.substring(0, $deletionRef.length() - 8))
+              #end
+              #set($deletionParentSpace = $deletionParentSpace.substring(0, $deletionParentSpace.lastIndexOf('.')))
+              #set($deletionParentRef = "${deletionParentSpace}.WebHome")
+              #foreach($deletionParentDepth in [0..500])
+                #if($deletionRefs.contains($deletionParentRef) || !$deletionParentSpace.startsWith("${deletionRootSpace}."))
+                  #break
+                #end
+                #if(!$deletionRefs.contains($deletionParentRef) && $deletionParentSpace.startsWith("${deletionRootSpace}."))
+                  #set($deletionParentSpace = $deletionParentSpace.substring(0, $deletionParentSpace.lastIndexOf('.')))
+                  #set($deletionParentRef = "${deletionParentSpace}.WebHome")
+                #end
+              #end
+              #if(!$deletionRefs.contains($deletionParentRef))
+                #set($deletionParentRef = $deletionRootRef)
+              #end
+            #end
+            #set($discard = $deletionNodes.add({'ref':$deletionRef,'parentRef':$deletionParentRef,'title':$deletionDoc.displayTitle,'type':$deletionType,'version':"$deletionDoc.version"}))
+            #set($deletionSnapshot = "${deletionSnapshot}${deletionRef}@$deletionDoc.version\n")
+          #end
+        #end
+      #end
+    #end
+  #end
+#end
+
+## Un refactoring peut terminer son travail tout en journalisant un échec sur une sous-page.
+#macro(checkRefactoringJob $checkedJob)
+  #set($refactoringFailed = false)
+  #set($refactoringStatus = false)
+  #if($checkedJob)
+    #set($refactoringStatus = $checkedJob.getStatus())
+  #end
+  #if(!$refactoringStatus || $refactoringStatus.getError())
+    #set($refactoringFailed = true)
+  #else
+    #foreach($refactoringEvent in $refactoringStatus.getLogTail())
+      #if("$!refactoringEvent.level" == 'ERROR')
+        #set($refactoringFailed = true)
+      #end
+    #end
+  #end
+#end
+
 #macro(applyDocumentationChange)
+  ## Pour une modification déplacée, conserver le contenu publié tant que le refactoring n'a pas abouti.
+  #if($errorCode == '' && $action == 'valider proposition' && ($operation == 'modify' || $operation == 'content') && $parentRef != "$!sourceDoc.parent")
+    #set($preflightContentObject = false)
+    #set($preflightContentObject = $sourceDoc.getObject($contentClass))
+    #if(!$preflightContentObject)
+      #set($preflightContentObject = $sourceDoc.newObject($contentClass))
+    #end
+    #checkDocumentSourceStorage($preflightContentObject true)
+    #if($errorCode == '')
+      #set($relocatedOperation = $operation)
+      #set($operation = 'move')
+      #applyDocumentationChange()
+      #set($operation = $relocatedOperation)
+      #if($errorCode == '')
+        #set($sourceRef = $resultRef)
+        #set($sourceDoc = $xwiki.getDocumentAsAuthor($sourceRef))
+        #set($sourceObject = $sourceDoc.getObject($className))
+        #set($safeSourceTitle = "$!sourceObject.getValue('nom')")
+        #set($publicationMovedBeforeChanges = true)
+        ## Conserver une proposition réessayable si l'étape suivante échoue après le déplacement.
+        #set($discard = $proposalObject.set('sourceRef', $sourceRef))
+        #set($discard = $proposalObject.set('baseVersion', "$sourceDoc.version"))
+        #set($discard = $proposalDoc.saveAsAuthor('Source de proposition après déplacement validé', true))
+      #end
+    #end
+  #end
   #if($errorCode == '' && ($operation == 'create' || $operation == 'import'))
     #set($parentClean = $parentRef.substring(0, $parentRef.length() - 8))
     #if($publicationName == '')
@@ -423,7 +632,12 @@
       #end
     #end
   #elseif($errorCode == '' && $operation == 'modify')
-    #set($discard = $sourceDoc.setTitle($escapetool.velocity($safeSourceTitle)))
+    #set($acceptedTitle = $safeSourceTitle)
+    #if($action == 'valider proposition')
+      #set($acceptedTitle = $title)
+      #set($discard = $sourceObject.set('nom', $acceptedTitle))
+    #end
+    #set($discard = $sourceDoc.setTitle($escapetool.velocity($acceptedTitle)))
     #set($existingDocumentBody = "$!sourceDoc.content")
     #if($existingDocumentBody != $wrapperContent && $existingDocumentBody.replaceAll('^\s+|\s+$', '') != '')
       #setDocumentSource($sourceDoc "$!sourceDoc.content")
@@ -436,7 +650,12 @@
       #set($resultCode = 'METADONNEES_OK')
     #end
   #elseif($errorCode == '' && $operation == 'content')
-    #set($discard = $sourceDoc.setTitle($escapetool.velocity($safeSourceTitle)))
+    #set($acceptedTitle = $safeSourceTitle)
+    #if($action == 'valider proposition')
+      #set($acceptedTitle = $title)
+      #set($discard = $sourceObject.set('nom', $acceptedTitle))
+    #end
+    #set($discard = $sourceDoc.setTitle($escapetool.velocity($acceptedTitle)))
     #setDocumentSource($sourceDoc $content)
     #if($stagedDocument)
       #copyAttachments($stagedDocument $sourceDoc)
@@ -461,14 +680,23 @@
     #set($parentClean = $parentRef.substring(0, $parentRef.length() - 8))
     #set($technicalName = $sourceClean.substring($sourceClean.lastIndexOf('.') + 1))
     #set($resultRef = "${parentClean}.${technicalName}.WebHome")
-    #if($sourceRef == $resultRef)
+    #set($acceptedTitle = $safeSourceTitle)
+    #if($publishing && $canReview)
+      #set($acceptedTitle = $title)
+    #end
+    #if($sourceRef == $resultRef && $acceptedTitle == $safeSourceTitle)
       #docError('ERREUR_DEPLACEMENT_IDENTIQUE' 'Cet élément se trouve déjà dans ce dossier.')
     #elseif($elementType == 'folder' && ($parentClean == $sourceClean || $parentClean.startsWith("${sourceClean}.")))
       #docError('ERREUR_DESTINATION_DANS_SOURCE' 'Un dossier ne peut pas être déplacé dans lui-même.')
-    #elseif(!$xwiki.getDocument($resultRef).isNew())
+    #elseif($sourceRef != $resultRef && !$xwiki.getDocument($resultRef).isNew())
       #docError('ERREUR_DESTINATION_EXISTE' 'Un élément portant ce nom existe déjà dans la destination.')
     #elseif(!$xwiki.hasAccessLevel('delete', $xcontext.user, $sourceRef) || !$xwiki.hasAccessLevel('edit', $xcontext.user, $parentRef))
       #docError('ERREUR_DROITS_NATIFS' 'Le déplacement nécessite aussi les droits XWiki supprimer sur la source et modifier sur la destination.')
+    #elseif($sourceRef == $resultRef)
+      #set($discard = $sourceObject.set('nom', $acceptedTitle))
+      #set($discard = $sourceDoc.setTitle($escapetool.velocity($acceptedTitle)))
+      #set($discard = $sourceDoc.saveAsAuthor('Renommage validé via la documentation', true))
+      #set($resultCode = 'DEPLACEMENT_OK')
     #else
       #set($moveTarget = $xwiki.getDocument($resultRef))
       #set($moveRequest = $services.refactoring.requestFactory.createRenameRequest($sourceDoc.documentReference, $moveTarget.documentReference))
@@ -481,10 +709,24 @@
       #if($moveJob)
         #set($discard = $moveJob.join())
       #end
-      #if(!$moveJob || $xwiki.getDocument($resultRef).isNew() || !$xwiki.getDocument($sourceRef).isNew())
-        #docError('ERREUR_DEPLACEMENT' 'Le déplacement XWiki n’a pas abouti ; vérifiez les droits sur les sous-pages.')
+      #checkRefactoringJob($moveJob)
+      #if($elementType == 'folder' && !$refactoringFailed)
+        #set($moveResidualPrefix = $sourceClean.replace('!', '!!').replace('_', '!_'))
+        #set($moveResidualPrefix = "${moveResidualPrefix}.%")
+        #set($moveResidualRefs = $services.query.hql("select doc.fullName from XWikiDocument doc where doc.space = :deletionSpace or doc.space like :deletionPrefix escape '!' order by doc.fullName").bindValue('deletionSpace', $sourceClean).bindValue('deletionPrefix', $moveResidualPrefix).setLimit(1).execute())
+        #if(!$moveResidualRefs.isEmpty())
+          #set($refactoringFailed = true)
+        #end
+      #end
+      #if($refactoringFailed || $xwiki.getDocument($resultRef).isNew() || !$xwiki.getDocument($sourceRef).isNew())
+        #docError('ERREUR_DEPLACEMENT' 'Le déplacement XWiki est incomplet ou a échoué. Vérifiez l’arborescence et les droits sur les sous-pages avant de réessayer.')
       #else
         #updateMovedDocumentIds($resultRef)
+        #set($renamedDocument = $xwiki.getDocumentAsAuthor($resultRef))
+        #set($renamedObject = $renamedDocument.getObject($className))
+        #set($discard = $renamedObject.set('nom', $acceptedTitle))
+        #set($discard = $renamedDocument.setTitle($escapetool.velocity($acceptedTitle)))
+        #set($discard = $renamedDocument.saveAsAuthor('Titre après déplacement via la documentation', true))
         #set($resultOldRef = $sourceRef)
         #set($resultCode = 'DEPLACEMENT_OK')
       #end
@@ -495,6 +737,20 @@
     #elseif(!$xwiki.hasAccessLevel('delete', $xcontext.user, $sourceRef))
       #docError('ERREUR_DROITS_NATIFS' 'Vous n’avez pas le droit XWiki de supprimer cet élément.')
     #else
+      #if($elementType == 'folder')
+        #collectDeletionPreview($sourceRef)
+        #if(!$deletionComplete)
+          #docError('ERREUR_APERCU_SUPPRESSION' $deletionMessage)
+        #elseif("$!request.getParameter('delete_snapshot')" != $deletionSnapshot)
+          #docError('ERREUR_CONFLIT_SUPPRESSION' 'Le dossier a changé ou sa confirmation est absente. Ouvrez à nouveau l’aperçu avant de supprimer.')
+        #end
+        #foreach($deletionNode in $deletionNodes)
+          #if(!$xwiki.hasAccessLevel('delete', $xcontext.user, $deletionNode.get('ref')))
+            #docError('ERREUR_DROITS_NATIFS' 'Vous n’avez pas le droit XWiki de supprimer toutes les pages de ce dossier.')
+          #end
+        #end
+      #end
+      #if($errorCode == '')
       #set($deleteReferences = [$sourceDoc.documentReference])
       #set($deleteRequest = $services.refactoring.requestFactory.createDeleteRequest($deleteReferences))
       #set($deepOperation = $elementType == 'folder')
@@ -503,10 +759,19 @@
       #if($deleteJob)
         #set($discard = $deleteJob.join())
       #end
-      #if(!$deleteJob || !$xwiki.getDocument($sourceRef).isNew())
-        #docError('ERREUR_SUPPRESSION' 'La suppression XWiki n’a pas abouti.')
+      #checkRefactoringJob($deleteJob)
+      #if($elementType == 'folder')
+        #foreach($deletionNode in $deletionNodes)
+          #if(!$xwiki.getDocumentAsAuthor($deletionNode.get('ref')).isNew())
+            #set($refactoringFailed = true)
+          #end
+        #end
+      #end
+      #if($refactoringFailed || !$xwiki.getDocument($sourceRef).isNew())
+        #docError('ERREUR_SUPPRESSION' 'La suppression XWiki est incomplète ou a échoué. Vérifiez l’arborescence avant de réessayer.')
       #else
         #set($resultCode = 'SUPPRESSION_OK')
+      #end
       #end
     #end
   #end
@@ -696,7 +961,7 @@
       #elseif($action == 'purger corbeille')
         #set($resultCode = 'CORBEILLE_PURGEE_OK')
         #set($actionComplete = true)
-      #elseif($action == 'valider proposition' || $action == 'refuser proposition' || $action == 'restaurer proposition')
+      #elseif($action == 'valider proposition' || $action == 'refuser proposition' || $action == 'restaurer proposition' || $action == 'modifier proposition')
         #set($proposalRef = "$!request.getParameter('proposal_ref')")
         #set($requestedSpace = $proposalSpace)
         #if($action == 'restaurer proposition')
@@ -705,7 +970,7 @@
         #checkProposalRef($proposalRef $requestedSpace)
         #if(!$validProposalRef)
           #docError('ERREUR_PROPOSITION' 'Référence de proposition invalide.')
-        #elseif(!$canReview && $action != 'restaurer proposition')
+        #elseif(!$canReview && $action != 'restaurer proposition' && $action != 'modifier proposition')
           #docError('ERREUR_DROITS' 'Le droit de validation est nécessaire.')
         #else
           #set($proposalDoc = false)
@@ -716,6 +981,8 @@
           #end
           #if(!$proposalObject || $proposalDoc.isNew())
             #docError('ERREUR_PROPOSITION' 'Cette proposition est introuvable.')
+          #elseif($action == 'modifier proposition' && !$canReview && ("$!proposalObject.getValue('author')" != $currentUser || (!$canPropose && !($canImport && "$!proposalObject.getValue('operation')" == 'import'))))
+            #docError('ERREUR_DROITS' 'Vous ne pouvez pas modifier cette proposition.')
           #elseif("$!proposalDoc.content" != $wrapperContent)
             #docError('ERREUR_CONTENU_PROPOSITION' 'Le contenu technique de cette proposition a été modifié.')
           #elseif("$!request.getParameter('version')" != "$proposalDoc.version")
@@ -728,6 +995,43 @@
               #docError('ERREUR_COMMENTAIRE' 'Le commentaire est limité à 4 000 caractères.')
             #elseif($action == 'refuser proposition' && $reviewComment.replaceAll('^\s+|\s+$', '') == '')
               #docError('ERREUR_COMMENTAIRE' 'Indiquez le motif du refus.')
+            #elseif($action == 'modifier proposition' && "$!proposalObject.getValue('status')" == 'pending')
+              #set($operation = "$!proposalObject.getValue('operation')")
+              #set($elementType = "$!proposalObject.getValue('type')")
+              #set($title = "$!request.getParameter('title')")
+              #set($parentRef = "$!request.getParameter('parent_ref')")
+              #set($parentProposalRef = "$!request.getParameter('parent_proposal_ref')")
+              #set($sourceRef = "$!proposalObject.getValue('sourceRef')")
+              #set($baseVersion = "$!proposalObject.getValue('baseVersion')")
+              #set($content = "$!proposalObject.getValue('content')")
+              #set($description = "$!proposalObject.getValue('description')")
+              #set($tags = "$!proposalObject.getValue('tags')")
+              #set($filename = "$!proposalObject.getValue('filename')")
+              #set($kind = "$!proposalObject.getValue('kind')")
+              #set($publishing = false)
+              #checkProposalClass($proposalObject)
+              #if($title.replaceAll('^\s+|\s+$', '') == '' || $title.length() > 255)
+                #docError('ERREUR_CHAMPS' 'Le titre doit contenir de 1 à 255 caractères.')
+              #elseif(!$xwiki.hasAccessLevel('admin', $doc.contentAuthor, $mainParent))
+                #docError('ERREUR_DROITS_SERVICE' 'Le compte qui enregistre COMMANDE doit être administrateur du wiki.')
+              #elseif($operation == 'delete')
+                #docError('ERREUR_ACTION' 'La suppression ne peut pas faire l’objet d’une proposition.')
+              #end
+              #validateDocumentationChange()
+              #if($errorCode == '')
+                #set($discard = $proposalObject.set('title', $title))
+                #set($discard = $proposalObject.set('parentRef', $parentRef))
+                #set($discard = $proposalObject.set('parentProposalRef', $parentProposalRef))
+                #if("$!proposalObject.getValue('title')" != $title || "$!proposalObject.getValue('parentRef')" != $parentRef || "$!proposalObject.getValue('parentProposalRef')" != $parentProposalRef)
+                  #docError('ERREUR_CLASSE_PROPOSITION' 'La classe des propositions ne conserve pas le titre ou la destination attendus.')
+                #else
+                  #set($discard = $proposalDoc.setTitle($escapetool.velocity($title)))
+                  #set($discard = $proposalDoc.saveAsAuthor('Correction de proposition avant validation', true))
+                  #set($resultRef = $proposalRef)
+                  #set($resultProposalRef = $proposalRef)
+                  #set($resultCode = 'PROPOSITION_MODIFIEE_OK')
+                #end
+              #end
             #elseif($action == 'refuser proposition' && "$!proposalObject.getValue('status')" == 'pending')
               #moveProposal($proposalDoc $proposalObject $trashSpace 'rejected')
               #if($errorCode == '')
@@ -1003,6 +1307,9 @@
       #end
   #end
 #end
+#if($errorCode != '' && $publicationMovedBeforeChanges)
+  #set($errorMessage = "${errorMessage} Le déplacement a déjà été effectué ; la proposition reste en attente avec sa nouvelle source. Rechargez l’arborescence avant de réessayer.")
+#end
 {{/velocity}}
 {{velocity}}
 {{html clean="false"}}
@@ -1068,6 +1375,18 @@
         <textarea id="documentation-source">#docOutput($editableSource)</textarea>
       #end
     #end
+  #elseif($action == 'apercu suppression')
+    #set($deletionRequestedRef = "$!request.getParameter('source_ref')")
+    #collectDeletionPreview($deletionRequestedRef)
+    <div id="deletion-preview-data" data-ref="#docOutput($deletionRequestedRef)" data-complete="$deletionComplete" data-message="#docOutput($deletionMessage)"></div>
+    <span id="architecture-icon-folder-template" style="display:none;">$services.icon.renderHTML('folder')</span>
+    <span id="architecture-icon-document-template" style="display:none;">$services.icon.renderHTML('file')</span>
+    #if($deletionComplete)
+      #foreach($deletionNode in $deletionNodes)
+        <div class="deletion-node-data" data-ref="#docOutput($deletionNode.get('ref'))" data-parent-ref="#docOutput($deletionNode.get('parentRef'))" data-title="#docOutput($deletionNode.get('title'))" data-type="#docOutput($deletionNode.get('type'))" data-version="#docOutput($deletionNode.get('version'))"></div>
+      #end
+      <textarea id="deletion-preview-snapshot">#docOutput($deletionSnapshot)</textarea>
+    #end
   #elseif($action == 'propositions' || $action == 'corbeille')
     #set($listedSpace = $proposalSpace)
     #if($action == 'corbeille')
@@ -1086,6 +1405,7 @@
           #end
           #set($showProposal = $listedObject && ($canReview || "$!listedObject.getValue('author')" == $currentUser))
           #set($listedCanRestore = $listedObject && ($canReview || ("$!listedObject.getValue('author')" == $currentUser && ($canPropose || ($canImport && "$!listedObject.getValue('operation')" == 'import')))))
+          #set($listedCanEdit = $listedCanRestore && "$!listedObject.getValue('status')" == 'pending' && "$!listedObject.getValue('operation')" != 'delete')
           #set($deletedLabel = '')
           #set($expiresLabel = '')
           #if($showProposal && $listedSpace == $trashSpace)
@@ -1104,6 +1424,12 @@
           #if($showProposal)
             #set($overlayParentRef = "$!listedObject.getValue('parentRef')")
             #set($overlayParentProposalRef = "$!listedObject.getValue('parentProposalRef')")
+            #if($overlayParentRef == '' && ("$!listedObject.getValue('operation')" == 'modify' || "$!listedObject.getValue('operation')" == 'content'))
+              #set($overlaySourceDoc = $xwiki.getDocumentAsAuthor("$!listedObject.getValue('sourceRef')"))
+              #if($overlaySourceDoc && !$overlaySourceDoc.isNew())
+                #set($overlayParentRef = "$!overlaySourceDoc.parent")
+              #end
+            #end
             #checkProposalRef($overlayParentProposalRef $proposalSpace)
             #if($validProposalRef)
               #set($overlayParentDoc = false)
@@ -1117,7 +1443,7 @@
                 #set($overlayParentProposalRef = '')
               #end
             #end
-            <span class="doc-proposal-data" data-ref="#docOutput($listedRef)" data-kind="#docOutput("$!listedObject.getValue('kind')")" data-operation="#docOutput("$!listedObject.getValue('operation')")" data-type="#docOutput("$!listedObject.getValue('type')")" data-title="#docOutput("$!listedObject.getValue('title')")" data-parent-ref="#docOutput($overlayParentRef)" data-parent-proposal-ref="#docOutput($overlayParentProposalRef)" data-source-ref="#docOutput("$!listedObject.getValue('sourceRef')")" data-author="#docOutput("$!listedObject.getValue('author')")" data-submitted-at="$xwiki.formatDate($listedObject.getValue('submittedAt'), 'dd/MM/yyyy HH:mm')" data-batch-id="#docOutput("$!listedObject.getValue('batchId')")" data-status="#docOutput("$!listedObject.getValue('status')")" data-can-restore="$listedCanRestore" data-url="#docOutput($listedDoc.getURL('view'))" data-url-preview="#docOutput($listedDoc.getURL('view', 'xpage=print'))" data-version="#docOutput("$listedDoc.version")" data-description="#docOutput("$!listedObject.getValue('description')")" data-tags="#docOutput("$!listedObject.getValue('tags')")" data-review-comment="#docOutput("$!listedObject.getValue('reviewComment')")" data-deleted-at="#docOutput($deletedLabel)" data-expires-at="#docOutput($expiresLabel)"></span>
+            <span class="doc-proposal-data" data-ref="#docOutput($listedRef)" data-kind="#docOutput("$!listedObject.getValue('kind')")" data-operation="#docOutput("$!listedObject.getValue('operation')")" data-type="#docOutput("$!listedObject.getValue('type')")" data-title="#docOutput("$!listedObject.getValue('title')")" data-parent-ref="#docOutput($overlayParentRef)" data-parent-proposal-ref="#docOutput($overlayParentProposalRef)" data-source-ref="#docOutput("$!listedObject.getValue('sourceRef')")" data-author="#docOutput("$!listedObject.getValue('author')")" data-submitted-at="$xwiki.formatDate($listedObject.getValue('submittedAt'), 'dd/MM/yyyy HH:mm')" data-batch-id="#docOutput("$!listedObject.getValue('batchId')")" data-status="#docOutput("$!listedObject.getValue('status')")" data-can-restore="$listedCanRestore" data-can-edit="$listedCanEdit" data-url="#docOutput($listedDoc.getURL('view'))" data-url-preview="#docOutput($listedDoc.getURL('view', 'xpage=print'))" data-version="#docOutput("$listedDoc.version")" data-description="#docOutput("$!listedObject.getValue('description')")" data-tags="#docOutput("$!listedObject.getValue('tags')")" data-review-comment="#docOutput("$!listedObject.getValue('reviewComment')")" data-deleted-at="#docOutput($deletedLabel)" data-expires-at="#docOutput($expiresLabel)"></span>
           #end
         #end
       #end

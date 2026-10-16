@@ -44,7 +44,8 @@ async function setup(browser, options = {}) {
   await page.evaluate(({ architecture, proposals, reviewer }) => {
     window.initialPageRef = architecture[0].ref;
     window.urlCommande = '/xwiki/bin/view/TestPage/PAGE/doc-test/COMMANDE';
-    window.testState = { architecture, proposals, reviewer, decisions: [], requests: [], alerts: [], refreshes: 0 };
+    window.testState = { architecture, proposals, reviewer, decisions: [], edits: [], requests: [], alerts: [], refreshes: 0,
+      decisionFailures: {}, editFailure: '' };
     window.alert = value => testState.alerts.push(String(value));
     window.prompt = () => 'Document incomplet';
     const esc = value => String(value || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
@@ -54,7 +55,8 @@ async function setup(browser, options = {}) {
       const action = new URL(url, location.href).searchParams.get('action');
       testState.requests.push(action);
       if (action !== 'architecture') throw new Error('Unexpected request: ' + action);
-      return { ok: true, text: async () => testState.architecture.map(item => html('architecture-node-data', item)).join('') };
+      return { ok: true, text: async () => '<div id="architecture-data" data-complete="true">' +
+        testState.architecture.map(item => html('architecture-node-data', item)).join('') + '</div>' };
     };
     window.DocPropositions = {
       ready: Promise.resolve(),
@@ -64,15 +66,27 @@ async function setup(browser, options = {}) {
         testState.requests.push(mode);
         return new DOMParser().parseFromString(testState.proposals
           .filter(item => item.status === (mode === 'corbeille' ? 'rejected' : 'pending'))
-          .map(item => html('doc-proposal-data', item)).join(''), 'text/html');
+          .map(item => {
+            const parent = testState.proposals.find(value => value.ref === item['parent-proposal-ref']);
+            const values = parent && parent.status === 'accepted' ?
+              { ...item, 'parent-ref': parent.publishedRef, 'parent-proposal-ref': '' } : item;
+            return html('doc-proposal-data', values);
+          }).join(''), 'text/html');
       },
       proposalAction: async (ref, decision, reason, version) => {
         testState.decisions.push({ ref, decision, reason, version });
         const item = testState.proposals.find(value => value.ref === ref);
         if (!item) throw new Error('Missing proposal');
+        if (!testState.reviewer && decision !== 'restore') throw new Error('Le droit de validation est nécessaire.');
+        if (testState.decisionFailures[ref]) throw new Error(testState.decisionFailures[ref]);
+        if (version !== item.version) throw new Error('Cette proposition a changé. Rechargez-la.');
         if (decision === 'accept') {
+          const parent = testState.proposals.find(value => value.ref === item['parent-proposal-ref']);
+          if (parent && parent.status !== 'accepted') throw new Error('Le dossier proposé doit d’abord être validé.');
           item.status = 'accepted';
-          testState.architecture.push({ ref: ref + '.Published', type: item.type, title: item.title, 'parent-ref': item['parent-ref'] });
+          item.publishedRef = ref + '.Published';
+          testState.architecture.push({ ref: item.publishedRef, type: item.type, title: item.title,
+            'parent-ref': parent ? parent.publishedRef : item['parent-ref'] });
         } else if (decision === 'reject') {
           item.status = 'rejected';
           item['review-comment'] = reason;
@@ -81,6 +95,16 @@ async function setup(browser, options = {}) {
         } else if (decision === 'restore') {
           item.status = 'pending';
         }
+      },
+      updateProposal: async (ref, parameters, version) => {
+        testState.edits.push({ ref, parameters, version });
+        const item = testState.proposals.find(value => value.ref === ref);
+        if (!testState.reviewer && (!item || item['can-edit'] !== 'true')) throw new Error('Vous ne pouvez pas modifier cette proposition.');
+        if (testState.editFailure) throw new Error(testState.editFailure);
+        if (!item || item.status !== 'pending') throw new Error('Cette proposition n’est plus en attente.');
+        if (version !== item.version) throw new Error('Cette proposition a changé. Rechargez-la.');
+        Object.assign(item, { title: parameters.title, 'parent-ref': parameters.parent_ref,
+          'parent-proposal-ref': parameters.parent_proposal_ref, version: '1.2' });
       }
     };
   }, { architecture, proposals: options.proposals || [proposal('Contrat'), proposal('Notes')], reviewer: options.reviewer !== false });
@@ -99,6 +123,16 @@ async function open(page, mode = 'propositions') {
     if (mode) await openArchitectureEditor(document.getElementById('box'), mode);
     else await openArchitectureEditor(document.getElementById('box'));
   }, mode);
+}
+
+async function confirmProposalBulk(page, scope, ref) {
+  const selector = '[data-architecture-proposal-bulk="' + scope + '"]' +
+    (ref ? '[data-architecture-proposal-ref="' + ref + '"]' : '');
+  await page.locator(selector).first().click();
+  await page.locator('#documentation-proposal-bulk-dialog').waitFor();
+  assert.equal(await page.evaluate(() => testState.decisions.length), 0, 'opening the review summary must never publish');
+  await page.locator('#documentation-proposal-bulk-confirm').click();
+  await page.locator('#documentation-proposal-bulk-dialog').getByRole('button', { name: 'Fermer', exact: true }).waitFor();
 }
 
 function webHomeToolbar(permissions) {
@@ -131,9 +165,13 @@ async function workflowPage(browser, permissions = {}, options = {}) {
     <div id="notification"></div><div id="box"></div>
     ${toolbar}
   </body></html>`);
+  for (const stylesheet of ['FileExplorer.css', 'Propositions.css']) {
+    await page.addStyleTag({ path: path.join(codeDir, stylesheet) });
+  }
   await page.evaluate(({ granted, groupGrants }) => {
     window.urlCommande = '/xwiki/bin/view/COMMANDE';
-    window.testWorkflow = { granted, groupGrants, settingsVersion: '4.2', requests: [], fail: '', responses: {}, alerts: [], confirmations: [], refreshes: 0 };
+    window.testWorkflow = { granted, groupGrants, settingsVersion: '4.2', requests: [], fail: '', responses: {}, alerts: [], confirmations: [], refreshes: 0,
+      deletionNodes: [] };
     window.alert = message => testWorkflow.alerts.push(String(message));
     window.confirm = message => { testWorkflow.confirmations.push(String(message)); return true; };
     window.fetch = async (url, options = {}) => {
@@ -162,6 +200,17 @@ async function workflowPage(browser, permissions = {}, options = {}) {
         const version = testWorkflow.settingsVersion.split('.');
         testWorkflow.settingsVersion = version[0] + '.' + (Number(version[1]) + 1);
         body = 'PARAMETRES_OK';
+      } else if (action === 'apercu suppression') {
+        const source = values.source_ref;
+        const prefix = source.replace(/\.WebHome$/, '.');
+        const esc = value => String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+        const descendants = testWorkflow.deletionNodes.filter(item => item.ref === source || item.ref.startsWith(prefix));
+        body = '<div id="deletion-preview-data" data-ref="' + esc(source) + '" data-complete="true">' + descendants.map(item =>
+          '<div class="deletion-node-data" ' + Object.entries({ ...item,
+            'parent-ref': item.ref === source ? '' : item.ref.replace(/\.WebHome$/, '').replace(/\.[^.]+$/, '.WebHome'),
+            version: item.version || '3.7' }).map(([key, value]) =>
+            'data-' + key + '="' + esc(value) + '"').join(' ') + '></div>').join('') + '</div>' +
+          '<textarea id="deletion-preview-snapshot">' + esc(descendants.map(item => item.ref + '@' + (item.version || '3.7')).join('\n')) + '</textarea>';
       } else if (action === 'contenu document') body = '<div id="documentation-content" data-version="3.7"></div><textarea id="documentation-source">' + (testWorkflow.source || 'Contenu initial') + '</textarea>';
       else if (action === 'modifier metadonnees document') body = values.mode === 'proposal' ? 'PROPOSITION_OK' :
         '<div id="creation-result" data-code="METADONNEES_OK"></div><div id="metadata-result" data-modified="16/10/2026 12:00"></div>METADONNEES_OK';
@@ -170,6 +219,7 @@ async function workflowPage(browser, permissions = {}, options = {}) {
         'modifier contenu document': values.mode === 'direct' ? 'CONTENU_OK' : 'PROPOSITION_OK',
         'modifier informations': values.mode === 'direct' ? 'METADONNEES_OK' : 'PROPOSITION_OK',
         'valider proposition': 'PROPOSITION_VALIDEE_OK', 'refuser proposition': 'PROPOSITION_REFUSEE_OK',
+        'modifier proposition': 'PROPOSITION_MODIFIEE_OK',
         'restaurer proposition': 'PROPOSITION_RESTAUREE_OK', 'supprimer element': 'SUPPRESSION_OK'
       })[action] || 'PROPOSITION_OK';
       return { ok: status >= 200 && status < 300, status, text: async () => body };
@@ -205,8 +255,10 @@ async function addExplorerUI(page) {
       { ref: folder, type: 'folder', title: 'RH', 'parent-ref': root },
       { ref: existing, type: 'document', title: 'Guide existant', 'parent-ref': folder }
     ];
-    testWorkflow.responses.architecture = { body: nodes.map(node => '<div class="architecture-node-data" ' +
-      Object.entries(node).map(([key, value]) => 'data-' + key + '="' + esc(value) + '"').join(' ') + '></div>').join('') };
+    testWorkflow.deletionNodes = nodes;
+    testWorkflow.responses.architecture = { body: '<div id="architecture-data" data-complete="true">' +
+      nodes.map(node => '<div class="architecture-node-data" ' +
+      Object.entries(node).map(([key, value]) => 'data-' + key + '="' + esc(value) + '"').join(' ') + '></div>').join('') + '</div>' };
     const box = document.getElementById('box');
     box.innerHTML = '<div id="pageData" parent-page="' + root + '"></div><form id="formulairePopup"><input name="form_token" value="test-csrf"></form>' +
       '<button id="explorer-delete-btn">Supprimer</button>' +
@@ -230,6 +282,20 @@ async function deleteInUI(page, mode) {
       { ref, title: 'Guide existant', type: 'document' }
     ]), existing);
   }
+}
+
+async function setDeletionArchitecture(page, nodes) {
+  await page.evaluate(nodes => {
+    const esc = value => String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+    testWorkflow.responses.architecture = { body: '<div id="architecture-data" data-complete="true">' +
+      nodes.map(node => '<div class="architecture-node-data" ' + Object.entries(node)
+        .map(([key, value]) => 'data-' + key + '="' + esc(value) + '"').join(' ') + '></div>').join('') + '</div>' };
+    testWorkflow.deletionNodes = nodes;
+  }, nodes);
+}
+
+async function startFolderDeletion(page, selected = [{ ref: folder, title: 'RH', type: 'folder' }]) {
+  await page.evaluate(items => { window.testDeletion = deleteExplorerItems(document.getElementById('box'), items); }, selected);
 }
 
 (async () => {
@@ -275,6 +341,227 @@ async function deleteInUI(page, mode) {
         assert.equal(result.count, 4);
         assert.equal(await page.locator('.architecture-row[draggable="true"]').count(), 0);
         assert.equal(await page.locator('.architecture-select-input').count(), 0);
+      } finally { await page.close(); }
+    });
+
+    await check('A grouped import can be accepted completely in parent-first order without accepting another batch', async () => {
+      const page = await setup(browser, { proposals: [
+        proposal('Deep', { operation: 'import', 'batch-id': 'batch-one', 'parent-proposal-ref': space + 'Sous' }),
+        proposal('OtherBatch', { operation: 'import', 'batch-id': 'batch-two' }),
+        proposal('Sous', { type: 'folder', operation: 'import', 'batch-id': 'batch-one', 'parent-proposal-ref': space + 'Archive' }),
+        proposal('Outside'),
+        proposal('OtherDestination', { operation: 'import', 'batch-id': 'batch-one', 'parent-ref': root }),
+        proposal('Archive', { type: 'folder', operation: 'import', 'batch-id': 'batch-one' })
+      ] });
+      try {
+        await open(page);
+        await confirmProposalBulk(page, 'batch');
+        await page.waitForFunction(() => testState.decisions.length === 4 && architectureState.proposalCount === 2);
+        const refs = await page.evaluate(() => testState.decisions.map(item => item.ref));
+        assert.deepEqual([...refs].sort(), ['Archive', 'Sous', 'Deep', 'OtherDestination'].map(name => space + name).sort());
+        assert.ok(refs.indexOf(space + 'Archive') < refs.indexOf(space + 'Sous'));
+        assert.ok(refs.indexOf(space + 'Sous') < refs.indexOf(space + 'Deep'));
+        assert.ok(await page.evaluate(() => testState.decisions.every(item => item.decision === 'accept' && item.version === '1.1')));
+        assert.equal(await page.evaluate(ref => architectureState.nodes['proposal:' + ref].status, space + 'OtherBatch'), 'pending');
+        assert.deepEqual(await page.evaluate(() => testState.alerts), []);
+      } finally { await page.close(); }
+    });
+
+    await check('Direct-child validation includes the proposed parent, while recursive validation also includes grandchildren', async () => {
+      for (const scope of ['children', 'descendants']) {
+        const page = await setup(browser, { proposals: [
+          proposal('Grandchild', { 'parent-proposal-ref': space + 'ChildFolder' }),
+          proposal('Parent', { type: 'folder' }),
+          proposal('ChildFolder', { type: 'folder', 'parent-proposal-ref': space + 'Parent' }),
+          proposal('ChildDocument', { 'parent-proposal-ref': space + 'Parent' }),
+          proposal('Outside')
+        ] });
+        try {
+          await open(page);
+          await confirmProposalBulk(page, scope, 'proposal:' + space + 'Parent');
+          const expected = scope === 'children' ? ['Parent', 'ChildFolder', 'ChildDocument'] : ['Parent', 'ChildFolder', 'ChildDocument', 'Grandchild'];
+          await page.waitForFunction(count => testState.decisions.length === count && architectureState.proposalCount === 5 - count, expected.length);
+          const refs = await page.evaluate(() => testState.decisions.map(item => item.ref));
+          assert.deepEqual([...refs].sort(), expected.map(name => space + name).sort());
+          assert.equal(refs[0], space + 'Parent');
+          if (scope === 'descendants') assert.ok(refs.indexOf(space + 'ChildFolder') < refs.indexOf(space + 'Grandchild'));
+          assert.deepEqual(await page.evaluate(() => testState.alerts), []);
+        } finally { await page.close(); }
+      }
+    });
+
+    await check('Children of an existing folder can be validated without republishing the existing folder', async () => {
+      const page = await setup(browser, { proposals: [
+        proposal('ChildFolder', { type: 'folder', 'parent-ref': folder }),
+        proposal('Grandchild', { 'parent-ref': folder, 'parent-proposal-ref': space + 'ChildFolder' }),
+        proposal('Outside', { 'parent-ref': root })
+      ] });
+      try {
+        await open(page);
+        await confirmProposalBulk(page, 'children', folder);
+        await page.waitForFunction(() => architectureState.proposalCount === 2);
+        assert.deepEqual(await page.evaluate(() => testState.decisions.map(item => item.ref)), [space + 'ChildFolder']);
+        assert.equal(await page.evaluate(ref => testState.architecture.filter(item => item.ref === ref).length, folder), 1);
+      } finally { await page.close(); }
+    });
+
+    await check('A failed parent leaves its descendants pending while independent siblings still validate', async () => {
+      const page = await setup(browser, { proposals: [
+        proposal('BlockedParent', { type: 'folder', operation: 'import', 'batch-id': 'batch-one' }),
+        proposal('BlockedChild', { operation: 'import', 'batch-id': 'batch-one', 'parent-proposal-ref': space + 'BlockedParent' }),
+        proposal('Independent', { operation: 'import', 'batch-id': 'batch-one' }),
+        proposal('Outside', { operation: 'import', 'batch-id': 'batch-two' })
+      ] });
+      try {
+        await page.evaluate(ref => { testState.decisionFailures[ref] = 'La proposition a été modifiée. Rechargez-la.'; }, space + 'BlockedParent');
+        await open(page);
+        await confirmProposalBulk(page, 'batch');
+        await page.waitForFunction(() => architectureState.proposalCount === 3 && testState.decisions.length === 2);
+        assert.deepEqual((await page.evaluate(() => testState.decisions.map(item => item.ref))).sort(), [space + 'BlockedParent', space + 'Independent'].sort());
+        assert.equal(await page.evaluate(ref => testState.proposals.find(item => item.ref === ref).status, space + 'BlockedChild'), 'pending');
+        const message = await page.locator('#documentation-proposal-bulk-dialog').innerText();
+        assert.match(message, /modifi|échou|erreur|bloqu|impossible/i);
+        assert.doesNotMatch(message, /ERREUR_|Exception|org\.xwiki/);
+      } finally { await page.close(); }
+    });
+
+    await check('A batch never accepts a pending parent outside its scope or a child that depends on that parent', async () => {
+      const page = await setup(browser, { proposals: [
+        proposal('OutsideParent', { type: 'folder', operation: 'import', 'batch-id': 'other-batch' }),
+        proposal('Dependent', { operation: 'import', 'batch-id': 'selected-batch', 'parent-proposal-ref': space + 'OutsideParent' }),
+        proposal('Independent', { operation: 'import', 'batch-id': 'selected-batch' })
+      ] });
+      try {
+        await open(page);
+        const group = await page.evaluate(() => Object.values(architectureState.nodes).find(node => node.proposalGroup && node.batchId === 'selected-batch').id);
+        await confirmProposalBulk(page, 'batch', group);
+        await page.waitForFunction(() => architectureState.proposalCount === 2);
+        assert.deepEqual(await page.evaluate(() => testState.decisions.map(item => item.ref)), [space + 'Independent']);
+        assert.match(await page.locator('#documentation-proposal-bulk-dialog').innerText(), /parent.*séparément|parent.*sélection/i);
+      } finally { await page.close(); }
+    });
+
+    await check('A proposal changed after opening bulk confirmation remains pending while unchanged siblings validate', async () => {
+      const page = await setup(browser, { proposals: [
+        proposal('Changed', { operation: 'import', 'batch-id': 'batch-one' }),
+        proposal('Unchanged', { operation: 'import', 'batch-id': 'batch-one' })
+      ] });
+      try {
+        await open(page);
+        await page.locator('[data-architecture-proposal-bulk="batch"]').click();
+        await page.locator('#documentation-proposal-bulk-dialog').waitFor();
+        await page.evaluate(ref => { testState.proposals.find(item => item.ref === ref).version = '2.1'; }, space + 'Changed');
+        await page.locator('#documentation-proposal-bulk-confirm').click();
+        await page.locator('#documentation-proposal-bulk-dialog').getByRole('button', { name: 'Fermer', exact: true }).waitFor();
+        assert.deepEqual(await page.evaluate(() => testState.decisions.map(item => item.ref)), [space + 'Unchanged']);
+        assert.match(await page.locator('#documentation-proposal-bulk-dialog').innerText(), /changé/);
+        assert.equal(await page.evaluate(() => architectureState.proposalCount), 1);
+      } finally { await page.close(); }
+    });
+
+    await check('Revoking review rights before bulk confirmation prevents every validation request', async () => {
+      const page = await setup(browser, { proposals: [proposal('Import', { operation: 'import', 'batch-id': 'batch-one' })] });
+      try {
+        await open(page);
+        await page.locator('[data-architecture-proposal-bulk="batch"]').first().click();
+        await page.locator('#documentation-proposal-bulk-dialog').waitFor();
+        await page.evaluate(() => { testState.reviewer = false; });
+        await page.locator('#documentation-proposal-bulk-confirm').click();
+        assert.equal(await page.evaluate(() => testState.decisions.length), 0);
+        assert.equal(await page.evaluate(() => testState.proposals[0].status), 'pending');
+      } finally { await page.close(); }
+    });
+
+    await check('A reviewer can rename and move a proposal before acceptance, with the updated proposal version', async () => {
+      const page = await setup(browser, { proposals: [proposal('Contrat'), proposal('Destination', { type: 'folder' })] });
+      try {
+        await open(page);
+        await page.locator('[data-architecture-proposal-edit="proposal:' + space + 'Contrat' + '"]').click();
+        await page.locator('#documentation-proposal-title').fill('Contrat corrigé');
+        await page.locator('input[name="documentation-proposal-destination"][value="' + root + '"]').check();
+        await page.locator('#documentation-proposal-edit-save').click();
+        await page.waitForFunction(() => !document.getElementById('documentation-proposal-edit-dialog'));
+        assert.deepEqual(await page.evaluate(() => testState.edits), [{ ref: space + 'Contrat',
+          parameters: { title: 'Contrat corrigé', parent_ref: root, parent_proposal_ref: '' }, version: '1.1' }]);
+        assert.equal(await page.evaluate(() => testState.decisions.length), 0);
+        assert.equal(await page.evaluate(ref => architectureState.nodes['proposal:' + ref].title, space + 'Contrat'), 'Contrat corrigé');
+        assert.equal(await page.evaluate(ref => architectureState.nodes['proposal:' + ref].parentRef, space + 'Contrat'), root);
+        await page.locator('[data-architecture-proposal-decision="accept"][data-architecture-proposal-ref="proposal:' + space + 'Contrat' + '"]').click();
+        await page.waitForFunction(() => testState.decisions.length === 1 && architectureState.proposalCount === 1);
+        assert.equal(await page.evaluate(() => testState.decisions[0].version), '1.2');
+      } finally { await page.close(); }
+    });
+
+    await check('A proposed folder cannot be moved into itself or its descendants, but can move under another proposed folder', async () => {
+      const page = await setup(browser, { proposals: [
+        proposal('Source', { type: 'folder' }),
+        proposal('Child', { type: 'folder', 'parent-proposal-ref': space + 'Source' }),
+        proposal('Destination', { type: 'folder' })
+      ] });
+      try {
+        await open(page);
+        await page.locator('[data-architecture-proposal-edit="proposal:' + space + 'Source' + '"]').click();
+        for (const name of ['Source', 'Child']) {
+          const target = page.locator('input[name="documentation-proposal-destination"][value="proposal:' + space + name + '"]');
+          assert.ok(await target.count() === 0 || await target.isDisabled(), 'a proposal cannot target itself or its descendants');
+        }
+        await page.locator('input[name="documentation-proposal-destination"][value="proposal:' + space + 'Destination' + '"]').check();
+        await page.locator('#documentation-proposal-edit-save').click();
+        await page.waitForFunction(() => !document.getElementById('documentation-proposal-edit-dialog'));
+        const edit = await page.evaluate(() => testState.edits[0]);
+        assert.equal(edit.parameters.parent_proposal_ref, space + 'Destination');
+        assert.equal(await page.evaluate(ref => architectureState.nodes['proposal:' + ref].parentRef, space + 'Source'), 'proposal:' + space + 'Destination');
+        assert.equal(await page.evaluate(ref => architectureState.nodes['proposal:' + ref].parentRef, space + 'Child'), 'proposal:' + space + 'Source');
+      } finally { await page.close(); }
+    });
+
+    await check('A server refusal keeps the proposal editor open and leaves the displayed proposal unchanged', async () => {
+      const page = await setup(browser, { proposals: [proposal('Contrat')] });
+      try {
+        await open(page);
+        await page.evaluate(() => { testState.editFailure = 'Cette proposition a changé. Rechargez-la.'; });
+        await page.locator('[data-architecture-proposal-edit="proposal:' + space + 'Contrat' + '"]').click();
+        await page.locator('#documentation-proposal-title').fill('Modification concurrente');
+        await page.locator('#documentation-proposal-edit-save').click();
+        await page.waitForFunction(() => !document.getElementById('documentation-proposal-edit-save').disabled);
+        assert.match(await page.locator('#documentation-proposal-edit-status').innerText(), /changé/);
+        assert.equal(await page.evaluate(ref => architectureState.nodes['proposal:' + ref].title, space + 'Contrat'), 'Contrat');
+        assert.equal(await page.evaluate(() => testState.decisions.length), 0);
+      } finally { await page.close(); }
+    });
+
+    await check('Pending metadata and content changes can also be renamed and moved before validation', async () => {
+      for (const operation of ['modify', 'content']) {
+        const page = await setup(browser, { proposals: [proposal('Modification', { operation, 'source-ref': existing })] });
+        try {
+          await open(page);
+          await page.locator('[data-architecture-proposal-edit="proposal:' + space + 'Modification' + '"]').click();
+          await page.locator('#documentation-proposal-title').fill('Document révisé');
+          await page.locator('input[name="documentation-proposal-destination"][value="' + root + '"]').check();
+          await page.locator('#documentation-proposal-edit-save').click();
+          await page.waitForFunction(() => !document.getElementById('documentation-proposal-edit-dialog'));
+          assert.deepEqual(await page.evaluate(() => testState.edits[0]), { ref: space + 'Modification',
+            parameters: { title: 'Document révisé', parent_ref: root, parent_proposal_ref: '' }, version: '1.1' });
+          assert.equal(await page.evaluate(ref => architectureState.nodes['proposal:' + ref].operation, space + 'Modification'), operation);
+          assert.equal(await page.evaluate(() => testState.decisions.length), 0);
+        } finally { await page.close(); }
+      }
+    });
+
+    await check('An author can edit their own pending proposal without receiving edit rights over another author’s proposal', async () => {
+      const page = await setup(browser, { reviewer: false, proposals: [
+        proposal('Mine', { 'can-edit': 'true' }), proposal('SomeoneElse', { 'can-edit': 'false' })
+      ] });
+      try {
+        await open(page);
+        assert.equal(await page.locator('[data-architecture-proposal-edit]').count(), 1);
+        assert.equal(await page.locator('[data-architecture-proposal-bulk], [data-architecture-proposal-decision="accept"]').count(), 0);
+        await page.locator('[data-architecture-proposal-edit="proposal:' + space + 'Mine' + '"]').click();
+        await page.locator('#documentation-proposal-title').fill('Mon titre corrigé');
+        await page.locator('#documentation-proposal-edit-save').click();
+        await page.waitForFunction(() => !document.getElementById('documentation-proposal-edit-dialog'));
+        assert.deepEqual(await page.evaluate(() => testState.edits.map(item => item.ref)), [space + 'Mine']);
+        assert.equal(await page.evaluate(ref => architectureState.nodes['proposal:' + ref].title, space + 'SomeoneElse'), 'SomeoneElse');
       } finally { await page.close(); }
     });
 
@@ -441,6 +728,36 @@ async function deleteInUI(page, mode) {
         }
         assert.equal(await page.evaluate(() => testWorkflow.requests.filter(request => /^(restaurer|valider|refuser) proposition$/.test(request.action)).length), 1);
       } finally { await page.close(); }
+    });
+
+    await check('Proposal editing sends its current version, destination and CSRF token, while readers cannot submit it', async () => {
+      for (const grants of [{ review: true }, { propose: true }, { import: true }, {}]) {
+        const page = await workflowPage(browser, grants);
+        try {
+          const message = await page.evaluate(async ({ ref, destination }) => {
+            try {
+              await DocPropositions.updateProposal(ref, { title: 'Titre révisé', parent_ref: destination, parent_proposal_ref: '' }, '2.4');
+              return '';
+            } catch (error) { return error.message; }
+          }, { ref: space + 'Contrat', destination: root });
+          const posts = await page.evaluate(() => testWorkflow.requests.filter(item => item.action === 'modifier proposition'));
+          if (Object.keys(grants).length) {
+            assert.equal(message, '');
+            assert.equal(posts.length, 1);
+            assert.equal(posts[0].method, 'POST');
+            assert.equal(posts[0].credentials, 'same-origin');
+            assert.equal(posts[0].values.form_token, 'test-csrf');
+            assert.equal(posts[0].values.proposal_ref, space + 'Contrat');
+            assert.equal(posts[0].values.version, '2.4');
+            assert.equal(posts[0].values.title, 'Titre révisé');
+            assert.equal(posts[0].values.parent_ref, root);
+            assert.equal(posts[0].values.parent_proposal_ref, '');
+          } else {
+            assert.match(message, /droit|autoris|modifi/i);
+            assert.equal(posts.length, 0);
+          }
+        } finally { await page.close(); }
+      }
     });
 
     await check('An administrator without action grants can configure settings but cannot create, import, move, edit, propose, validate or delete', async () => {
@@ -1076,6 +1393,180 @@ async function deleteInUI(page, mode) {
           assert.equal(result.requests[0].values.mode, 'direct');
           assert.equal(result.refreshes, 1);
           assert.deepEqual(result.alerts, []);
+        } finally { await page.close(); }
+      }
+    });
+
+    await check('Deleting a folder outside Architecture displays its complete nested tree, and cancelling sends no deletion', async () => {
+      const nested = folder.replace(/WebHome$/, 'Sous.WebHome');
+      const deep = nested.replace(/WebHome$/, 'Contrat.WebHome');
+      const detached = folder.replace(/WebHome$/, 'Physique.WebHome');
+      const unrelated = root.replace(/WebHome$/, 'Autre.WebHome');
+      const page = await workflowPage(browser, { delete: true });
+      try {
+        await addExplorerUI(page);
+        await setDeletionArchitecture(page, [
+          { ref: root, type: 'root', title: 'Documentation', 'parent-ref': '' },
+          { ref: folder, type: 'folder', title: 'RH', 'parent-ref': root },
+          { ref: existing, type: 'document', title: 'Guide existant', 'parent-ref': folder },
+          { ref: nested, type: 'folder', title: 'Sous-dossier', 'parent-ref': folder },
+          { ref: deep, type: 'document', title: 'Contrat profond', 'parent-ref': nested },
+          { ref: detached, type: 'document', title: 'Enfant déplacé dans le classement', 'parent-ref': root },
+          { ref: unrelated, type: 'document', title: 'Hors suppression', 'parent-ref': root }
+        ]);
+        await startFolderDeletion(page, [{ ref: folder, title: 'RH', type: 'folder' }, { ref: deep, title: 'Contrat profond', type: 'document' }]);
+        const modal = page.locator('#explorer-delete-confirmation-modal');
+        await modal.waitFor();
+        assert.deepEqual((await modal.locator('[data-delete-ref]').evaluateAll(rows => rows.map(row => row.getAttribute('data-delete-ref')))).sort(),
+          [folder, existing, nested, deep, detached].sort());
+        assert.match(await modal.locator('#explorer-delete-confirmation-summary').innerText(), /5/);
+        assert.equal(await modal.locator('[data-delete-ref="' + unrelated + '"]').count(), 0);
+        assert.equal(await page.evaluate(() => testWorkflow.requests.filter(item => item.action === 'supprimer element').length), 0);
+        assert.equal(await page.locator('#explorer-delete-confirmation-cancel').evaluate(element => document.activeElement === element), true);
+        await page.locator('#explorer-delete-confirmation-cancel').click();
+        await page.evaluate(() => testDeletion);
+        assert.equal(await modal.count(), 0);
+        assert.equal(await page.evaluate(() => testWorkflow.requests.filter(item => item.action === 'supprimer element').length), 0);
+        assert.equal(await page.evaluate(() => testWorkflow.refreshes), 0);
+        assert.equal(await page.locator('.explorer-row').count(), 1);
+      } finally { await page.close(); }
+    });
+
+    await check('Confirming folder deletion removes the selected ancestor once, with CSRF and its current version', async () => {
+      const page = await workflowPage(browser, { delete: true });
+      try {
+        await addExplorerUI(page);
+        await startFolderDeletion(page, [{ ref: folder, title: 'RH', type: 'folder' }, { ref: existing, title: 'Guide existant', type: 'document' }]);
+        await page.locator('#explorer-delete-confirmation-modal').waitFor();
+        assert.equal(await page.locator('#explorer-delete-confirmation-tree [data-delete-ref]').count(), 2);
+        assert.equal(await page.evaluate(() => testWorkflow.requests.filter(item => item.action === 'supprimer element').length), 0);
+        await page.locator('#explorer-delete-confirmation-confirm').click();
+        await page.evaluate(() => testDeletion);
+        const posts = await page.evaluate(() => testWorkflow.requests.filter(item => item.action === 'supprimer element'));
+        assert.equal(posts.length, 1);
+        assert.equal(posts[0].values.source_ref, folder);
+        assert.equal(posts[0].values.form_token, 'test-csrf');
+        assert.equal(posts[0].values.base_version, '3.7');
+        assert.equal(posts[0].values.delete_snapshot, folder + '@3.7\n' + existing + '@3.7');
+        assert.equal(posts[0].values.mode, 'direct');
+        assert.equal(await page.evaluate(() => testWorkflow.refreshes), 1);
+      } finally { await page.close(); }
+    });
+
+    await check('Architecture also confirms folder descendants and posts the exact preview snapshot', async () => {
+      const page = await workflowPage(browser, { delete: true });
+      try {
+        await addExplorerUI(page);
+        await open(page, '');
+        await page.evaluate(ref => {
+          architectureState.selected[ref] = true;
+          renderArchitectureTree();
+          window.testDeletion = deleteArchitectureSelection(document.getElementById('box'));
+        }, folder);
+        await page.locator('#explorer-delete-confirmation-modal').waitFor();
+        assert.equal(await page.locator('#explorer-delete-confirmation-tree [data-delete-ref]').count(), 2);
+        await page.locator('#explorer-delete-confirmation-confirm').click();
+        await page.evaluate(() => testDeletion);
+        const posts = await page.evaluate(() => testWorkflow.requests.filter(item => item.action === 'supprimer element'));
+        assert.equal(posts.length, 1);
+        assert.equal(posts[0].values.source_ref, folder);
+        assert.equal(posts[0].values.base_version, '3.7');
+        assert.equal(posts[0].values.delete_snapshot, folder + '@3.7\n' + existing + '@3.7');
+        assert.equal(await page.evaluate(() => testWorkflow.refreshes), 1);
+      } finally { await page.close(); }
+    });
+
+    await check('Escape cancels folder deletion while leaving Architecture and its selection open', async () => {
+      const page = await workflowPage(browser, { delete: true });
+      try {
+        await addExplorerUI(page);
+        await open(page, '');
+        await page.evaluate(ref => {
+          architectureState.selected[ref] = true;
+          renderArchitectureTree();
+          window.testDeletion = deleteArchitectureSelection(document.getElementById('box'));
+        }, folder);
+        await page.locator('#explorer-delete-confirmation-modal').waitFor();
+        await page.keyboard.press('Escape');
+        await page.evaluate(() => testDeletion);
+        assert.equal(await page.locator('#explorer-delete-confirmation-modal').count(), 0);
+        assert.equal(await page.locator('#explorer-architecture-modal').count(), 1);
+        assert.equal(await page.evaluate(ref => architectureState.selected[ref], folder), true);
+        assert.equal(await page.evaluate(() => testWorkflow.requests.filter(item => item.action === 'supprimer element').length), 0);
+      } finally { await page.close(); }
+    });
+
+    await check('An unavailable, incomplete or malformed deletion tree blocks folder deletion before confirmation', async () => {
+      for (const response of [
+        { status: 503, body: 'Unavailable' },
+        { status: 200, body: '<div id="deletion-preview-data" data-ref="' + folder + '" data-complete="false"></div>' },
+        { status: 200, body: '<div id="deletion-preview-data" data-ref="' + folder + '" data-complete="true"></div>' },
+        { status: 200, body: '<html><h1>Failed Velocity macro</h1><pre>org.xwiki.MacroExecutionException</pre></html>' }
+      ]) {
+        const page = await workflowPage(browser, { delete: true });
+        try {
+          await addExplorerUI(page);
+          await page.evaluate(response => { testWorkflow.responses['apercu suppression'] = response; }, response);
+          await startFolderDeletion(page);
+          await page.evaluate(() => testDeletion);
+          assert.equal(await page.locator('#explorer-delete-confirmation-modal').count(), 0);
+          assert.equal(await page.evaluate(() => testWorkflow.requests.filter(item => item.action === 'supprimer element').length), 0);
+          const alerts = await page.evaluate(() => testWorkflow.alerts.join('\n'));
+          assert.ok(alerts.length > 0 && alerts.length < 500);
+          assert.doesNotMatch(alerts, /ERREUR_|Exception|org\.xwiki|Failed Velocity/);
+        } finally { await page.close(); }
+      }
+    });
+
+    await check('Revoking delete rights while the folder confirmation is open blocks deletion on confirmation', async () => {
+      const page = await workflowPage(browser, { delete: true, configure: true });
+      try {
+        await addExplorerUI(page);
+        await startFolderDeletion(page);
+        await page.locator('#explorer-delete-confirmation-modal').waitFor();
+        await page.evaluate(async () => { testWorkflow.granted.delete = false; await DocPropositions.openSettings(); });
+        await page.getByRole('dialog', { name: 'Paramètres de la documentation' }).getByRole('button', { name: 'Fermer', exact: true }).click();
+        await page.locator('#explorer-delete-confirmation-confirm').click();
+        await page.evaluate(() => testDeletion);
+        assert.equal(await page.evaluate(() => testWorkflow.requests.filter(item => item.action === 'supprimer element').length), 0);
+        assert.equal(await page.evaluate(() => testWorkflow.refreshes), 0);
+        assert.equal(await page.locator('.explorer-row').count(), 1);
+      } finally { await page.close(); }
+    });
+
+    await check('A refused folder deletion keeps both views intact after the complete snapshot was confirmed', async () => {
+      for (const mode of ['explorer', 'architecture']) {
+        const page = await workflowPage(browser, { delete: true });
+        try {
+          await addExplorerUI(page);
+          await page.evaluate(() => { testWorkflow.responses['supprimer element'] = {
+            body: '<div id="documentation-error" data-message="Le dossier a changé depuis l’aperçu. Rechargez-le.">ERREUR_CONFLIT_VERSION</div>'
+          }; });
+          if (mode === 'architecture') {
+            await open(page, '');
+            await page.evaluate(ref => {
+              architectureState.selected[ref] = true;
+              renderArchitectureTree();
+              window.testDeletion = deleteArchitectureSelection(document.getElementById('box'));
+            }, folder);
+          } else await startFolderDeletion(page);
+          await page.locator('#explorer-delete-confirmation-modal').waitFor();
+          const architectureReads = await page.evaluate(() => testWorkflow.requests.filter(item => item.action === 'architecture').length);
+          await page.locator('#explorer-delete-confirmation-confirm').click();
+          await page.evaluate(() => testDeletion);
+          const result = await page.evaluate(() => ({
+            posts: testWorkflow.requests.filter(item => item.action === 'supprimer element'),
+            reads: testWorkflow.requests.filter(item => item.action === 'architecture').length,
+            alerts: testWorkflow.alerts.join('\n'), refreshes: testWorkflow.refreshes
+          }));
+          assert.equal(result.posts.length, 1);
+          assert.equal(result.posts[0].values.delete_snapshot, folder + '@3.7\n' + existing + '@3.7');
+          assert.equal(result.reads, architectureReads);
+          assert.equal(result.refreshes, 0);
+          assert.match(result.alerts, /changé/);
+          assert.doesNotMatch(result.alerts, /ERREUR_|Exception|org\.xwiki|supprimé avec succès/);
+          if (mode === 'architecture') assert.equal(await page.evaluate(ref => architectureState.selected[ref] && !!architectureState.nodes[ref], folder), true);
+          else assert.equal(await page.locator('.explorer-row').count(), 1);
         } finally { await page.close(); }
       }
     });

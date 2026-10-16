@@ -41,6 +41,7 @@
         ERREUR_DESTINATION_DANS_SOURCE:"Un dossier ne peut pas être déplacé dans lui-même.",
         ERREUR_DEPLACEMENT_IDENTIQUE:"Cet élément se trouve déjà dans ce dossier.",
         ERREUR_DEPENDANCE_PROPOSITION:"Le dossier proposé doit d’abord être validé.",
+        ERREUR_CYCLE_PROPOSITION:"Ce déplacement créerait une boucle entre les dossiers proposés.",
         ERREUR_IMPORT_OFFICE:"Le fichier Word n’a pas pu être converti. Contactez un administrateur.",
         ERREUR_DOCUMENT_MANQUANT:"Choisissez un fichier non vide de moins de 50 Mo.",
         ERREUR_FORMAT_DOCUMENT:"Le format du fichier n’est pas accepté.",
@@ -81,6 +82,7 @@
         "modifier contenu document":["CONTENU_OK", "PROPOSITION_OK"],
         "enregistrer parametres":["PARAMETRES_OK"],
         "valider proposition":["PROPOSITION_VALIDEE_OK"],
+        "modifier proposition":["PROPOSITION_MODIFIEE_OK"],
         "refuser proposition":["PROPOSITION_REFUSEE_OK"],
         "restaurer proposition":["PROPOSITION_RESTAUREE_OK"],
         "purger corbeille":["CORBEILLE_PURGEE_OK"]
@@ -150,6 +152,14 @@
         notify(decision === "reject" ? "La proposition a été placée dans la corbeille pour sept jours." :
             decision === "restore" ? "La proposition est de nouveau en attente." : "Cette partie de la proposition a été validée.");
         return result;
+    }
+    async function updateProposal(ref, parameters, version) {
+        await ready;
+        if (!can("review") && !can("propose") && !can("import"))
+            throw new Error("Vous n’avez pas le droit de modifier cette proposition.");
+        return request("modifier proposition", Object.assign({}, parameters, {
+            proposal_ref:ref, version:version || ""
+        }));
     }
     function applyPermissions() {
         var settings = document.getElementById("doc-settings");
@@ -278,7 +288,7 @@
             }; view.footer.appendChild(save);
         } catch(error) { view.status.textContent=errorMessage(error); }
     }
-    window.DocPropositions = {ready:ready,can:can,modeFor:modeFor,request:request,proposalAction:proposalAction,
+    window.DocPropositions = {ready:ready,can:can,modeFor:modeFor,request:request,proposalAction:proposalAction,updateProposal:updateProposal,
         postActionParameters:postActionParameters,beginBatch:beginBatch,endBatch:endBatch,batchId:function(){return batch;},
         applyPermissions:applyPermissions,openSettings:openSettings,openContentEditor:openContentEditor,notify:notify,
         responseError:responseError,errorMessage:errorMessage};

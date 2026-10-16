@@ -93,3 +93,29 @@
 .doc-permissions-table input { width:17px; height:17px; }
 
 .doc-propositions-toolbar [hidden], #box [hidden], #explorer-architecture-modal [hidden] { display:none !important; }
+
+.architecture-review-mode .architecture-row { flex-wrap:wrap; }
+.documentation-proposal-dialog { width:min(760px,95vw); }
+.documentation-proposal-dialog > [role="status"] { margin-top:14px; overflow-wrap:anywhere; }
+.documentation-proposal-bulk-list { max-height:45vh; padding-inline-start:26px; overflow:auto; }
+.documentation-proposal-bulk-list li { padding:7px 0; border-bottom:1px solid #e2e8f0; overflow-wrap:anywhere; }
+.documentation-proposal-bulk-list li span { display:block; font-size:12px; margin-top:3px; }
+.documentation-proposal-result-error { color:#922e25; }
+.documentation-proposal-result-success { color:#23603e; }
+.documentation-proposal-destinations { margin-top:18px; padding:12px; border:1px solid #cbd5e1; }
+.documentation-proposal-destinations legend { width:auto; margin:0; padding:0 6px; border:0; font-size:16px; }
+.documentation-proposal-destination-tree { max-height:42vh; overflow:auto; }
+.documentation-proposal-destination-tree,
+.documentation-proposal-destination-tree ul { list-style:none; margin:0; padding-inline-start:18px; }
+.documentation-proposal-destination-tree { padding-inline-start:0; }
+.doc-propositions-dialog-body .documentation-proposal-destination-tree label {
+    display:flex; align-items:center; gap:8px; margin:3px 0; padding:6px; border:1px solid transparent; border-radius:4px;
+}
+.documentation-proposal-destination-tree label:has(input:checked) { border-color:#6b7f99; background:#edf3fb; }
+.documentation-proposal-destination-tree input { margin:0; flex-shrink:0; }
+.documentation-proposal-destination-proposed > label { background:#fff7db; color:#684708; }
+.documentation-proposal-destination-tree label:focus-within { outline:2px solid #2465a8; outline-offset:1px; }
+@media (max-width:700px) {
+    .architecture-review-mode .architecture-proposal-actions { width:100%; }
+    .doc-propositions-dialog-actions { flex-wrap:wrap; }
+}

@@ -16,6 +16,8 @@ public class DocumentationVelocityTest {
   static final String CONFIG_CLASS = "TestPage.PAGE.doc-test.CODE.docConfigurationClass.WebHome";
   static final String PROPOSAL_CLASS = "TestPage.PAGE.doc-test.CODE.docPropositionClass.WebHome";
   static final String DOCUMENT_CLASS = "TestPage.PAGE.Doc.CODE.docClass.WebHome";
+  static final String CONTENT_CLASS = "TestPage.PAGE.doc-test.CODE.docContentClass.WebHome";
+  static final String CONTENT_RENDERER = "TestPage.PAGE.doc-test.CODE.DocumentContent";
   static final String MAIN = "TestPage.PAGE.doc-test.WebHome";
   static final String PROPOSALS = "TestPage.PAGE.doc-test.PROPOSITIONS";
   static final String TRASH = "TestPage.PAGE.doc-test.CORBEILLE";
@@ -79,6 +81,7 @@ public class DocumentationVelocityTest {
         properties.put(name, new Definition(type));
       }
     }
+    Schema(String field, String type) { properties.put(field, new Definition(type)); }
     public Definition get(String name) { return properties.get(name); }
     public List<String> getEnabledPropertyNames() { return properties.entrySet().stream().filter(entry -> !entry.getValue().disabled).map(Map.Entry::getKey).toList(); }
   }
@@ -94,7 +97,7 @@ public class DocumentationVelocityTest {
     public Obj getObject(String name) { return name.equals(CONFIG_CLASS) ? configurationObjectPresent ? configuration : null : objects.getOrDefault(name, List.of()).stream().findFirst().orElse(null); }
     public Obj newObject(String name) {
       if (name.equals(CONFIG_CLASS)) { configurationObjectPresent = true; return configuration; }
-      Obj value = new Obj(name.equals(PROPOSAL_CLASS) ? owner.proposalSchema : null); objects.computeIfAbsent(name, ignored -> new ArrayList<>()).add(value); return value;
+      Obj value = new Obj(name.equals(PROPOSAL_CLASS) ? owner.proposalSchema : name.equals(CONTENT_CLASS) ? owner.contentSchema : null); objects.computeIfAbsent(name, ignored -> new ArrayList<>()).add(value); return value;
     }
     public List<Obj> getObjects(String name) { return new ArrayList<>(objects.getOrDefault(name, List.of())); }
     public boolean removeObject(Obj value) { return objects.values().stream().anyMatch(values -> values.remove(value)); }
@@ -138,20 +141,26 @@ public class DocumentationVelocityTest {
   }
   public static class Wiki {
     final Schema proposalSchema = new Schema();
+    final Schema contentSchema = new Schema("source", "TextArea");
     final Doc config = new Doc(this, "TestPage.PAGE.doc-test.CODE.Configuration.WebHome");
     final Map<String, Doc> docs = new LinkedHashMap<>();
     final List<String> deleted = new ArrayList<>();
     final Upload upload = new Upload();
     int unique;
     boolean admin, serviceAdmin = true, visible = true, nativeEdit, nativeDelete, readableConfiguration = true, configurationExists = true;
+    boolean rendererAvailable = true, rendererEmpty;
+    final Set<String> hiddenRefs = new HashSet<>();
     public Extensions getJsx() { return new Extensions(); }
     public Extensions getSsx() { return new Extensions(); }
     public Upload getFileupload() { return upload; }
     public boolean hasWikiAdminRights() { return admin; }
     public boolean hasAccessLevel(String level, String user, String ref) {
-      return switch (level) { case "admin" -> user.equals("XWiki.ScriptAuthor") ? serviceAdmin : admin; case "view" -> visible; case "edit" -> nativeEdit; case "delete" -> nativeDelete; default -> false; };
+      return switch (level) { case "admin" -> user.equals("XWiki.ScriptAuthor") ? serviceAdmin : admin; case "view" -> visible && !hiddenRefs.contains(ref); case "edit" -> nativeEdit; case "delete" -> nativeDelete; default -> false; };
     }
     public Doc getDocumentAsAuthor(String ref) {
+      if (ref.equals(CONTENT_RENDERER) && rendererAvailable) {
+        Doc renderer = new Doc(null, CONTENT_RENDERER); renderer.content = rendererEmpty ? "  \n" : "{{velocity}}renderer{{/velocity}}"; return renderer;
+      }
       if (ref.equals("TestPage.PAGE.doc-test.CODE.Configuration.WebHome")) {
         if (!readableConfiguration) return null;
         if (configurationExists) return config;
@@ -200,7 +209,7 @@ public class DocumentationVelocityTest {
   public static class Refactoring {
     final Wiki wiki;
     int deleteCalls, moveCalls;
-    boolean failDelete;
+    boolean failDelete, partialMove, partialDelete;
     Refactoring(Wiki wiki) { this.wiki = wiki; }
     public RequestFactory getRequestFactory() { return new RequestFactory(); }
     public RefactoringJob delete(RefactoringRequest request) { deleteCalls++; return new RefactoringJob(this, request); }
@@ -208,13 +217,19 @@ public class DocumentationVelocityTest {
   }
   public static class RefactoringJob {
     final Refactoring service; final RefactoringRequest request;
+    final JobStatus status = new JobStatus();
     RefactoringJob(Refactoring service, RefactoringRequest request) { this.service = service; this.request = request; }
+    public JobStatus getStatus() { return status; }
     public void join() {
       if (request.target == null && service.failDelete) return;
       String from = request.sources.get(0).toString(), prefix = from.substring(0, from.length() - 8) + ".";
       for (Doc value : new ArrayList<>(service.wiki.docs.values())) {
         if (!value.reference.equals(from) && (!request.deep || !value.reference.startsWith(prefix))) continue;
-        if (request.target == null) value.deleteAsAuthor();
+        if (request.target != null && service.partialMove && !value.reference.equals(from)) { status.events.add(new LogEvent("ERROR")); continue; }
+        if (request.target == null) {
+          if (service.partialDelete && !value.reference.equals(from)) { status.events.add(new LogEvent("ERROR")); continue; }
+          value.deleteAsAuthor();
+        }
         else {
           service.wiki.docs.remove(value.reference);
           String target = request.target.toString(), targetPrefix = target.substring(0, target.length() - 8) + ".";
@@ -226,6 +241,16 @@ public class DocumentationVelocityTest {
         }
       }
     }
+  }
+  public static class JobStatus {
+    final List<LogEvent> events = new ArrayList<>();
+    public Object getError() { return null; }
+    public List<LogEvent> getLogTail() { return events; }
+  }
+  public static class LogEvent {
+    final String level;
+    LogEvent(String level) { this.level = level; }
+    public String getLevel() { return level; }
   }
   public static class Extensions {
     public boolean use(String reference) { return true; }
@@ -256,10 +281,20 @@ public class DocumentationVelocityTest {
   }
   public static class Queries {
     final Wiki wiki;
+    String query = ""; int limit;
+    final Map<String, Object> parameters = new HashMap<>();
     Queries(Wiki wiki) { this.wiki = wiki; }
-    public Queries hql(String query) { return this; }
-    public Queries bindValue(String name, Object value) { return this; }
-    public List<String> execute() { return new ArrayList<>(wiki.docs.keySet()); }
+    public Queries hql(String query) { this.query = query; parameters.clear(); limit = 0; return this; }
+    public Queries bindValue(String name, Object value) { parameters.put(name, value); return this; }
+    public Queries setLimit(int value) { limit = value; return this; }
+    public List<String> execute() {
+      if (!parameters.containsKey("deletionSpace")) return new ArrayList<>(wiki.docs.keySet());
+      String space = String.valueOf(parameters.get("deletionSpace"));
+      return wiki.docs.keySet().stream().filter(ref -> {
+        String candidateSpace = ref.substring(0, ref.lastIndexOf('.'));
+        return candidateSpace.equals(space) || candidateSpace.startsWith(space + ".");
+      }).sorted().limit(limit > 0 ? limit : Long.MAX_VALUE).toList();
+    }
   }
   public static class Request {
     String action = "", method = "GET";
@@ -340,6 +375,12 @@ public class DocumentationVelocityTest {
       request.action = action; request.method = "GET";
       return renderPage("COMMANDE.xwiki");
     }
+    String deletionSnapshot(String ref) throws Exception {
+      request.params.clear(); request.params.put("source_ref", ref);
+      list("apercu suppression");
+      check(Boolean.TRUE.equals(context.get("deletionComplete")), "Deletion preview must be exhaustive for " + ref + ": " + context.get("deletionMessage"));
+      return String.valueOf(context.get("deletionSnapshot"));
+    }
     String post(String action, String... pairs) throws Exception {
       request.action = action; request.method = "POST"; request.params.clear(); request.params.put("form_token", "test-token");
       for (int index = 0; index < pairs.length; index += 2) request.params.put(pairs[index], pairs[index + 1]);
@@ -384,6 +425,14 @@ public class DocumentationVelocityTest {
     Map<String, Integer> values = new LinkedHashMap<>();
     f.wiki.docs.forEach((reference, value) -> values.put(reference, value.revision));
     return values;
+  }
+  static String stage(Fixture f, String action, String... pairs) throws Exception {
+    String result = f.post(action, pairs);
+    check(result.equals("PROPOSITION_OK"), "Proposal fixture must be staged: " + result);
+    return String.valueOf(f.context.get("resultProposalRef"));
+  }
+  static String amend(Fixture f, String ref, String title, String parent, String parentProposal) throws Exception {
+    return f.post("modifier proposition", "proposal_ref", ref, "version", f.wiki.docs.get(ref).getVersion(), "title", title, "parent_ref", parent, "parent_proposal_ref", parentProposal);
   }
   static void invalidOrEmptyConfiguration(Fixture f, String state) {
     switch (state) {
@@ -867,7 +916,7 @@ public class DocumentationVelocityTest {
       f = operationFixture("deleteGroups"); f.wiki.admin = nativeAdministrator;
       f.wiki.docs.get(GUIDE).getObject(DOCUMENT_CLASS).set("type", "folder");
       Doc descendant = f.document("TestPage.PAGE.doc-test.Guide.Enfant.WebHome", "document", "Enfant"); descendant.parent = GUIDE;
-      result = f.post("supprimer element", "source_ref", GUIDE, "mode", "proposal");
+      result = f.post("supprimer element", "source_ref", GUIDE, "mode", "proposal", "delete_snapshot", f.deletionSnapshot(GUIDE));
       check(result.equals("SUPPRESSION_OK") && !f.wiki.docs.containsKey(GUIDE) && !f.wiki.docs.containsKey(descendant.reference), "Authorized deletion must directly remove the native folder and descendant even with a legacy proposal mode: " + result);
       check(f.refactoring.deleteCalls == 1 && !f.can("Propose"), "Delete-only group needs no proposal permission, including for administrators");
     }
@@ -949,6 +998,182 @@ public class DocumentationVelocityTest {
     check(child.getObject(DOCUMENT_CLASS).getValue("id").equals(movedChild), "Descendant id must match its native reference");
     check(child.content.equals("Contenu conservé") && foreign.getObject(DOCUMENT_CLASS).getValue("id").equals("à conserver"), "Updating identifiers must preserve content and ignore foreign pages");
     done("Native moves retain correct docClass identifiers for the folder and its descendants");
+    f = operationFixture("proposeGroups");
+    String editable = stage(f, "ajouter un document", "type", "document", "page", MAIN, "nom_fichier", "Avant", "content", "Contenu privé");
+    Doc editableDoc = f.wiki.docs.get(editable); String staleEditVersion = editableDoc.getVersion();
+    Map<String, Integer> publishedBeforeEdit = revisions(f);
+    result = amend(f, editable, "Après", TARGET, "");
+    check(result.equals("PROPOSITION_MODIFIEE_OK"), "The current author with Propose must be able to amend a pending document: " + result);
+    Obj editableObject = editableDoc.getObject(PROPOSAL_CLASS);
+    check(editableObject.getValue("title").equals("Après") && editableObject.getValue("parentRef").equals(TARGET) && editableObject.getValue("status").equals("pending"), "An amendment must store the new title and target without accepting");
+    check(editableObject.getValue("author").equals("XWiki.Alice") && editableObject.getValue("content").equals("Contenu privé"), "Editing placement must preserve the original contributor and proposed source");
+    for (String ref : publishedBeforeEdit.keySet()) if (!ref.equals(editable)) check(f.wiki.docs.get(ref).revision == publishedBeforeEdit.get(ref), "Amendments cannot change a published document");
+    check(f.list("propositions").contains("data-can-edit=\"true\""), "Authors must receive the server-calculated amend permission");
+    result = f.post("modifier proposition", "proposal_ref", editable, "version", staleEditVersion, "title", "Obsolète", "parent_ref", MAIN);
+    check(result.equals("ERREUR_CONFLIT_VERSION") && editableObject.getValue("title").equals("Après"), "A stale amendment must not overwrite a newer title");
+    done("Authors amend pending titles and placement without publishing, and stale versions are rejected");
+
+    f.user.user = new Ref("xwiki", "XWiki.Bob");
+    check(amend(f, editable, "Autre auteur", MAIN, "").equals("ERREUR_DROITS"), "A proposer cannot amend someone else's submission");
+    check(!f.list("propositions").contains("data-ref=\"" + editable + "\""), "An unrelated author cannot list another person's private submission");
+    f.user.user = new Ref("xwiki", "XWiki.Alice"); f.wiki.config.configuration.set("proposeGroups", ""); f.wiki.admin = true;
+    check(amend(f, editable, "Droit révoqué", MAIN, "").equals("ERREUR_DROITS"), "Revoking Propose must also revoke amendment rights, including for native admins");
+    f.user.user = new Ref("xwiki", "XWiki.Bob"); f.group("reviewGroups", "XWiki.Validators");
+    check(amend(f, editable, "Titre validateur", TARGET, "").equals("PROPOSITION_MODIFIEE_OK"), "A validator-only account can amend any pending submission");
+    result = f.post("valider proposition", "proposal_ref", editable, "version", editableDoc.getVersion());
+    check(result.equals("PROPOSITION_VALIDEE_OK"), "An amended creation must still validate: " + result);
+    Doc editedPublished = f.wiki.docs.get(String.valueOf(f.context.get("resultRef")));
+    check(editedPublished.reference.startsWith("TestPage.PAGE.doc-test.Cible.") && editedPublished.getObject(DOCUMENT_CLASS).getValue("nom").equals("Titre validateur"), "Acceptance must use the corrected title and target");
+    check(editedPublished.getObject(DOCUMENT_CLASS).getValue("createur").equals("XWiki.Alice"), "Acceptance must preserve the initial contributor");
+    check(amend(f, editable, "Déjà accepté", MAIN, "").equals("ERREUR_ETAT_PROPOSITION"), "Accepted submissions cannot be amended");
+    done("Amendment permissions distinguish authors, validators, revoked grants and accepted submissions");
+
+    f = operationFixture("importGroups");
+    String editableImport = stage(f, importOperation.action, importOperation.parameters);
+    check(amend(f, editableImport, "Import corrigé", TARGET, "").equals("PROPOSITION_MODIFIEE_OK"), "Importer-only authors may amend their own import");
+    check(f.wiki.docs.get(editableImport).attachments.containsKey("guide.txt"), "Amending an import preserves its private attachment");
+    f.wiki.config.configuration.set("importGroups", ""); f.group("proposeGroups", "XWiki.Contributors");
+    check(amend(f, editableImport, "Import renommé", TARGET, "").equals("PROPOSITION_MODIFIEE_OK"), "An author retaining Propose may amend their own earlier import");
+    done("Importer-only authors can rename and relocate imports while keeping private attachments");
+
+    f = operationFixture("proposeGroups");
+    String proposedFolder = stage(f, "ajouter un fichier", "type", "folder", "page", MAIN, "nom_fichier", "Parent");
+    String proposedChild = stage(f, "ajouter un fichier", "type", "folder", "page", TARGET, "parent_proposal_ref", proposedFolder, "nom_fichier", "Enfant");
+    check(f.wiki.docs.get(proposedChild).getObject(PROPOSAL_CLASS).getValue("parentRef").equals(MAIN), "The server must derive the published anchor from the actual proposed parent");
+    String proposedGrandchild = stage(f, "ajouter un document", "type", "document", "page", MAIN, "parent_proposal_ref", proposedChild, "nom_fichier", "Petit-enfant", "content", "Document");
+    Map<String, Integer> beforeCycle = revisions(f);
+    check(amend(f, proposedFolder, "Parent", MAIN, proposedFolder).equals("ERREUR_CYCLE_PROPOSITION"), "A proposed folder cannot become its own parent");
+    check(amend(f, proposedFolder, "Parent", MAIN, proposedChild).equals("ERREUR_CYCLE_PROPOSITION"), "A proposed folder cannot become a child of a descendant");
+    check(revisions(f).equals(beforeCycle), "Rejected cycles must not save any page");
+    f.group("reviewGroups", "XWiki.Validators");
+    String childVersionBeforeParent = f.wiki.docs.get(proposedChild).getVersion();
+    check(f.post("valider proposition", "proposal_ref", proposedGrandchild, "version", f.wiki.docs.get(proposedGrandchild).getVersion()).equals("ERREUR_DEPENDANCE_PROPOSITION"), "Children require their proposed parent to be accepted first");
+    check(amend(f, proposedFolder, "Parent corrigé", TARGET, "").equals("PROPOSITION_MODIFIEE_OK"), "A whole pending branch can be relocated by amending its root");
+    for (String ref : List.of(proposedFolder, proposedChild, proposedGrandchild)) {
+      check(f.post("valider proposition", "proposal_ref", ref, "version", f.wiki.docs.get(ref).getVersion()).equals("PROPOSITION_VALIDEE_OK"), "A branch must validate in parent-first order: " + ref);
+      if (ref.equals(proposedFolder)) check(f.wiki.docs.get(proposedChild).getVersion().equals(childVersionBeforeParent), "Accepting a parent must not silently change children's versions");
+    }
+    Doc publishedGrandchild = f.wiki.docs.get(String.valueOf(f.context.get("resultRef")));
+    check(publishedGrandchild.reference.startsWith("TestPage.PAGE.doc-test.Cible.") && publishedGrandchild.reference.split("\\.").length == 8, "The accepted descendant must remain in the relocated branch");
+    done("Transitive cycles are blocked and relocated branches validate parent-first without rewriting children");
+
+    f = operationFixture("proposeGroups");
+    String movingProposal = stage(f, "deplacer element", "source_ref", GUIDE, "target_parent_ref", TARGET, "base_version", f.wiki.docs.get(GUIDE).getVersion());
+    check(amend(f, movingProposal, "Guide renommé", TARGET, "").equals("PROPOSITION_MODIFIEE_OK"), "A pending move may also correct its display title");
+    f.group("reviewGroups", "XWiki.Validators");
+    check(f.post("valider proposition", "proposal_ref", movingProposal, "version", f.wiki.docs.get(movingProposal).getVersion()).equals("PROPOSITION_VALIDEE_OK"), "An amended move must validate");
+    Doc movedAndRenamed = f.wiki.docs.get("TestPage.PAGE.doc-test.Cible.Guide.WebHome");
+    check(movedAndRenamed != null && movedAndRenamed.getObject(DOCUMENT_CLASS).getValue("nom").equals("Guide renommé") && movedAndRenamed.title.equals("Guide renommé"), "Native movement must apply the corrected visible title and metadata");
+    done("Accepting an amended move preserves native movement and applies the corrected visible title");
+
+    f = operationFixture("proposeGroups");
+    String renameOnly = stage(f, "deplacer element", "source_ref", GUIDE, "target_parent_ref", TARGET, "base_version", f.wiki.docs.get(GUIDE).getVersion());
+    check(amend(f, renameOnly, "Guide même dossier", MAIN, "").equals("PROPOSITION_MODIFIEE_OK"), "An amended move may return to its original parent while retaining a rename");
+    f.group("reviewGroups", "XWiki.Validators");
+    check(f.post("valider proposition", "proposal_ref", renameOnly, "version", f.wiki.docs.get(renameOnly).getVersion()).equals("PROPOSITION_VALIDEE_OK") && f.refactoring.moveCalls == 0, "A rename-only amended move does not need a native relocation");
+    check(f.wiki.docs.get(GUIDE).title.equals("Guide même dossier"), "Accepting a rename-only amendment must correct the source title");
+    done("A pending move can become a rename in the original folder");
+
+    f = operationFixture("proposeGroups"); f.wiki.docs.get(GUIDE).getObject(DOCUMENT_CLASS).set("type", "folder");
+    Doc childNotMoved = f.document("TestPage.PAGE.doc-test.Guide.Enfant.WebHome", "document", "Enfant"); childNotMoved.parent = GUIDE;
+    String partialMoveProposal = stage(f, "deplacer element", "source_ref", GUIDE, "target_parent_ref", TARGET, "base_version", f.wiki.docs.get(GUIDE).getVersion());
+    f.group("reviewGroups", "XWiki.Validators"); f.refactoring.partialMove = true;
+    result = f.post("valider proposition", "proposal_ref", partialMoveProposal, "version", f.wiki.docs.get(partialMoveProposal).getVersion());
+    check(result.equals("ERREUR_DEPLACEMENT") && !f.wiki.docs.containsKey(GUIDE) && f.wiki.docs.containsKey(childNotMoved.reference), "A native job that moved the root but left a descendant must report an incomplete movement");
+    check(f.wiki.docs.get(partialMoveProposal).getObject(PROPOSAL_CLASS).getValue("status").equals("pending") && !f.pageOutput.contains("PROPOSITION_VALIDEE_OK"), "A partially moved branch cannot be marked accepted");
+    done("A native move logging a descendant failure cannot report a fully accepted proposal");
+
+    for (String operation : List.of("modify", "content")) {
+      f = operationFixture("proposeGroups");
+      String changed = operation.equals("modify")
+        ? stage(f, "modifier metadonnees document", "source_ref", GUIDE, "base_version", f.wiki.docs.get(GUIDE).getVersion(), "description", "Description validée", "tags", "tag")
+        : stage(f, "modifier contenu document", "source_ref", GUIDE, "base_version", f.wiki.docs.get(GUIDE).getVersion(), "content", "Contenu validé");
+      check(amend(f, changed, "Guide corrigé", TARGET, "").equals("PROPOSITION_MODIFIEE_OK"), "Pending " + operation + " may be renamed and moved");
+      check(f.wiki.docs.containsKey(GUIDE) && f.wiki.docs.get(GUIDE).content.equals("Contenu original"), "Amending " + operation + " leaves the published source unchanged");
+      f.group("reviewGroups", "XWiki.Validators");
+      result = f.post("valider proposition", "proposal_ref", changed, "version", f.wiki.docs.get(changed).getVersion());
+      check(result.equals("PROPOSITION_VALIDEE_OK"), "Relocated " + operation + " must validate after the native move: " + result);
+      Doc acceptedChange = f.wiki.docs.get("TestPage.PAGE.doc-test.Cible.Guide.WebHome");
+      check(!f.wiki.docs.containsKey(GUIDE) && acceptedChange.title.equals("Guide corrigé"), "Accepted " + operation + " must use the corrected location and title");
+      check(acceptedChange.getObject(CONTENT_CLASS).getValue("source").equals(operation.equals("content") ? "Contenu validé" : "Contenu original"), "Accepted " + operation + " must retain the intended document source");
+      if (operation.equals("modify")) check(acceptedChange.getObject(DOCUMENT_CLASS).getValue("description").equals("Description validée"), "Metadata must be applied after movement");
+      done("A pending " + operation + " can be renamed, relocated and accepted with its intended data");
+    }
+
+    f = operationFixture("proposeGroups");
+    String protectedEdit = stage(f, "ajouter un document", "type", "document", "page", MAIN, "nom_fichier", "Titre", "content", "Source");
+    for (String invalidTitle : List.of("", "  ", "{{velocity}}", "a".repeat(256))) {
+      check(!amend(f, protectedEdit, invalidTitle, MAIN, "").equals("PROPOSITION_MODIFIEE_OK"), "Invalid amendment titles must be rejected");
+    }
+    check(amend(f, protectedEdit, "Titre", "TestPage.PAGE.doc-test.CODE.WebHome", "").equals("ERREUR_DESTINATION_INVALIDE"), "Protected destinations cannot receive amended proposals");
+    check(f.post("modifier proposition", "proposal_ref", protectedEdit, "version", f.wiki.docs.get(protectedEdit).getVersion(), "title", "Titre", "parent_ref", MAIN, "form_token", "wrong").equals("ERREUR_CSRF"), "Amendment requires a valid CSRF token");
+    done("Proposal amendments reject invalid titles, protected targets and invalid CSRF tokens");
+
+    f = operationFixture("deleteGroups"); f.wiki.docs.get(GUIDE).getObject(DOCUMENT_CLASS).set("type", "folder");
+    String physicalChildRef = "TestPage.PAGE.doc-test.Guide.Enfant.WebHome";
+    Doc physicalChild = f.document(physicalChildRef, "document", "Enfant physique"); physicalChild.parent = TARGET;
+    String logicalOnlyRef = "TestPage.PAGE.doc-test.Cible.Logique.WebHome";
+    Doc logicalOnly = f.document(logicalOnlyRef, "document", "Enfant logique"); logicalOnly.parent = GUIDE;
+    String annexRef = "TestPage.PAGE.doc-test.Guide.Annexe";
+    Doc annex = new Doc(f.wiki, annexRef); annex.title = "Page annexe"; annex.saveAsAuthor("Fixture", true);
+    String physicalSnapshot = f.deletionSnapshot(GUIDE);
+    check(f.pageOutput.contains("data-ref=\"" + physicalChildRef + "\"") && f.pageOutput.contains("data-ref=\"" + annexRef + "\""), "The preview must include physical descendants and non-docClass terminal pages");
+    check(!f.pageOutput.contains("data-ref=\"" + logicalOnlyRef + "\""), "Logical children outside the deleted physical space must not be advertised as deleted");
+    check(f.post("supprimer element", "source_ref", GUIDE).equals("ERREUR_CONFLIT_SUPPRESSION"), "Deep deletion requires the exact preview confirmation");
+    physicalChild.saveAsAuthor("Changed after preview", true);
+    check(f.post("supprimer element", "source_ref", GUIDE, "delete_snapshot", physicalSnapshot).equals("ERREUR_CONFLIT_SUPPRESSION"), "A descendant version change invalidates the confirmation");
+    physicalSnapshot = f.deletionSnapshot(GUIDE);
+    check(f.post("supprimer element", "source_ref", GUIDE, "delete_snapshot", physicalSnapshot).equals("SUPPRESSION_OK"), "Confirmed current physical descendants must delete");
+    check(!f.wiki.docs.containsKey(physicalChildRef) && !f.wiki.docs.containsKey(annexRef) && f.wiki.docs.containsKey(logicalOnlyRef), "The confirmed preview must match the native deep deletion scope");
+    done("Folder confirmation previews physical descendants and annexes, excludes logical outsiders and rejects stale snapshots");
+
+    for (String incomplete : List.of("hidden", "protected", "limit")) {
+      f = operationFixture("deleteGroups"); f.wiki.docs.get(GUIDE).getObject(DOCUMENT_CLASS).set("type", "folder");
+      if (incomplete.equals("limit")) {
+        for (int index = 0; index < 500; index++) f.document("TestPage.PAGE.doc-test.Guide.Enfant" + index + ".WebHome", "document", "Enfant " + index);
+      } else {
+        String ref = incomplete.equals("protected") ? "TestPage.PAGE.doc-test.Guide.CODE.WebHome" : physicalChildRef;
+        f.document(ref, "document", "Confidentiel"); if (incomplete.equals("hidden")) f.wiki.hiddenRefs.add(ref);
+      }
+      f.request.params.clear(); f.request.params.put("source_ref", GUIDE); f.list("apercu suppression");
+      check(f.pageOutput.contains("data-complete=\"false\"") && !f.pageOutput.contains("deletion-node-data") && !f.pageOutput.contains("Confidentiel"), "Incomplete " + incomplete + " previews must fail closed without leaking hidden titles");
+      check(f.post("supprimer element", "source_ref", GUIDE, "delete_snapshot", "forged").equals("ERREUR_APERCU_SUPPRESSION") && f.refactoring.deleteCalls == 0, "Incomplete " + incomplete + " previews cannot start a native delete");
+      done("Folder deletion fails closed for " + incomplete + " physical descendants");
+    }
+
+    f = operationFixture("deleteGroups"); f.wiki.docs.get(GUIDE).getObject(DOCUMENT_CLASS).set("type", "folder");
+    Doc childNotDeleted = f.document(physicalChildRef, "document", "Enfant"); childNotDeleted.parent = GUIDE;
+    String partialDeleteSnapshot = f.deletionSnapshot(GUIDE); f.refactoring.partialDelete = true;
+    result = f.post("supprimer element", "source_ref", GUIDE, "delete_snapshot", partialDeleteSnapshot);
+    check(result.equals("ERREUR_SUPPRESSION") && !f.wiki.docs.containsKey(GUIDE) && f.wiki.docs.containsKey(physicalChildRef), "A native deletion removing only the root must report an incomplete operation");
+    check(!f.pageOutput.contains("SUPPRESSION_OK"), "Partial native deletion cannot show a successful result");
+    done("A native delete leaving a descendant cannot report a complete suppression");
+
+    for (String brokenStorage : List.of("renderer absent", "renderer empty", "source absent", "source String", "source disabled")) {
+      f = operationFixture("createGroups");
+      switch (brokenStorage) {
+        case "renderer absent" -> f.wiki.rendererAvailable = false;
+        case "renderer empty" -> f.wiki.rendererEmpty = true;
+        case "source absent" -> f.wiki.contentSchema.properties.remove("source");
+        case "source String" -> f.wiki.contentSchema.properties.put("source", new Definition("String"));
+        case "source disabled" -> f.wiki.contentSchema.properties.get("source").disabled = true;
+      }
+      Map<String, Integer> before = revisions(f);
+      result = f.post("ajouter un document", "type", "document", "page", MAIN, "nom_fichier", "Document", "content", "Texte");
+      check(result.equals(brokenStorage.startsWith("renderer") ? "ERREUR_RENDU_CONTENU" : "ERREUR_CLASSE_CONTENU") && revisions(f).equals(before), "Broken " + brokenStorage + " must produce a clear error before publishing: " + result);
+      done("Document creation rejects " + brokenStorage + " before publishing a blank page");
+    }
+    f = operationFixture("proposeGroups"); f.wiki.rendererAvailable = false;
+    check(f.post("ajouter un fichier", "type", "folder", "page", MAIN, "nom_fichier", "Dossier vide").equals("PROPOSITION_OK"), "An empty proposed folder does not require a document renderer");
+    done("Empty proposed folders remain available without a document renderer");
+
+    f = operationFixture("proposeGroups");
+    String preflightChange = stage(f, "modifier contenu document", "source_ref", GUIDE, "base_version", f.wiki.docs.get(GUIDE).getVersion(), "content", "Contenu à valider");
+    check(amend(f, preflightChange, "Guide déplacé", TARGET, "").equals("PROPOSITION_MODIFIEE_OK"), "A content amendment can be prepared before testing a missing renderer");
+    f.group("reviewGroups", "XWiki.Validators"); f.wiki.rendererAvailable = false;
+    result = f.post("valider proposition", "proposal_ref", preflightChange, "version", f.wiki.docs.get(preflightChange).getVersion());
+    check(result.equals("ERREUR_RENDU_CONTENU") && f.refactoring.moveCalls == 0 && f.wiki.docs.containsKey(GUIDE), "Storage preflight must fail before moving a source that cannot render its accepted content");
+    done("A relocated content proposal checks its renderer before starting the native move");
     System.out.println(scenarios + " Velocity scenarios passed (XWiki APIs simulated).");
   }
 }
