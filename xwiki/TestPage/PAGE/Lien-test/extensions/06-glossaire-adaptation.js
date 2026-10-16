@@ -44,8 +44,7 @@
       credentials: 'same-origin',
       headers: { 'X-Requested-With': 'XMLHttpRequest' }
     });
-    if (!response.ok) throw new Error('HTTP ' + response.status);
-    return response.text();
+    return liensReadResponse(response);
   }
 
   function cleanServerLine(line) {
@@ -832,14 +831,14 @@
       button.disabled = true;
       feedback.textContent = '';
       try {
-        var data = new FormData(form);
+        // Les paramètres ne contiennent pas de fichiers : utiliser le format
+        // d'un formulaire HTML classique, sans les limites de parties multipart.
+        var data = new URLSearchParams(new FormData(form));
         data.set('ajax', 'true');
         var response = await fetch(form.action, { method: 'POST', body: data, credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } });
-        if (!response.ok) throw new Error('HTTP ' + response.status);
-        var result = (await response.text()).trim();
+        var result = (await liensReadResponse(response)).trim();
         if (result === 'LIENS_SETTINGS_SAVED') { window.location.reload(); return; }
-        if (result.indexOf('LIENS_ERROR|') === 0) throw new Error(decodeURIComponent(result.substring(12).replace(/\+/g, ' ')));
-        throw new Error(result || 'Les paramètres n’ont pas été enregistrés.');
+        throw new Error(liensErrorMessage(result));
       } catch (error) {
         feedback.textContent = error.message;
       } finally {

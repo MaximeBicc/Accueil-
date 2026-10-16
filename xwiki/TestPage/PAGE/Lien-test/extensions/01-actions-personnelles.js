@@ -1,3 +1,41 @@
+// Conserver le diagnostic du serveur au lieu de masquer sa réponse derrière le statut HTTP.
+function liensErrorMessage(result, status) {
+  var text = String(result || '').trim();
+  var known = {
+    ERREUR_CSRF: 'Le jeton de sécurité est invalide ou la session a expiré. Rechargez la page puis réessayez.',
+    ERREUR_DROITS: 'Votre compte ne dispose pas des droits nécessaires pour cette action.',
+    ERREUR_METHOD: 'Le serveur attend une requête POST.',
+    ERREUR_ACTION_INCONNUE: 'La page DATA ne reconnaît pas cette action. Vérifiez que les sources de la page et des extensions ont été mises à jour ensemble.'
+  };
+  var detail = Object.prototype.hasOwnProperty.call(known, text) ? known[text] : '';
+  if (!detail && text.indexOf('LIENS_ERROR|') === 0) {
+    try { detail = decodeURIComponent(text.substring(12).replace(/\+/g, ' ')); }
+    catch (error) { detail = text.substring(12); }
+  }
+  if (!detail && /^[{[]/.test(text)) {
+    try {
+      var parsed = JSON.parse(text);
+      if (typeof parsed.message === 'string') detail = parsed.message;
+      else if (typeof parsed.error === 'string') detail = parsed.error;
+    } catch (error) {}
+  }
+  if (!detail && text) {
+    var html = new DOMParser().parseFromString(text, 'text/html');
+    html.querySelectorAll('script, style, noscript, template').forEach(function (element) { element.remove(); });
+    var message = html.querySelector('.xwikierrormessage, .errormessage, .error-message, .alert-danger') || html.body;
+    detail = message ? message.textContent : text;
+  }
+  detail = String(detail || '').replace(/\s+/g, ' ').trim();
+  if (detail.length > 600) detail = detail.substring(0, 600) + '…';
+  return (status ? 'HTTP ' + status + (detail ? ' : ' : '') : '') + (detail || 'Le serveur a rejeté la requête. Rechargez la page puis réessayez.');
+}
+
+async function liensReadResponse(response) {
+  var result = await response.text();
+  if (!response.ok) throw new Error(liensErrorMessage(result, response.status));
+  return result;
+}
+
 function liensPopupRow(ref) {
   return Array.from(document.querySelectorAll('#popupCheckTable .term-row')).find(function (row) {
     return row.getAttribute('data-full-ref') === ref;
@@ -74,8 +112,7 @@ async function saveRowEdition(button) {
       method: 'POST', body: donnees, credentials: 'same-origin',
       headers: { 'X-Requested-With': 'XMLHttpRequest' }
     });
-    if (!reponse.ok) throw new Error('HTTP ' + reponse.status);
-    const resultat = await reponse.text();
+    const resultat = await liensReadResponse(reponse);
 
     var parts = liensResult(resultat);
     if (parts) {
@@ -114,7 +151,7 @@ async function saveRowEdition(button) {
     }
   } catch (erreur) {
     console.error(erreur);
-    alert('Impossible de joindre la page DATA : ' + erreur);
+    alert('Enregistrement impossible : ' + erreur.message);
   } finally {
     row.dataset.saving = 'false';
     button.disabled = false;
@@ -147,8 +184,7 @@ async function executeRowDelete() {
       method: 'POST', body: donnees, credentials: 'same-origin',
       headers: { 'X-Requested-With': 'XMLHttpRequest' }
     });
-    if (!reponse.ok) throw new Error('HTTP ' + reponse.status);
-    const resultat = await reponse.text();
+    const resultat = await liensReadResponse(reponse);
     if (liensResult(resultat)) {
       jQuery('#deleteConfirmModal').modal('hide');
       var modalRow = liensPopupRow(fullRef);
@@ -162,7 +198,7 @@ async function executeRowDelete() {
     }
   } catch (erreur) {
     console.error(erreur);
-    alert('Erreur réseau lors de la suppression : ' + erreur);
+    alert('Suppression impossible : ' + erreur.message);
     jQuery('#deleteConfirmModal').modal('hide');
   } finally {
     deletingRow.dataset.deleting = 'false';

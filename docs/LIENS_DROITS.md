@@ -58,11 +58,21 @@ Les réglages de ce module s'ajoutent aux droits natifs XWiki : ils ne modifient
 
 Les paramètres exigent l'administration du wiki, POST, CSRF et la version courante de configuration. Une classe incomplète indique le champ à compléter. Une sauvegarde non conservée est signalée. Une modification concurrente invite à recharger les paramètres. Le formulaire fonctionne aussi sans l'extension JavaScript ; avec JavaScript, une erreur conserve les sélections et affiche son message dans la fenêtre.
 
+## HTTP 400 à l'enregistrement
+
+Les paramètres sont envoyés avec `application/x-www-form-urlencoded`, comme un formulaire HTML classique. L'ancien envoi multipart créait une partie par champ : avec beaucoup de groupes, un conteneur servlet limitant le nombre de parties pouvait rejeter la requête avec HTTP 400 avant l'exécution de DATA.
+
+Mettre à jour ensemble les JavaScript `01-actions-personnelles.js`, `02-actions-communes.js` et `06-glossaire-adaptation.js`, puis recharger sans cache avec Ctrl + F5. Si le JavaScript est regroupé dans un objet, remplacer son contenu complet dans l'ordre des sept sources indiqué dans LIENS_PAGE.md.
+
+Le navigateur conserve désormais le statut HTTP et le message renvoyé par le serveur, qu'il s'agisse de texte, d'une réponse structurée ou d'une page HTML d'erreur. Les scripts et styles de cette page d'erreur ne sont pas affichés ni exécutés. Les choix restent conservés pour permettre un nouvel essai. Une erreur de jeton CSRF invite à recharger ; aucune vérification de sécurité n'est désactivée.
+
+Un HTTP 400 seul ne permet pas d'identifier sa cause sur l'instance. Si l'erreur persiste, relever l'action effectuée et le message complet visible après le code HTTP. Une classe incomplète, une session expirée et un refus du serveur nécessitent des corrections différentes.
+
 ## Validation
 
 - 222 contrôles des vrais templates avec une API XWiki simulée, exécutés avec Velocity 1.7 et 2.3.
 - 66 contrôles Chromium de régression : filtres, pagination, édition, suppression, import XLSX, boutons du Glossaire et fenêtres modales.
-- 113 contrôles Chromium des droits : neuf combinaisons Personnel/Commun, onglet Commun seul, lecture seule, chargement tardif, administration sans accès fonctionnel et enregistrement des paramètres.
+- 149 contrôles Chromium des droits : neuf combinaisons Personnel/Commun, onglet Commun seul, lecture seule, chargement tardif, administration sans accès fonctionnel et enregistrement des paramètres. Les tests reproduisent aussi un refus HTTP 400 multipart, vérifient l'enregistrement de plus de 50 champs en formulaire classique et la restitution des diagnostics HTTP, HTML, JSON et CSRF.
 
 ```sh
 java -cp '/chemin/vers/jars/*' tests/LiensVelocityTest.java /tmp/liens-rendered.html

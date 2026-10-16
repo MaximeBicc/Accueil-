@@ -118,8 +118,7 @@ async function saveRowEdition2(button) {
       method: 'POST', body: donnees, credentials: 'same-origin',
       headers: { 'X-Requested-With': 'XMLHttpRequest' }
     });
-    if (!reponse.ok) throw new Error('HTTP ' + reponse.status);
-    const resultat = await reponse.text();
+    const resultat = await liensReadResponse(reponse);
 
     var parts = liensResult(resultat);
     if (parts) {
@@ -159,7 +158,7 @@ async function saveRowEdition2(button) {
     }
   } catch (erreur) {
     console.error(erreur);
-    alert('Impossible de joindre la page DATA : ' + erreur);
+    alert('Enregistrement impossible : ' + erreur.message);
   } finally {
     row.dataset.saving = 'false';
     button.disabled = false;
@@ -192,8 +191,7 @@ async function executeRowDelete2() {
       method: 'POST', body: donnees, credentials: 'same-origin',
       headers: { 'X-Requested-With': 'XMLHttpRequest' }
     });
-    if (!reponse.ok) throw new Error('HTTP ' + reponse.status);
-    const resultat = await reponse.text();
+    const resultat = await liensReadResponse(reponse);
     if (liensResult(resultat)) {
       jQuery('#deleteConfirmModal2').modal('hide');
       var modalRow = liensPopupRow(fullRef);
@@ -207,7 +205,7 @@ async function executeRowDelete2() {
     }
   } catch (erreur) {
     console.error(erreur);
-    alert('Erreur réseau lors de la suppression : ' + erreur);
+    alert('Suppression impossible : ' + erreur.message);
     jQuery('#deleteConfirmModal2').modal('hide');
   } finally {
     deletingRow.dataset.deleting = 'false';
