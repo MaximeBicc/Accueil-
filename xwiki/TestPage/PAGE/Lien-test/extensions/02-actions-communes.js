@@ -22,7 +22,9 @@ async function refreshCommonOwnerPicker(row) {
   try {
     var authors = await liensLoadAuthorCatalog();
     if (row.dataset.editing !== 'true' || row.dataset.authorRevision !== revision) return;
-    var value = select.value;
+    var previousValue = select.value;
+    var value = liensFindAuthorId(previousValue, authors);
+    if (row.dataset.originalOwner === previousValue) row.dataset.originalOwner = value;
     var label = (select.options[select.selectedIndex] || {}).textContent || value;
     var oldPicker = select.tomselect || select.selectize;
     if (oldPicker && typeof oldPicker.destroy === 'function') oldPicker.destroy();

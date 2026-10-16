@@ -82,6 +82,7 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
   #set($linkAuthors = [])
   #set($authorRefs = [])
   #set($seenAuthorRefs = [])
+  #set($seenAuthorIds = [])
   #if($canWriteCommon)
     #foreach($authorGroup in $configuredGroups.get('commonWriteGroups'))
       #set($authorGroupReference = $services.model.resolveDocument($authorGroup))
@@ -108,20 +109,25 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
         #set($authorObject = false)
         #if($authorDoc) #set($authorObject = $authorDoc.getObject('XWiki.XWikiUsers')) #end
         ## Les sous-groupes et les comptes supprimés ne sont pas des auteurs.
-        #if($authorDoc && !$authorDoc.isNew() && $authorObject && !$authorReference.equals($guestReference))
+        #if($authorDoc && !$authorDoc.isNew() && $authorObject && !$authorReference.equals($guestReference) && !$seenAuthorIds.contains($authorDoc.name))
+          #set($discard = $seenAuthorIds.add($authorDoc.name))
           #set($authorFirst = "$!authorObject.getValue('first_name')")
           #set($authorLast = "$!authorObject.getValue('last_name')")
           #set($authorLabel = "$authorFirst $authorLast")
           #set($authorLabel = $authorLabel.trim())
           #if($authorLabel == '') #set($authorLabel = $authorDoc.name) #end
           #set($authorId = $authorDoc.name)
-          #if(!$authorReference.equals($currentUserReference) && (!$authorReference.wikiReference.equals($allGroupReference.wikiReference) || $authorDoc.name == $currentUserReference.name))
-            #set($authorId = $canonicalAuthor)
-          #end
+          ## L'identifiant stocké et le dossier DATA restent toujours le nom du compte.
           #set($discard = $linkAuthors.add({'id':$authorId, 'label':$authorLabel, 'reverseLabel':"$authorLast $authorFirst", 'reference':$canonicalAuthor, 'documentReference':$authorReference}))
         #end
       #end
     #end
+  #end
+#end
+#macro(liensCheckCurrentOwner $ownerId)
+  #set($isCurrentLinkOwner = $ownerId == $currentUserReference.name)
+  #if(!$isCurrentLinkOwner && ($ownerId.startsWith('XWiki.') || $ownerId.contains(':')))
+    #set($isCurrentLinkOwner = $services.model.resolveDocument($ownerId).equals($currentUserReference))
   #end
 #end
 ## END LIENS AUTHORS
@@ -342,8 +348,9 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
             #set ($libelleValue = $targetObject.getValue('lien'))
             #set ($definitionValue = $targetObject.getValue('definition'))
             #set ($typeValue = $targetObject.getValue('type'))
-            #set ($proprietaireValue = $targetObject.getValue('proprietaire'))
-            #if ($typeValue == "personnel" && $proprietaireValue == $userId)
+            #set ($proprietaireValue = "$!targetObject.getValue('proprietaire')")
+            #liensCheckCurrentOwner($proprietaireValue)
+            #if ($typeValue == "personnel" && $isCurrentLinkOwner)
               <tr class="main-term-row" data-acronym="$escapetool.html($!acronymeValue.toUpperCase())" data-doc-name="$escapetool.xml($!docName)" data-full-ref="$escapetool.xml($!fullRef)">
                 <td class="main-acronym">
                   <span class="view-mode"><strong>$escapetool.html($!acronymeValue)</strong></span>
@@ -524,16 +531,25 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
                   <span class="view-mode">$escapetool.html($!displayProprietaire)</span>
                   <div class="edit-mode edit-proprietaire" name="monChoix" style="display:none">
                     <select class="xwiki-selectize secondary-proprietaire-value">
+                      #set($editingOwnerId = $proprietaireValue)
                       #set($listedOwner = false)
                       #foreach($linkAuthor in $linkAuthors)
                         #if($proprietaireValue == $linkAuthor.id) #set($listedOwner = true) #end
+                      #end
+                      #if(!$listedOwner && ($proprietaireValue.startsWith('XWiki.') || $proprietaireValue.contains(':')))
+                        #set($editingOwnerReference = $services.model.resolveDocument($proprietaireValue))
+                        #foreach($linkAuthor in $linkAuthors)
+                          #if($editingOwnerReference.equals($linkAuthor.documentReference))
+                            #set($editingOwnerId = $linkAuthor.id) #set($listedOwner = true)
+                          #end
+                        #end
                       #end
                       #if(!$listedOwner)
                       <option value="$escapetool.xml($!proprietaireValue)" data-author-invalid="true" selected>$escapetool.html($!displayProprietaire) (auteur non autorisé)</option>
                       #end
                       #foreach($linkAuthor in $linkAuthors)
                         #set($authorSelected = '')
-                        #if($proprietaireValue == $linkAuthor.id) #set($authorSelected = ' selected') #end
+                        #if($editingOwnerId == $linkAuthor.id) #set($authorSelected = ' selected') #end
                         <option value="$escapetool.xml($linkAuthor.id)"$authorSelected>$escapetool.html($linkAuthor.label) ($escapetool.html($linkAuthor.id))</option>
                       #end
                     </select>
@@ -753,7 +769,8 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
                         #set ($libelle = $targetObject.getValue('lien'))
                         #set ($type = $targetObject.getValue('type'))
                         #set($popupOwner = "$!targetObject.getValue('proprietaire')")
-                        #if(($canReadCommon && $type == 'commun') || ($canReadPersonal && $type == 'personnel' && $popupOwner == $userId))
+                        #liensCheckCurrentOwner($popupOwner)
+                        #if(($canReadCommon && $type == 'commun') || ($canReadPersonal && $type == 'personnel' && $isCurrentLinkOwner))
                         <tr class="term-row" data-full-ref="$escapetool.xml($docName)">
                           <td class="term-acronym">$escapetool.xml($!acronyme)</td>
                           <td class="term-label">$escapetool.xml($!libelle)</td>

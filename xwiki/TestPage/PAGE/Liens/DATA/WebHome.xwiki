@@ -70,6 +70,7 @@
   #set($linkAuthors = [])
   #set($authorRefs = [])
   #set($seenAuthorRefs = [])
+  #set($seenAuthorIds = [])
   #if($canWriteCommon)
     #foreach($authorGroup in $configuredGroups.get('commonWriteGroups'))
       #set($authorGroupReference = $services.model.resolveDocument($authorGroup))
@@ -96,20 +97,25 @@
         #set($authorObject = false)
         #if($authorDoc) #set($authorObject = $authorDoc.getObject('XWiki.XWikiUsers')) #end
         ## Les sous-groupes et les comptes supprimés ne sont pas des auteurs.
-        #if($authorDoc && !$authorDoc.isNew() && $authorObject && !$authorReference.equals($guestReference))
+        #if($authorDoc && !$authorDoc.isNew() && $authorObject && !$authorReference.equals($guestReference) && !$seenAuthorIds.contains($authorDoc.name))
+          #set($discard = $seenAuthorIds.add($authorDoc.name))
           #set($authorFirst = "$!authorObject.getValue('first_name')")
           #set($authorLast = "$!authorObject.getValue('last_name')")
           #set($authorLabel = "$authorFirst $authorLast")
           #set($authorLabel = $authorLabel.trim())
           #if($authorLabel == '') #set($authorLabel = $authorDoc.name) #end
           #set($authorId = $authorDoc.name)
-          #if(!$authorReference.equals($currentUserReference) && (!$authorReference.wikiReference.equals($allGroupReference.wikiReference) || $authorDoc.name == $currentUserReference.name))
-            #set($authorId = $canonicalAuthor)
-          #end
+          ## L'identifiant stocké et le dossier DATA restent toujours le nom du compte.
           #set($discard = $linkAuthors.add({'id':$authorId, 'label':$authorLabel, 'reverseLabel':"$authorLast $authorFirst", 'reference':$canonicalAuthor, 'documentReference':$authorReference}))
         #end
       #end
     #end
+  #end
+#end
+#macro(liensCheckCurrentOwner $ownerId)
+  #set($isCurrentLinkOwner = $ownerId == $currentUserReference.name)
+  #if(!$isCurrentLinkOwner && ($ownerId.startsWith('XWiki.') || $ownerId.contains(':')))
+    #set($isCurrentLinkOwner = $services.model.resolveDocument($ownerId).equals($currentUserReference))
   #end
 #end
 ## END LIENS AUTHORS
@@ -250,7 +256,9 @@
     #if($obj && $xwiki.hasAccessLevel('view', $currentUser, $targetDoc.fullName))
       #set($typeValue = "$!obj.getValue('type')")
       #set($ownerValue = "$!obj.getValue('proprietaire')")
-      #if(($canReadCommon && $typeValue == 'commun') || ($canReadPersonal && $typeValue == 'personnel' && $ownerValue == $currentUserId))
+      #liensCheckCurrentOwner($ownerValue)
+      #if(($canReadCommon && $typeValue == 'commun') || ($canReadPersonal && $typeValue == 'personnel' && $isCurrentLinkOwner))
+        #if($isCurrentLinkOwner) #set($ownerValue = $currentUserId) #end
         #set($a = "$!obj.getValue('nom_lien')")
         #set($l = "$!obj.getValue('lien')")
         #set($d = "$!obj.getValue('definition')")
@@ -271,12 +279,13 @@
       #set($error = 'ERREUR_OBJET')
     #else
       #set($oldOwner = "$!obj.getValue('proprietaire')")
+      #liensCheckCurrentOwner($oldOwner)
       #set($oldType = "$!obj.getValue('type')")
       #set($ownerSpaces = ['TestPage', 'PAGE', 'Liens', 'DATA', 'LIENDATA', $oldOwner])
       #set($ownerRoot = $services.model.createDocumentReference('', $ownerSpaces, 'WebHome'))
       #if(!$targetDoc.documentReference.getParent().equals($ownerRoot.getParent()))
         #set($error = 'ERREUR_REFERENCE')
-      #elseif(($oldType == 'commun' && !$canWriteCommon) || ($oldType == 'personnel' && (!$canWritePersonal || $oldOwner != $currentUserId)) || ($oldType != 'commun' && $oldType != 'personnel'))
+      #elseif(($oldType == 'commun' && !$canWriteCommon) || ($oldType == 'personnel' && (!$canWritePersonal || !$isCurrentLinkOwner)) || ($oldType != 'commun' && $oldType != 'personnel'))
         #set($error = 'ERREUR_DROITS')
       #else
         #set($requiredRight = 'edit')
@@ -317,6 +326,12 @@
       #set($requestedOwner = $currentUserId)
       #if($obj) #set($requestedOwner = "$!obj.getValue('proprietaire')") #end
     #end
+    #set($requestedOwnerReference = false)
+    #if($requestedOwner.startsWith('XWiki.') || $requestedOwner.contains(':'))
+      #set($requestedOwnerReference = $services.model.resolveDocument($requestedOwner))
+    #end
+    #liensCheckCurrentOwner($requestedOwner)
+    #if($isCurrentLinkOwner) #set($requestedOwner = $currentUserId) #end
     #if(!$acronym || !$label || !$definition || $acronym.matches('\s*') || $label.matches('\s*') || $definition.matches('\s*'))
       #set($error = 'ERREUR_CHAMPS')
     #elseif($acronym.contains('$') || $acronym.contains('{') || $acronym.contains('}') || $acronym.contains('/'))
@@ -338,6 +353,15 @@
           #if($linkAuthor.id == $requestedOwner)
             #set($eligibleOwner = true)
             #set($ownerReference = $linkAuthor.documentReference)
+          #end
+        #end
+        #if(!$eligibleOwner && $requestedOwnerReference)
+          #foreach($linkAuthor in $linkAuthors)
+            #if($linkAuthor.documentReference.equals($requestedOwnerReference))
+              #set($eligibleOwner = true)
+              #set($ownerReference = $linkAuthor.documentReference)
+              #set($requestedOwner = $linkAuthor.id)
+            #end
           #end
         #end
         #if(!$eligibleOwner) #set($error = 'ERREUR_AUTEUR_DROITS') #end

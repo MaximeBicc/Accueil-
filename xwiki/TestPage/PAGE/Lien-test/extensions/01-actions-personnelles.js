@@ -39,12 +39,29 @@ async function liensReadResponse(response) {
 }
 
 // Source commune à l'import et à l'éditeur : membres des groupes d'écriture Commun.
+function liensNormalizeAuthor(author) {
+  var match = /^(?:[^:]+:)?XWiki\.(.+)$/.exec(author.id);
+  var id = match && (author.id === author.reference || author.id.indexOf(':') >= 0)
+    ? match[1].replace(/\\([.\\:])/g, '$1') : author.id;
+  return { id: id, label: author.label, reverseLabel: author.reverseLabel, reference: author.reference };
+}
+
+function liensFindAuthorId(value, authors) {
+  var exact = authors.find(function (author) { return author.id === value; });
+  if (exact) return exact.id;
+  var reference = String(value || '').replace(/^xwiki:/, '');
+  var match = authors.find(function (author) {
+    return author.reference.replace(/^xwiki:/, '') === reference || 'XWiki.' + author.id === value;
+  });
+  return match ? match.id : value;
+}
+
 function liensReadAuthorCatalog() {
   var catalog = document.getElementById('liensAuthorOptions');
   if (!catalog || catalog.getAttribute('data-author-source') !== 'common-write-groups') return [];
   return Array.from((catalog.content || catalog).querySelectorAll('option')).map(function (option) {
-    return { id: option.value, label: option.dataset.label || option.textContent,
-      reverseLabel: option.dataset.reverseLabel || '', reference: option.dataset.reference || '' };
+    return liensNormalizeAuthor({ id: option.value, label: option.dataset.label || option.textContent,
+      reverseLabel: option.dataset.reverseLabel || '', reference: option.dataset.reference || '' });
   });
 }
 
@@ -62,7 +79,7 @@ async function liensLoadAuthorCatalog() {
       var parts = line.split('|');
       if (parts.length !== 5 || parts[0] !== 'LIEN_AUTHOR') throw new Error('Liste des auteurs incomplète.');
       var values = parts.slice(1).map(function (value) { return decodeURIComponent(value.replace(/\+/g, ' ')); });
-      return { id: values[0], label: values[1], reverseLabel: values[2], reference: values[3] };
+      return liensNormalizeAuthor({ id: values[0], label: values[1], reverseLabel: values[2], reference: values[3] });
     });
     authors.sort(function (a, b) { return a.id.localeCompare(b.id, 'fr'); });
     return authors;

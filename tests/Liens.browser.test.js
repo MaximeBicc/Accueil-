@@ -6,6 +6,10 @@ const { chromium } = require('playwright');
 // HTML produit par LiensVelocityTest et bibliothèques réelles dans assetsDir.
 const html = fs.readFileSync(process.argv[2] || '/tmp/liens-rendered.html', 'utf8');
 const authorResponse = fs.readFileSync((process.argv[2] || '/tmp/liens-rendered.html') + '.authors.txt', 'utf8');
+const qualifiedAuthors = authorResponse.split('\n').map(line => {
+  if (!line.startsWith('LIEN_AUTHOR|Login42|')) return line;
+  const parts = line.split('|'); parts[1] = encodeURIComponent('xwiki:XWiki.Login42'); parts[4] = parts[1]; return parts.join('|');
+}).join('\n');
 const assetsDir = process.argv[3] || '/tmp';
 const root = path.resolve('xwiki/TestPage/PAGE/Lien-test/extensions');
 const scripts = fs.readdirSync(root).filter(name => name.endsWith('.js')).sort();
@@ -216,12 +220,18 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
     await page.click('[data-liens-tab="Tab2"]');
     await page.fill('#filterProprietaire2', '');
     const common = page.locator('#secondaryGlossaryTable .secondary-term-row').first();
+    state.setAuthors(qualifiedAuthors);
+    await common.locator('.secondary-proprietaire-value').evaluate(select => {
+      select.add(new Option('Jean Dupont', 'xwiki:XWiki.Login42')); select.value = 'xwiki:XWiki.Login42';
+    });
     await common.locator('.view-buttons button').first().click();
     await common.evaluate(row => new Promise(resolve => {
       const poll = () => row.dataset.authorLoading === 'false' && row.querySelector('.secondary-proprietaire-value').dataset.authorValidationReady === 'true' ? resolve() : setTimeout(poll, 10);
       poll();
     }));
     check(await common.locator('.secondary-proprietaire-value option[value="Login42"]').count(), 1, 'édition recharge le membre autorisé depuis DATA');
+    check(await common.locator('.secondary-proprietaire-value').inputValue(), 'Login42', 'ancienne sélection qualifiée devient un userid court valide');
+    check(await common.locator('.secondary-proprietaire-value option[value="xwiki:XWiki.Login42"]').count(), 0, 'aucune référence complète utilisée comme valeur du sélecteur');
     check(await common.locator('.secondary-proprietaire-value option[value="NonAuteur"]').count(), 0, 'édition exclut le compte hors groupes');
     await common.locator('.secondary-proprietaire-value').selectOption('Login42');
     await common.locator('.edit-buttons button').first().evaluate(button => saveRowEdition2(button));
@@ -237,7 +247,7 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
     await common.locator('.secondary-proprietaire-value').selectOption('Test');
     check(await common.locator('.secondary-proprietaire-value').getAttribute('aria-invalid'), 'false', 'nouveau choix autorisé valide l’éditeur');
     await common.locator('.edit-buttons button').nth(1).click();
-    state.setAuthors(authorResponse);
+    state.setAuthors(qualifiedAuthors);
     await page.click('[data-liens-tab="Tab1"]');
     // Plusieurs éditions : le type reste visible tant qu'une autre ligne est éditée.
     await page.evaluate(() => {
@@ -336,13 +346,13 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
     await page.waitForSelector('#excelLiensModal.in');
     check(await page.locator('#excelLiensPreviewBody tr').count(), 2, 'lecture XLSX réelle');
     check(await page.locator('#excelLiensDuplicatesBody tr').count(), 1, 'constructor et toString ne sont pas des faux doublons');
-    await page.locator('#excelLiensPreviewBody select.excel-author-select').first().selectOption('AdeleMartin', { force: true });
+    await page.locator('#excelLiensPreviewBody select.excel-author-select').first().selectOption('Login42', { force: true });
     state.setMode('refuse');
     await page.locator('#btnConfirmExcelLiensImport').evaluate(button => { button.click(); button.click(); });
     await page.waitForSelector('#excelLiensModal.in', { state: 'hidden' });
     check(state.requests.filter(req => req.action === 'create').length, 1, 'import ignore le doublon et bloque le double clic');
     check(state.requests.find(req => req.action === 'create').acronym, 'constructor', 'import transmet le bon acronyme');
-    check(state.requests.find(req => req.action === 'create').proprietaire, 'AdeleMartin', 'import envoie l’identifiant du compte choisi');
+    check(state.requests.find(req => req.action === 'create').proprietaire, 'Login42', 'import envoie userid même si le catalogue fournit xwiki:XWiki.userid');
     state.setMode('');
     await page.locator('#excelLiensFileInput').setInputFiles({ name: 'liens.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: Buffer.from(bytes) });
     await page.waitForSelector('#excelLiensModal.in');

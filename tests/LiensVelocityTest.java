@@ -435,9 +435,13 @@ public class LiensVelocityTest {
     foreign.obj.set("first_name", "Auteur"); foreign.obj.set("last_name", "Global"); foreign.save("", false);
     f.groups.addMembers("autre:XWiki.Equipe", "autre:XWiki.Auteur");
     result = f.render("DATA/WebHome.xwiki", "listAuthors");
-    check(result.contains("LIEN_AUTHOR|autre%3AXWiki.Auteur|Auteur+Global|"), "auteur d'un autre wiki conservé avec référence qualifiée");
+    check(result.contains("LIEN_AUTHOR|Auteur|Auteur+Global|") && result.contains("|autre%3AXWiki.Auteur"), "identifiant court et référence qualifiée conservés séparément");
+    f.userContext.user = "autre:XWiki.Auteur";
+    check(f.render("DATA/WebHome.xwiki", "listAuthors").contains("LIEN_AUTHOR|Auteur|Auteur+Global|"), "même identifiant court pour soi et pour les autres membres");
+    f.userContext.user = "XWiki.Test";
     result = f.render("DATA/WebHome.xwiki", "create", "acronym", "GLOBAL", "label", "Libellé", "definition", "Définition", "type", "commun", "proprietaire", "autre:XWiki.Auteur");
     check(result.startsWith("GLOSSAIRE_OK|"), "création avec un membre qualifié d'un autre wiki");
+    check(f.wiki.getDocument("TestPage.PAGE.Liens.DATA.LIENDATA.Auteur.GLOBAL").obj.getValue("proprietaire").equals("Auteur"), "référence qualifiée jamais utilisée comme dossier ou propriétaire");
     f.wiki.profile("NonMembre", "Ancien", "Auteur");
     Doc legacy = f.wiki.getDocument(new Ref("TestPage.PAGE.Liens.DATA.LIENDATA.NonMembre", "HISTORIQUE"));
     legacy.newObject("TestPage.PAGE.Liens.CODE.lienClass.WebHome"); legacy.obj.set("proprietaire", "NonMembre"); legacy.obj.set("type", "commun"); legacy.save("", false);
@@ -447,6 +451,49 @@ public class LiensVelocityTest {
     check(f.render("DATA/WebHome.xwiki", "listAuthors").equals("ERREUR_METHOD"), "catalogue vérifie POST");
     f.request.method = "POST"; f.request.params.put("form_token", "bad");
     check(f.render("DATA/WebHome.xwiki", "listAuthors").equals("ERREUR_CSRF"), "catalogue vérifie CSRF");
+  }
+  static Doc oldOwnerLink(Fixture f, String owner, String name, String type) {
+    Doc d = f.wiki.getDocument(new Ref("TestPage.PAGE.Liens.DATA.LIENDATA." + owner, name));
+    d.newObject("TestPage.PAGE.Liens.CODE.lienClass.WebHome");
+    d.obj.set("proprietaire", owner); d.obj.set("type", type); d.obj.set("nom_lien", name);
+    d.obj.set("lien", "Libellé " + name); d.obj.set("definition", "Définition"); d.save("", false); return d;
+  }
+  static void ownerIdTests() throws Exception {
+    for (String owner : List.of("Autre", "XWiki.Autre", "xwiki:XWiki.Autre")) {
+      Fixture f = new Fixture(); f.groups.manager = true;
+      String result = f.render("DATA/WebHome.xwiki", "create", "acronym", "IMPORT", "label", "Libellé", "definition", "Définition", "type", "commun", "proprietaire", owner);
+      check(result.startsWith("GLOSSAIRE_OK|"), "création accepte l'alias " + owner);
+      Doc saved = f.wiki.getDocument("TestPage.PAGE.Liens.DATA.LIENDATA.Autre.IMPORT");
+      check(!saved.isNew() && saved.obj.getValue("proprietaire").equals("Autre"), "propriétaire court enregistré pour " + owner);
+      check(f.wiki.docs.size() == 1 && saved.ref.parent.endsWith(".Autre"), "un seul dossier userid pour " + owner);
+    }
+    Fixture f = new Fixture();
+    String result = f.render("DATA/WebHome.xwiki", "create", "acronym", "PERSO", "label", "Libellé", "definition", "Définition", "type", "personnel", "proprietaire", "xwiki:XWiki.Test");
+    check(result.startsWith("GLOSSAIRE_OK|") && f.wiki.getDocument(SPACE + ".PERSO").obj.getValue("proprietaire").equals("Test"), "alias du compte connecté normalisé avec écriture personnelle seule");
+    f = new Fixture(); f.groups.manager = true;
+    result = f.render("DATA/WebHome.xwiki", "create", "acronym", "FORGE", "label", "Libellé", "definition", "Définition", "type", "commun", "proprietaire", "autre:XWiki.Autre");
+    check(result.equals("ERREUR_AUTEUR_DROITS") && f.wiki.docs.isEmpty(), "une référence d'un autre wiki ne contourne pas la liste des membres");
+    f = new Fixture(); f.groups.manager = true; f.wiki.profile("Jean.Dupont", "Jean", "Dupont");
+    f.groups.addMembers("XWiki.IVQ_Gestionnaires", "XWiki.Jean\\.Dupont");
+    result = f.render("DATA/WebHome.xwiki", "create", "acronym", "POINT", "label", "Libellé", "definition", "Définition", "type", "commun", "proprietaire", "Jean.Dupont");
+    check(result.startsWith("GLOSSAIRE_OK|") && f.wiki.docs.values().iterator().next().obj.getValue("proprietaire").equals("Jean.Dupont"), "un point dans l'identifiant est conservé");
+    f = new Fixture(); f.groups.manager = true;
+    Doc legacy = oldOwnerLink(f, "xwiki:XWiki.Autre", "ANCIEN", "commun");
+    result = f.render("DATA/WebHome.xwiki", "save", "targetRef", legacy.getFullName(), "acronym", "ANCIEN", "label", "Libellé", "definition", "Définition", "type", "commun", "proprietaire", "xwiki:XWiki.Autre");
+    check(result.startsWith("GLOSSAIRE_OK|") && legacy.isNew(), "ancien dossier qualifié déplacé lors de l'enregistrement");
+    check(f.wiki.docs.size() == 1 && f.wiki.getDocument("TestPage.PAGE.Liens.DATA.LIENDATA.Autre.ANCIEN").obj.getValue("proprietaire").equals("Autre"), "déplacement conserve une seule fiche sous userid");
+    f = new Fixture();
+    legacy = oldOwnerLink(f, "xwiki:XWiki.Test", "RAWMINE", "personnel");
+    oldOwnerLink(f, "xwiki:XWiki.Autre", "RAWSECRET", "personnel");
+    oldOwnerLink(f, "autre:XWiki.Test", "HOMONYME", "personnel");
+    String html = f.render("WebHome.xwiki", "");
+    check(html.contains("RAWMINE") && !html.contains("RAWSECRET") && !html.contains("HOMONYME"), "anciens personnels visibles uniquement pour le propriétaire exact");
+    result = f.render("DATA/WebHome.xwiki", "listVisible");
+    check(result.contains("|RAWMINE|") && result.contains("|personnel|Test") && !result.contains("RAWSECRET") && !result.contains("HOMONYME"), "liste visible normalise l'auteur personnel sans ouvrir les autres comptes");
+    result = f.render("DATA/WebHome.xwiki", "save", "targetRef", legacy.getFullName(), "acronym", "RAWMINE", "label", "Libellé", "definition", "Définition", "type", "personnel", "proprietaire", "xwiki:XWiki.Test");
+    check(result.startsWith("GLOSSAIRE_OK|") && legacy.isNew() && !f.wiki.getDocument(SPACE + ".RAWMINE").isNew(), "ancien personnel corrigé dans userid à la prochaine modification");
+    f = new Fixture(); legacy = oldOwnerLink(f, "xwiki:XWiki.Test", "SUPPRIMER", "personnel");
+    check(f.delete(legacy.getFullName()).equals("GLOSSAIRE_OK") && legacy.isNew(), "suppression d'un ancien personnel qualifié reste possible");
   }
   public static void main(String[] args) throws Exception {
     ENGINE.init();
@@ -525,6 +572,7 @@ public class LiensVelocityTest {
     }
     permissionsTests(args.length > 0 ? args[0] : null);
     authorTests();
+    ownerIdTests();
     System.out.println(checks + " vérifications Velocity réussies.");
   }
 }
