@@ -119,11 +119,11 @@
       #set($proposalFieldDefinition = $proposalDefinition.get($proposalField))
     #end
     #if(!$proposalFieldDefinition)
-      #docError('ERREUR_CLASSE_PROPOSITION' "Configuration des propositions : champ « ${proposalField} » absent (type ${proposalExpectedType} attendu). Classe utilisée : ${proposalClassPath}. Installez le paquet de classe fourni.")
+      #docError('ERREUR_CLASSE_PROPOSITION' "Configuration des propositions : champ « ${proposalField} » absent (type ${proposalExpectedType} attendu).")
     #elseif(!$proposalDefinition.enabledPropertyNames.contains($proposalField))
-      #docError('ERREUR_CLASSE_PROPOSITION' "Configuration des propositions : champ « ${proposalField} » désactivé (type ${proposalExpectedType} attendu). Classe utilisée : ${proposalClassPath}.")
+      #docError('ERREUR_CLASSE_PROPOSITION' "Configuration des propositions : champ « ${proposalField} » désactivé (type ${proposalExpectedType} attendu).")
     #elseif($proposalFieldDefinition.classType != $proposalExpectedType)
-      #docError('ERREUR_CLASSE_PROPOSITION' "Configuration des propositions : champ « ${proposalField} » de type incorrect (type ${proposalExpectedType} attendu). Classe utilisée : ${proposalClassPath}.")
+      #docError('ERREUR_CLASSE_PROPOSITION' "Configuration des propositions : champ « ${proposalField} » de type incorrect (type ${proposalExpectedType} attendu).")
     #end
   #end
 #end
