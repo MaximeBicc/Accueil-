@@ -501,8 +501,8 @@
 
   function headerType(value) {
     var h = normalizeHeader(value);
-    if (['liens', 'acronyme', 'acronym', 'sigle', 'nom', 'nomlien'].indexOf(h) >= 0) return 'acronym';
-    if (['domaine', 'domaines', 'domain', 'libelle', 'label', 'lien', 'libellecomplet'].indexOf(h) >= 0) return 'label';
+    if (h === 'liens') return 'acronym';
+    if (h === 'domaine') return 'label';
     if (['definition', 'def', 'description'].indexOf(h) >= 0) return 'definition';
     if (['type', 'visibilite', 'onglet'].indexOf(h) >= 0) return 'type';
     if (['auteur', 'author', 'proprietaire', 'createur'].indexOf(h) >= 0) return 'author';

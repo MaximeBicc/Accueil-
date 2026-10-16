@@ -17,6 +17,11 @@ const css = fs.readFileSync(path.join(root, '05-hide-type-column.css'), 'utf8');
 const readAsset = name => fs.readFileSync(path.join(assetsDir, `liens-${name}`), 'utf8');
 let checks = 0;
 function check(actual, expected, label) { assert.deepEqual(actual, expected, label); checks++; }
+// Attendre aussi la fin du fondu et le retrait du fond Bootstrap avant de rouvrir.
+async function waitExcelClosed(page) {
+  await page.locator('#excelLiensModal').waitFor({ state: 'hidden' });
+  await page.locator('.modal-backdrop').waitFor({ state: 'detached' });
+}
 function fields(request) {
   if ((request.headers()['content-type'] || '').startsWith('application/x-www-form-urlencoded')) return Object.fromEntries(new URLSearchParams(request.postData() || ''));
   const values = {};
@@ -296,7 +301,7 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
     await page.addScriptTag({ content: readAsset('sheetjs.js') });
     const authorBytes = await page.evaluate(() => {
       const authors = ['AdeleMartin', 'AdeleMartni', 'ADÈLE MARTIN', 'Martin Adele', 'XWiki.AdeleMartin', 'xwiki:XWiki.AdeleMartin', 'Zoe Duran', '', 'Personne introuvable', '<img src=x onerror=alert(1)>', 'Dupont Jean', 'Jean Dupont'];
-      const data = [['Acronyme', 'Libellé', 'Définition', 'Type', 'Auteur'], ...authors.map((author, i) => ['IMPORT' + i, 'Auteur ' + i, 'Définition', 'commun', author])];
+      const data = [['Liens', 'Domaine', 'Définition', 'Type', 'Auteur'], ...authors.map((author, i) => ['IMPORT' + i, 'Auteur ' + i, 'Définition', 'commun', author])];
       const book = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(data), 'Auteurs');
       return Array.from(new Uint8Array(XLSX.write(book, { type: 'array', bookType: 'xlsx' })));
     });
@@ -359,9 +364,9 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
     await authors.nth(8).evaluate(select => select.tomselect.setValue('Test'));
     check(await authors.nth(8).getAttribute('aria-invalid'), 'false', 'choix enrichi valide retire le signalement');
     await page.click('#excelLiensModal button[data-dismiss="modal"]');
-    await page.waitForSelector('#excelLiensModal.in', { state: 'hidden' });
+    await waitExcelClosed(page);
     const bytes = await page.evaluate(() => {
-      const sheet = XLSX.utils.aoa_to_sheet([['Acronyme', 'Libellé', 'Définition', 'Type', 'Auteur'], ['constructor', 'toString', 'Test', 'personnel', 'Test'], ['A00', 'Groupe pair', 'Test', 'commun', 'Test']]);
+      const sheet = XLSX.utils.aoa_to_sheet([['Liens', 'Domaine', 'Définition', 'Type', 'Auteur'], ['constructor', 'toString', 'Test', 'personnel', 'Test'], ['A00', 'Groupe pair', 'Test', 'commun', 'Test']]);
       const book = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(book, sheet, 'Liens');
       return Array.from(new Uint8Array(XLSX.write(book, { type: 'array', bookType: 'xlsx' })));
     });
@@ -372,7 +377,7 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
     await page.locator('#excelLiensPreviewBody select.excel-author-select').first().selectOption('Login42', { force: true });
     state.setMode('refuse');
     await page.locator('#btnConfirmExcelLiensImport').evaluate(button => { button.click(); button.click(); });
-    await page.waitForSelector('#excelLiensModal.in', { state: 'hidden' });
+    await waitExcelClosed(page);
     check(state.requests.filter(req => req.action === 'create').length, 1, 'import ignore le doublon et bloque le double clic');
     check(state.requests.find(req => req.action === 'create').acronym, 'constructor', 'import transmet le bon acronyme');
     check(state.requests.find(req => req.action === 'create').proprietaire, 'Login42', 'import envoie userid même si le catalogue fournit xwiki:XWiki.userid');
@@ -448,7 +453,7 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
     await rebuilt.page.waitForSelector('#excelLiensModal.in');
     check(await rebuilt.page.locator('#excelLiensPreviewBody tr').count(), 12, 'import utilisable après reconstruction sans actualisation');
     await rebuilt.page.click('#excelLiensModal button[data-dismiss="modal"]');
-    await rebuilt.page.waitForSelector('#excelLiensModal.in', { state: 'hidden' });
+    await waitExcelClosed(rebuilt.page);
     // Les nouveaux en-têtes doivent aussi être reconnus hors de leur ordre habituel.
     const newHeaderBytes = await rebuilt.page.evaluate(() => {
       const sheet = XLSX.utils.aoa_to_sheet([['Auteur', 'Domaine', 'Type', 'Définition', 'Liens'], ['Test', 'DOMAINE-NEUF', 'personnel', 'Description', 'LIEN-NEUF']]);
@@ -472,6 +477,23 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
     check([newImport[0].acronym, newImport[0].label], ['LIEN-NEUF', 'DOMAINE-NEUF'], 'nouveaux en-têtes transmis dans les bons champs');
     check(rebuilt.errors, [], 'aucune exception après reconstruction');
     await rebuilt.page.close();
+    const oldHeaders = await setup();
+    await oldHeaders.page.addScriptTag({ content: readAsset('sheetjs.js') });
+    // Les anciens noms ne doivent plus réordonner les deux premières colonnes.
+    for (const oldLabel of ['Libellé', 'Libellé complet']) {
+      const oldHeaderBytes = await oldHeaders.page.evaluate(oldLabel => {
+        const sheet = XLSX.utils.aoa_to_sheet([[oldLabel, 'Acronyme', 'Définition', 'Type', 'Auteur'], ['PREMIERE-COLONNE', 'DEUXIEME-COLONNE', 'Description', 'personnel', 'Test']]);
+        const book = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(book, sheet, 'Liens');
+        return Array.from(new Uint8Array(XLSX.write(book, { type: 'array', bookType: 'xlsx' })));
+      }, oldLabel);
+      await oldHeaders.page.locator('#excelLiensFileInput').setInputFiles({ name: oldLabel + '.xlsx', buffer: Buffer.from(oldHeaderBytes) });
+      await oldHeaders.page.waitForSelector('#excelLiensModal.in');
+      await oldHeaders.page.waitForFunction(name => document.querySelector('#excelLiensInfo').textContent.startsWith(name), oldLabel + '.xlsx');
+      check(await oldHeaders.page.locator('#excelLiensPreviewBody tr td').nth(1).locator('input').inputValue(), 'PREMIERE-COLONNE', oldLabel + ' ne désigne plus la colonne Domaine');
+      check(await oldHeaders.page.locator('#excelLiensPreviewBody tr td').nth(2).locator('input').inputValue(), 'DEUXIEME-COLONNE', 'Acronyme ne désigne plus la colonne Liens');
+      check((await oldHeaders.page.locator('#excelLiensInfo').textContent()).includes('déduites'), true, 'les anciens noms sont traités comme des en-têtes inconnus');
+    }
+    await oldHeaders.page.close();
     const delayed = await setup(false, true, true);
     await delayed.page.click('#btnExcelExampleLiens');
     await delayed.page.addScriptTag({ content: readAsset('jquery.js') });
