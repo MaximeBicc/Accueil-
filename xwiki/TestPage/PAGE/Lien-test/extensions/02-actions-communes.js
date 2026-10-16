@@ -1,10 +1,53 @@
 var rowToDelete2 = null;
 
-function refreshCommonOwnerPicker(row) {
+function validateCommonOwnerPicker(select) {
+  var option = select.options[select.selectedIndex];
+  var invalid = !option || option.getAttribute('data-author-invalid') === 'true';
+  select.setAttribute('aria-invalid', invalid ? 'true' : 'false');
+  select.closest('.edit-proprietaire').classList.toggle('liens-invalid-author', invalid);
+  return !invalid;
+}
+
+async function refreshCommonOwnerPicker(row) {
   if (!row) return;
   var holder = row.querySelector('.edit-proprietaire');
   var select = holder ? holder.querySelector('select.secondary-proprietaire-value') : null;
   if (!holder || !select) return;
+
+  if (row.dataset.authorLoading === 'true' || row.dataset.editing !== 'true') return;
+  row.dataset.authorLoading = 'true';
+  var revision = row.dataset.authorRevision;
+  var saveButton = row.querySelector('.edit-buttons button');
+  if (saveButton) saveButton.disabled = true;
+  try {
+    var authors = await liensLoadAuthorCatalog();
+    if (row.dataset.editing !== 'true' || row.dataset.authorRevision !== revision) return;
+    var previousValue = select.value;
+    var value = liensFindAuthorId(previousValue, authors);
+    if (row.dataset.originalOwner === previousValue) row.dataset.originalOwner = value;
+    var label = (select.options[select.selectedIndex] || {}).textContent || value;
+    var oldPicker = select.tomselect || select.selectize;
+    if (oldPicker && typeof oldPicker.destroy === 'function') oldPicker.destroy();
+    select.innerHTML = '';
+    if (!authors.some(function (author) { return author.id === value; })) {
+      var unknown = new Option(label, value);
+      unknown.setAttribute('data-author-invalid', 'true');
+      select.add(unknown);
+    }
+    authors.forEach(function (author) { select.add(new Option(author.label + ' (' + author.id + ')', author.id)); });
+    select.value = value;
+    if (select.dataset.authorValidationReady !== 'true') {
+      select.dataset.authorValidationReady = 'true';
+      select.addEventListener('change', function () { validateCommonOwnerPicker(select); });
+    }
+    validateCommonOwnerPicker(select);
+  } finally {
+    if (row.dataset.authorRevision === revision) {
+      row.dataset.authorLoading = 'false';
+      if (saveButton && row.dataset.saving !== 'true') saveButton.disabled = false;
+    }
+  }
+  if (row.dataset.editing !== 'true') return;
 
   holder.style.display = 'block';
   select.disabled = false;
@@ -38,7 +81,7 @@ function refreshCommonOwnerPicker(row) {
         var instance = select.tomselect || select.selectize;
         var hasControl = !!holder.querySelector('.selectize-control, .ts-wrapper');
         if (!instance && !hasControl && typeof $select.xwikiSelectize === 'function') {
-          $select.xwikiSelectize();
+          $select.xwikiSelectize({ create: false });
         }
       } catch (e) {
         console.warn('Réinitialisation du sélecteur de créateur impossible', e);
@@ -56,14 +99,20 @@ function toggleEditMode2(button, isEnteringEdit) {
   var table = button.closest('#secondaryGlossaryTable');
   var viewElements = row.querySelectorAll('.view-mode, .view-buttons');
   var editElements = row.querySelectorAll('.edit-mode, .edit-buttons');
+  row.dataset.authorRevision = String(Number(row.dataset.authorRevision || 0) + 1);
+  row.dataset.authorLoading = 'false';
 
   if (isEnteringEdit) {
+    row.dataset.editing = 'true';
     table.classList.remove('hide-type-column');
     viewElements.forEach(el => el.style.display = 'none');
     row.querySelectorAll('.edit-mode').forEach(el => el.style.display = 'block');
     row.querySelector('.edit-buttons').style.display = 'flex';
+    var ownerSelect = row.querySelector('.secondary-proprietaire-value');
+    if (ownerSelect) row.dataset.originalOwner = ownerSelect.value;
     window.setTimeout(function() { refreshCommonOwnerPicker(row); }, 0);
   } else {
+    row.dataset.editing = 'false';
     table.classList.add('hide-type-column');
     row.querySelector('.edit-acronym').value = row.querySelector('.secondary-acronym .view-mode').textContent.trim();
     row.querySelector('.edit-label').value = row.querySelector('.secondary-label .view-mode').textContent.trim();
@@ -71,14 +120,22 @@ function toggleEditMode2(button, isEnteringEdit) {
     if(row.querySelector('.edit-type-input')) {
       row.querySelector('.edit-type-input').value = row.querySelector('.secondary-type .view-mode').textContent.trim();
     }
+    var ownerSelect = row.querySelector('.secondary-proprietaire-value');
+    if (ownerSelect && row.dataset.originalOwner !== undefined) {
+      var picker = ownerSelect.tomselect || ownerSelect.selectize;
+      if (picker) picker.setValue(row.dataset.originalOwner, true);
+      else ownerSelect.value = row.dataset.originalOwner;
+    }
     editElements.forEach(el => el.style.display = 'none');
     row.querySelectorAll('.view-mode').forEach(el => el.style.display = 'block');
     row.querySelector('.view-buttons').style.display = 'block';
+    liensSyncTypeColumn(table);
   }
 }
 
 async function saveRowEdition2(button) {
   var row = button.closest('.secondary-term-row');
+  if (row.dataset.saving === 'true' || row.dataset.authorLoading === 'true') return;
   var table = document.getElementById('secondaryGlossaryTable');
   var fullRef = row.getAttribute('data-full-ref');
   var className = table.getAttribute('data-class-path');
@@ -87,9 +144,15 @@ async function saveRowEdition2(button) {
   var label = row.querySelector('.edit-label').value;
   var definition = row.querySelector('.edit-definition').value;
   var proprietaireSelect = row.querySelector('.secondary-proprietaire-value');
+  if (!proprietaireSelect || !validateCommonOwnerPicker(proprietaireSelect)) {
+    alert('Choisissez un auteur membre d’un groupe autorisé à écrire dans Commun.');
+    return;
+  }
   var proprietaire = proprietaireSelect ? proprietaireSelect.value : '';
   var type = row.querySelector('.edit-type-input').value;
 
+  row.dataset.saving = 'true';
+  button.disabled = true;
   const donnees = new FormData();
   donnees.append('action', 'save');
   donnees.append('targetRef', fullRef);
@@ -106,17 +169,14 @@ async function saveRowEdition2(button) {
       method: 'POST', body: donnees, credentials: 'same-origin',
       headers: { 'X-Requested-With': 'XMLHttpRequest' }
     });
-    const resultat = await reponse.text();
+    const resultat = await liensReadResponse(reponse);
 
-    if (resultat.includes('GLOSSAIRE_OK')) {
-      var line = resultat.split(/\r?\n/).find(function(x) { return x.indexOf('GLOSSAIRE_OK|') !== -1; }) || resultat;
-      line = line.replace(/<[^>]+>/g, '').trim();
-      if (line.indexOf('GLOSSAIRE_OK|') > 0) line = line.substring(line.indexOf('GLOSSAIRE_OK|'));
-      var parts = line.split('|');
+    var parts = liensResult(resultat);
+    if (parts) {
       var updatedRef = parts[1] || fullRef;
       var updatedDocName = parts[2] || row.getAttribute('data-doc-name');
 
-      row.querySelector('.secondary-acronym .view-mode').innerHTML = '<strong>' + acronym + '</strong>';
+      row.querySelector('.secondary-acronym .view-mode').textContent = acronym;
       row.querySelector('.secondary-label .view-mode').textContent = label;
       row.querySelector('.secondary-definition .view-mode').textContent = definition;
       row.querySelector('.secondary-type .view-mode').textContent = type;
@@ -127,7 +187,7 @@ async function saveRowEdition2(button) {
       row.setAttribute('data-full-ref', updatedRef);
       row.setAttribute('data-doc-name', updatedDocName);
 
-      var modalRow = document.querySelector('#popupCheckTable tr[data-full-ref="' + fullRef + '"]');
+      var modalRow = liensPopupRow(fullRef);
       if (modalRow) {
         modalRow.setAttribute('data-full-ref', updatedRef);
         var ma = modalRow.querySelector('.term-acronym');
@@ -140,13 +200,19 @@ async function saveRowEdition2(button) {
       row.querySelectorAll('.edit-mode, .edit-buttons').forEach(el => el.style.display = 'none');
       row.querySelectorAll('.view-mode').forEach(el => el.style.display = 'block');
       row.querySelector('.view-buttons').style.display = 'block';
+      liensSyncTypeColumn(table);
+      if (typeof triggerGlobalFilter === 'function') triggerGlobalFilter();
       if (typeof applyPagination2 === 'function') applyPagination2();
+      if (type === 'personnel') window.location.reload();
     } else {
-      alert('Erreur serveur : ' + resultat.trim());
+      alert('Erreur serveur : ' + liensErrorMessage(resultat));
     }
   } catch (erreur) {
     console.error(erreur);
-    alert('Impossible de joindre la page DATA : ' + erreur);
+    alert('Enregistrement impossible : ' + erreur.message);
+  } finally {
+    row.dataset.saving = 'false';
+    button.disabled = false;
   }
 }
 
@@ -160,7 +226,9 @@ function openDeleteModal2(button) {
 }
 
 async function executeRowDelete2() {
-  if (!rowToDelete2) return;
+  if (!rowToDelete2 || rowToDelete2.dataset.deleting === 'true') return;
+  var deletingRow = rowToDelete2;
+  deletingRow.dataset.deleting = 'true';
   var table = document.getElementById('secondaryGlossaryTable');
   var fullRef = rowToDelete2.getAttribute('data-full-ref');
   var csrfToken = table.getAttribute('data-csrf');
@@ -174,12 +242,13 @@ async function executeRowDelete2() {
       method: 'POST', body: donnees, credentials: 'same-origin',
       headers: { 'X-Requested-With': 'XMLHttpRequest' }
     });
-    const resultat = await reponse.text();
-    if (resultat.includes('GLOSSAIRE_OK')) {
+    const resultat = await liensReadResponse(reponse);
+    if (liensResult(resultat)) {
       jQuery('#deleteConfirmModal2').modal('hide');
-      var modalRow = document.querySelector('#popupCheckTable tr[data-full-ref="' + fullRef + '"]');
+      var modalRow = liensPopupRow(fullRef);
       if (modalRow) modalRow.remove();
-      rowToDelete2.remove(); rowToDelete2 = null;
+      deletingRow.remove();
+      if (rowToDelete2 === deletingRow) rowToDelete2 = null;
       if (typeof applyPagination2 === 'function') applyPagination2();
     } else {
       alert('Erreur de suppression serveur : ' + resultat.trim());
@@ -187,7 +256,9 @@ async function executeRowDelete2() {
     }
   } catch (erreur) {
     console.error(erreur);
-    alert('Erreur réseau lors de la suppression : ' + erreur);
+    alert('Suppression impossible : ' + erreur.message);
     jQuery('#deleteConfirmModal2').modal('hide');
+  } finally {
+    deletingRow.dataset.deleting = 'false';
   }
 }

@@ -1,304 +1,596 @@
-{{velocity}}
-#set($className = 'TestPage.PAGE.Liens.CODE.lienClass.WebHome')
-#set($dataSpace = 'TestPage.PAGE.Liens.DATA.LIENDATA')
-#set($managerGroup = 'XWiki.IVQ_Gestionnaires')
-#set($managerGroupAlt = 'XWiki.IVQ_Gestionnaire')
+{{velocity output="false"}}
+## BEGIN LIENS LOCATION
+## Seule valeur à adapter, identique dans l'affichage et DATA (racine dans ce wiki).
+#set($liensRoot = 'TestPage.PAGE.Liens')
+#set($classPath = $liensRoot.concat('.CODE.lienClass.WebHome'))
+#set($configurationClass = $liensRoot.concat('.CODE.liensConfigurationClass.WebHome'))
+#set($configurationRef = $liensRoot.concat('.CODE.Configuration.WebHome'))
+#set($liensExtensionRef = $liensRoot.concat('.CODE.GlossaireExtension'))
+#set($liensDataRef = $liensRoot.concat('.DATA.WebHome'))
+#set($dataSpace = $liensRoot.concat('.DATA.LIENDATA'))
+#set($liensHomeRef = $liensRoot.concat('.WebHome'))
+## Utiliser les références XWiki pour construire aussi les listes d'espaces.
+#set($liensRootReference = $services.model.resolveDocument($liensHomeRef))
+#set($liensWiki = $liensRootReference.wikiReference.name)
+#set($liensDataSpaces = [])
+#foreach($rootSpace in $liensRootReference.spaceReferences)
+  #set($discard = $liensDataSpaces.add($rootSpace.name))
+#end
+#set($discard = $liensDataSpaces.add('DATA'))
+#set($discard = $liensDataSpaces.add('LIENDATA'))
+## END LIENS LOCATION
+#set($className = $classPath)
 #set($currentUser = $xcontext.user)
-#set($currentUserDoc = $xwiki.getDocument($currentUser))
-#set($currentUserId = $currentUserDoc.name)
-#set($managerRefs = $services.user.group.getMembers($managerGroup, true))
-#set($managerRefsAlt = $services.user.group.getMembers($managerGroupAlt, true))
-#set($currentUserIsManager = false)
-#foreach($managerRef in $managerRefs)
-  #set($managerDoc = $xwiki.getDocument($managerRef))
-  #if("$managerDoc.name" == "$currentUserId")
-    #set($currentUserIsManager = true)
+#set($currentUserId = $xwiki.getDocument($currentUser).name)
+## BEGIN LIENS PERMISSIONS — bloc identique dans l'affichage et DATA.
+#set($currentUserReference = $xcontext.userReference)
+#set($isAuthenticated = $currentUserReference && $currentUserReference.name != 'XWikiGuest')
+#set($canConfigure = $xwiki.hasWikiAdminRights())
+#set($configuration = false)
+#set($configuration = $xwiki.getDocumentAsAuthor($configurationRef))
+#set($configurationObject = false)
+#if($configuration) #set($configurationObject = $configuration.getObject($configurationClass)) #end
+#set($permissionFields = ['personalReadGroups', 'personalWriteGroups', 'commonReadGroups', 'commonWriteGroups'])
+#set($configuredGroups = {'personalReadGroups':[], 'personalWriteGroups':[], 'commonReadGroups':[], 'commonWriteGroups':[]})
+#set($permissions = {'personalReadGroups':false, 'personalWriteGroups':false, 'commonReadGroups':false, 'commonWriteGroups':false})
+#set($guestReference = $services.model.resolveDocument('XWiki.XWikiGuest'))
+#set($allGroupReference = $services.model.resolveDocument('XWiki.XWikiAllGroup'))
+#set($membershipByWiki = {})
+#if($configuration && $configurationObject && "$!configurationObject.getValue('schemaVersion')" == '1')
+  #foreach($permissionField in $permissionFields)
+    #set($groupLines = "$!configurationObject.getValue($permissionField)")
+    #foreach($groupLine in $groupLines.split('[\r\n]+'))
+      #set($groupLine = $groupLine.replaceAll('^\s+|\s+$', ''))
+      #if($groupLine != '')
+        #set($groupReference = $services.model.resolveDocument($groupLine))
+        #set($canonicalGroup = $services.model.serialize($groupReference))
+        #set($discard = $configuredGroups.get($permissionField).add($canonicalGroup))
+        #set($hasGroup = false)
+        #if(!$isAuthenticated && $groupReference.equals($guestReference) && $permissionField == 'commonReadGroups')
+          #set($hasGroup = true)
+        #elseif($isAuthenticated && !$groupReference.equals($guestReference))
+          #set($membershipWiki = $groupReference.wikiReference.name)
+          #if(!$membershipByWiki.containsKey($membershipWiki))
+            #set($discard = $membershipByWiki.put($membershipWiki, $services.user.group.getGroups($currentUserReference, $groupReference.wikiReference, true)))
+          #end
+          #set($hasGroup = $membershipByWiki.get($membershipWiki).contains($groupReference))
+          #if($groupReference.equals($allGroupReference)) #set($hasGroup = true) #end
+        #end
+        #if($hasGroup) #set($discard = $permissions.put($permissionField, true)) #end
+      #end
+    #end
   #end
-#end
-#if(!$currentUserIsManager)
-  #foreach($managerRef in $managerRefsAlt)
-    #set($managerDoc = $xwiki.getDocument($managerRef))
-    #if("$managerDoc.name" == "$currentUserId")
-      #set($currentUserIsManager = true)
+#elseif($configuration && !$configurationObject)
+  ## Avant le premier enregistrement uniquement : comportement historique.
+  #set($allGroup = $services.model.serialize($allGroupReference))
+  #set($discard = $configuredGroups.get('personalWriteGroups').add($allGroup))
+  #set($discard = $configuredGroups.get('commonReadGroups').add($allGroup))
+  #if($isAuthenticated)
+    #set($discard = $permissions.put('personalWriteGroups', true))
+    #set($discard = $permissions.put('commonReadGroups', true))
+  #end
+  #foreach($legacyGroup in ['XWiki.IVQ_Gestionnaires', 'XWiki.IVQ_Gestionnaire'])
+    #set($legacyReference = $services.model.resolveDocument($legacyGroup))
+    #set($discard = $configuredGroups.get('commonWriteGroups').add($services.model.serialize($legacyReference)))
+    #if($isAuthenticated && $services.user.group.getGroups($currentUserReference, $legacyReference.wikiReference, true).contains($legacyReference))
+      #set($discard = $permissions.put('commonWriteGroups', true))
     #end
   #end
 #end
+## Une configuration illisible ou d'une version inconnue n'ouvre aucun accès.
+#set($canWriteCommon = $isAuthenticated && $permissions.get('commonWriteGroups'))
+#set($canWritePersonal = $isAuthenticated && ($permissions.get('personalWriteGroups') || $canWriteCommon))
+#set($canReadPersonal = $isAuthenticated && ($permissions.get('personalReadGroups') || $canWritePersonal))
+#set($canReadCommon = $permissions.get('commonReadGroups') || $canWriteCommon)
+## END LIENS PERMISSIONS
+## BEGIN LIENS AUTHORS — bloc identique dans l'affichage et DATA.
+#macro(liensLoadAuthors)
+  #set($linkAuthors = [])
+  #set($authorRefs = [])
+  #set($seenAuthorRefs = [])
+  #set($seenAuthorIds = [])
+  #if($canWriteCommon)
+    #foreach($authorGroup in $configuredGroups.get('commonWriteGroups'))
+      #set($authorGroupReference = $services.model.resolveDocument($authorGroup))
+      ## getMembers attend une DocumentReference ; true inclut les sous-groupes.
+      #foreach($memberReference in $services.user.group.getMembers($authorGroupReference, true))
+        #if(!$authorRefs.contains($memberReference)) #set($discard = $authorRefs.add($memberReference)) #end
+      #end
+      #if($authorGroupReference.equals($allGroupReference))
+        ## AllGroup peut être implicite : inclure les profils du wiki du groupe.
+        #foreach($authorName in $xwiki.getSpaceDocsName('XWiki'))
+          #set($memberReference = $services.model.createDocumentReference($authorGroupReference.wikiReference.name, ['XWiki'], $authorName))
+          #if(!$authorRefs.contains($memberReference)) #set($discard = $authorRefs.add($memberReference)) #end
+        #end
+      #end
+    #end
+    ## Le compte connecté a déjà été vérifié comme membre d'un groupe autorisé.
+    #if(!$authorRefs.contains($currentUserReference)) #set($discard = $authorRefs.add($currentUserReference)) #end
+    #foreach($authorReference in $authorRefs)
+      #set($canonicalAuthor = $services.model.serialize($authorReference))
+      #if(!$seenAuthorRefs.contains($canonicalAuthor))
+        #set($discard = $seenAuthorRefs.add($canonicalAuthor))
+        #set($authorDoc = false)
+        #set($authorDoc = $xwiki.getDocumentAsAuthor($authorReference))
+        #set($authorObject = false)
+        #if($authorDoc) #set($authorObject = $authorDoc.getObject('XWiki.XWikiUsers')) #end
+        ## Les sous-groupes et les comptes supprimés ne sont pas des auteurs.
+        #if($authorDoc && !$authorDoc.isNew() && $authorObject && !$authorReference.equals($guestReference) && !$seenAuthorIds.contains($authorDoc.name))
+          #set($discard = $seenAuthorIds.add($authorDoc.name))
+          #set($authorFirst = "$!authorObject.getValue('first_name')")
+          #set($authorLast = "$!authorObject.getValue('last_name')")
+          #set($authorLabel = "$authorFirst $authorLast")
+          #set($authorLabel = $authorLabel.trim())
+          #if($authorLabel == '') #set($authorLabel = $authorDoc.name) #end
+          #set($authorId = $authorDoc.name)
+          ## L'identifiant stocké et le dossier DATA restent toujours le nom du compte.
+          #set($discard = $linkAuthors.add({'id':$authorId, 'label':$authorLabel, 'reverseLabel':"$authorLast $authorFirst", 'reference':$canonicalAuthor, 'documentReference':$authorReference}))
+        #end
+      #end
+    #end
+  #end
+#end
+#macro(liensCheckCurrentOwner $ownerId)
+  #set($isCurrentLinkOwner = $ownerId == $currentUserReference.name)
+  #if(!$isCurrentLinkOwner && ($ownerId.startsWith('XWiki.') || $ownerId.contains(':')))
+    #set($isCurrentLinkOwner = $services.model.resolveDocument($ownerId).equals($currentUserReference))
+  #end
+#end
+## END LIENS AUTHORS
 
-#if ($request.getMethod() == "POST")
-  #set($action = $!request.getParameter('action'))
-  #set($formToken = $!request.getParameter('form_token'))
-
-  #if(!$services.csrf.isTokenValid($formToken))
-    {{html}}ERREUR_CSRF{{/html}}
+## BEGIN LIENS RECORD FIELDS — bloc identique dans l'affichage et DATA.
+#macro(liensReadOwner $recordDocument $recordObject)
+  #set($linkOwner = "$!recordObject.getValue('proprietaire')")
+  #if($linkOwner == '' || $linkOwner.matches('\s*'))
+    ## Ancienne fiche incomplète : utiliser uniquement son dossier dans cette racine.
+    #set($recordSpaces = $recordDocument.documentReference.spaceReferences)
+    #set($expectedSpaceCount = $liensDataSpaces.size() + 1)
+    #if($recordSpaces.size() == $expectedSpaceCount)
+      #set($ownerIndex = $recordSpaces.size() - 1)
+      #set($folderOwner = $recordSpaces.get($ownerIndex).name)
+      #set($expectedOwnerSpaces = [])
+      #set($discard = $expectedOwnerSpaces.addAll($liensDataSpaces))
+      #set($discard = $expectedOwnerSpaces.add($folderOwner))
+      #set($expectedOwnerReference = $services.model.createDocumentReference($liensWiki, $expectedOwnerSpaces, 'WebHome'))
+      #if($recordDocument.documentReference.parent.equals($expectedOwnerReference.parent))
+        #set($linkOwner = $folderOwner)
+      #end
+    #end
+  #end
+#end
+#macro(liensCheckRecordClass)
+  #set($liensSchemaError = '')
+  #set($recordClassDocument = false)
+  #set($recordClassDocument = $xwiki.getDocumentAsAuthor($classPath))
+  #if(!$recordClassDocument || $recordClassDocument.isNew())
+    #set($liensSchemaError = "La classe $classPath est absente ou inaccessible. Copiez sa définition complète avant de créer des liens.")
   #else
-
-    ## --- LISTE SECURISEE POUR LE TABLEAU DE VERIFICATION ---
-    ## On ne renvoie jamais les liens personnels des autres utilisateurs.
-    #if ($action == 'listVisible')
-      #set($statement = "select distinct doc.fullName from Document doc, doc.object($className) obj")
-      #set($query = $services.query.xwql($statement))
-      #set($documentRefs = $query.execute())
-      #foreach($fullRef in $documentRefs)
-        #set($targetDoc = $xwiki.getDocument($fullRef))
-        #set($obj = $targetDoc.getObject($className))
-        #if($obj)
-          #set($typeValue = "$!obj.getValue('type')")
-          #set($ownerValue = "$!obj.getValue('proprietaire')")
-          #if($typeValue == 'commun' || ($typeValue == 'personnel' && $ownerValue == $currentUserId))
-            #set($a = "$!obj.getValue('nom_lien')".replace('|',' '))
-            #set($l = "$!obj.getValue('lien')".replace('|',' '))
-            #set($d = "$!obj.getValue('definition')".replace('|',' '))
-            {{html}}LIEN_ROW|$fullRef|$a|$l|$d|$typeValue|$ownerValue{{/html}}
-          #end
-        #end
+    #set($recordClass = false)
+    #set($recordClass = $recordClassDocument.getxWikiClass())
+    #set($missingRecordFields = [])
+    #foreach($recordField in ['nom_lien', 'lien', 'definition', 'type', 'proprietaire'])
+      #if(!$recordClass || !$recordClass.getEnabledPropertyNames().contains($recordField))
+        #set($discard = $missingRecordFields.add($recordField))
       #end
-      {{html}}LIEN_LIST_OK|$currentUserId|$currentUserIsManager{{/html}}
-
-    ## --- SAUVEGARDE D'UNE LIGNE EXISTANTE ---
-    #elseif ($action == 'save')
-      #set($targetRef = $!request.getParameter('targetRef'))
-      #set($acronym = "$!request.getParameter('acronym')")
-      #set($label = "$!request.getParameter('label')")
-      #set($definition = "$!request.getParameter('definition')")
-      #set($requestedType = "$!request.getParameter('type')")
-      #set($requestedOwner = "$!request.getParameter('proprietaire')")
-      #set($targetDoc = $xwiki.getDocument($targetRef))
-      #set($obj = $targetDoc.getObject($className))
-
-      #if(!$obj)
-        {{html}}ERREUR_OBJET{{/html}}
-      #else
-        #set($oldType = "$!obj.getValue('type')")
-        #set($oldOwner = "$!obj.getValue('proprietaire')")
-
-        ## Un non-manager ne peut modifier que ses propres liens personnels.
-        #if(!$currentUserIsManager && ($oldType == 'commun' || $oldOwner != $currentUserId))
-          {{html}}ERREUR_DROITS{{/html}}
-        #elseif(!$currentUserIsManager && $requestedType == 'commun')
-          {{html}}ERREUR_DROITS_COMMUN{{/html}}
-        #else
-          #if(!$currentUserIsManager)
-            #set($requestedOwner = $currentUserId)
-          #elseif(!$requestedOwner)
-            #set($requestedOwner = $oldOwner)
-          #end
-          #if(!$requestedType)
-            #set($requestedType = $oldType)
-          #end
-
-          ## La page doit suivre LIENDATA.{auteur}.{nom}.
-          ## IMPORTANT : un changement d'auteur est un MOVE vers un autre espace,
-          ## tandis qu'un changement d'acronyme est un RENAME du document.
-          ## Les requêtes désactivent autoRedirect : aucune ancienne page fantôme
-          ## ne doit rester visible dans l'arborescence après l'opération.
-          ## On ne passe plus une DocumentReference complète à rename(), car cela
-          ## pouvait créer une page parasite au lieu de déplacer la page existante.
-          #set($cleanName = $xwiki.cleanName($acronym))
-          #if(!$cleanName)
-            #set($cleanName = $targetDoc.name)
-          #end
-
-          #set($oldSpaceName = "$dataSpace.$oldOwner")
-          #set($destinationSpaceName = "$dataSpace.$requestedOwner")
-          #set($finalName = $cleanName)
-          #set($destinationRef = "$destinationSpaceName.$finalName")
-          #set($destinationDoc = $xwiki.getDocument($destinationRef))
-          #set($counter = 1)
-
-          ## Si une autre page occupe déjà la destination finale, on suffixe le nom.
-          #foreach($i in [1..100])
-            #if(!$destinationDoc.isNew() && "$destinationDoc.documentReference" != "$targetDoc.documentReference")
-              #set($finalName = $cleanName + "_" + $counter)
-              #set($destinationRef = "$destinationSpaceName.$finalName")
-              #set($destinationDoc = $xwiki.getDocument($destinationRef))
-              #set($counter = $counter + 1)
-            #else
-              #break
-            #end
-          #end
-
-          #set($currentRef = "$targetRef")
-          #set($currentName = "$targetDoc.name")
-          #set($ownerChanged = "$requestedOwner" != "$oldOwner")
-          #set($nameChanged = "$finalName" != "$currentName")
-
-          #if($ownerChanged && $nameChanged)
-            ## On préfère renommer avant de déplacer si le nom final est libre dans
-            ## l'ancien espace. Cela évite une collision intermédiaire dans le nouvel
-            ## espace avec l'ancien nom du document.
-            #set($sourceFinalRef = "$oldSpaceName.$finalName")
-            #set($sourceFinalDoc = $xwiki.getDocument($sourceFinalRef))
-
-            #if($sourceFinalDoc.isNew())
-              #set($sourceReference = $services.model.resolveDocument($currentRef))
-              #set($renameRequest = $services.refactoring.requestFactory.createRenameRequest($sourceReference, $finalName))
-              #set($discard = $renameRequest.setAutoRedirect(false))
-              $services.refactoring.rename($renameRequest).join()
-              #set($currentRef = "$oldSpaceName.$finalName")
-
-              #set($sourceReference = $services.model.resolveDocument($currentRef))
-              #set($destinationSpaceReference = $services.model.resolveSpace($destinationSpaceName))
-              #set($moveRequest = $services.refactoring.requestFactory.createMoveRequest($sourceReference, $destinationSpaceReference))
-              #set($discard = $moveRequest.setAutoRedirect(false))
-              $services.refactoring.move($moveRequest).join()
-              #set($currentRef = "$destinationSpaceName.$finalName")
-            #else
-              ## Cas rare : le nom final existe déjà dans l'ancien espace.
-              ## On utilise un nom temporaire libre dans les deux espaces, puis move + rename.
-              #set($tempCounter = 1)
-              #set($tempName = "__LIENS_MOVE_TMP__1")
-              #foreach($j in [1..100])
-                #set($sourceTempDoc = $xwiki.getDocument("$oldSpaceName.$tempName"))
-                #set($destinationTempDoc = $xwiki.getDocument("$destinationSpaceName.$tempName"))
-                #if($sourceTempDoc.isNew() && $destinationTempDoc.isNew())
-                  #break
-                #else
-                  #set($tempCounter = $tempCounter + 1)
-                  #set($tempName = "__LIENS_MOVE_TMP__" + $tempCounter)
-                #end
-              #end
-
-              #set($sourceReference = $services.model.resolveDocument($currentRef))
-              #set($renameRequest = $services.refactoring.requestFactory.createRenameRequest($sourceReference, $tempName))
-              #set($discard = $renameRequest.setAutoRedirect(false))
-              $services.refactoring.rename($renameRequest).join()
-              #set($currentRef = "$oldSpaceName.$tempName")
-
-              #set($sourceReference = $services.model.resolveDocument($currentRef))
-              #set($destinationSpaceReference = $services.model.resolveSpace($destinationSpaceName))
-              #set($moveRequest = $services.refactoring.requestFactory.createMoveRequest($sourceReference, $destinationSpaceReference))
-              #set($discard = $moveRequest.setAutoRedirect(false))
-              $services.refactoring.move($moveRequest).join()
-              #set($currentRef = "$destinationSpaceName.$tempName")
-
-              #set($sourceReference = $services.model.resolveDocument($currentRef))
-              #set($renameRequest = $services.refactoring.requestFactory.createRenameRequest($sourceReference, $finalName))
-              #set($discard = $renameRequest.setAutoRedirect(false))
-              $services.refactoring.rename($renameRequest).join()
-              #set($currentRef = "$destinationSpaceName.$finalName")
-            #end
-
-          #elseif($ownerChanged)
-            ## Changement de créateur uniquement : on déplace le document existant.
-            #set($sourceReference = $services.model.resolveDocument($currentRef))
-            #set($destinationSpaceReference = $services.model.resolveSpace($destinationSpaceName))
-            #set($moveRequest = $services.refactoring.requestFactory.createMoveRequest($sourceReference, $destinationSpaceReference))
-            #set($discard = $moveRequest.setAutoRedirect(false))
-            $services.refactoring.move($moveRequest).join()
-            #set($currentRef = "$destinationSpaceName.$currentName")
-
-          #elseif($nameChanged)
-            ## Changement d'acronyme uniquement : on renomme dans le même espace.
-            #set($sourceReference = $services.model.resolveDocument($currentRef))
-            #set($renameRequest = $services.refactoring.requestFactory.createRenameRequest($sourceReference, $finalName))
-            #set($discard = $renameRequest.setAutoRedirect(false))
-            $services.refactoring.rename($renameRequest).join()
-            #set($currentRef = "$oldSpaceName.$finalName")
-          #end
-
-          ## On modifie l'objet APRES le move / rename afin que l'auteur stocké et
-          ## l'emplacement réel de la page restent toujours cohérents.
-          #set($finalDoc = $xwiki.getDocument($currentRef))
-          #set($finalObj = $finalDoc.getObject($className))
-          #if(!$finalObj)
-            {{html}}ERREUR_OBJET_APRES_DEPLACEMENT{{/html}}
-          #else
-            #set($discard = $finalObj.set('nom_lien', $acronym))
-            #set($discard = $finalObj.set('lien', $label))
-            #set($discard = $finalObj.set('definition', $definition))
-            #set($discard = $finalObj.set('type', $requestedType))
-            #set($discard = $finalObj.set('proprietaire', $requestedOwner))
-            #set($discard = $finalDoc.setTitle($acronym))
-            #set($discard = $finalDoc.save('Mise à jour via interface Liens', true))
-            {{html}}GLOSSAIRE_OK|$currentRef|$finalDoc.name{{/html}}
-          #end
-        #end
-      #end
-
-    ## --- CREATION / IMPORT EXCEL ---
-    #elseif ($action == 'create')
-      #set($acronym = "$!request.getParameter('acronym')")
-      #set($label = "$!request.getParameter('label')")
-      #set($definition = "$!request.getParameter('definition')")
-      #set($requestedType = "$!request.getParameter('type')")
-      #set($requestedOwner = "$!request.getParameter('proprietaire')")
-
-      #if(!$requestedType)
-        #set($requestedType = 'personnel')
-      #end
-      #if(!$requestedOwner)
-        #set($requestedOwner = $currentUserId)
-      #end
-
-      ## Seul le nom de groupe manager compte ici, pas les permissions XWiki.
-      #if(!$currentUserIsManager && $requestedType == 'commun')
-        {{html}}ERREUR_DROITS_COMMUN{{/html}}
-      #elseif(!$currentUserIsManager && $requestedOwner != $currentUserId)
-        {{html}}ERREUR_DROITS_AUTEUR{{/html}}
-      #else
-        #set($cleanName = $xwiki.cleanName($acronym))
-        #if(!$cleanName)
-          #set($cleanName = "Lien")
-        #end
-
-        ## Construction de la référence avec l'API XWiki plutôt qu'avec une chaîne
-        ## "${...}" : sur cette instance, l'interpolation pouvait laisser
-        ## littéralement ${cleanName} dans le nom de la page importée.
-        #set($ownerDataSpaces = ['TestPage', 'PAGE', 'Liens', 'DATA', 'LIENDATA', $requestedOwner])
-        #set($candidateName = $cleanName)
-        #set($counter = 1)
-        #set($candidateReference = $services.model.createDocumentReference('', $ownerDataSpaces, $candidateName))
-        #set($newPage = $xwiki.getDocument($candidateReference))
-
-        #foreach($i in [1..100])
-          #if(!$newPage.isNew())
-            #set($candidateName = $cleanName + "_" + $counter)
-            #set($candidateReference = $services.model.createDocumentReference('', $ownerDataSpaces, $candidateName))
-            #set($newPage = $xwiki.getDocument($candidateReference))
-            #set($counter = $counter + 1)
-          #else
-            #break
-          #end
-        #end
-
-        #set($newObj = $newPage.newObject($className))
-        #set($discard = $newObj.set('nom_lien', $acronym))
-        #set($discard = $newObj.set('lien', $label))
-        #set($discard = $newObj.set('definition', $definition))
-        #set($discard = $newObj.set('type', $requestedType))
-        #set($discard = $newObj.set('proprietaire', $requestedOwner))
-        #set($discard = $newPage.setTitle($acronym))
-        #set($discard = $newPage.save('Import Excel / ajout Liens', true))
-        #set($newPageRef = $newPage.getFullName())
-        {{html}}GLOSSAIRE_OK|$newPageRef|$newPage.name{{/html}}
-      #end
-
-    ## --- SUPPRESSION SIMPLE OU MULTIPLE ---
-    #elseif ($action == 'delete')
-      #set($targetRef = $!request.getParameter('targetRef'))
-      #set($targetDoc = $xwiki.getDocument($targetRef))
-      #set($obj = $targetDoc.getObject($className))
-      #if(!$obj)
-        {{html}}ERREUR_OBJET{{/html}}
-      #else
-        #set($typeValue = "$!obj.getValue('type')")
-        #set($ownerValue = "$!obj.getValue('proprietaire')")
-        #if(!$currentUserIsManager && ($typeValue == 'commun' || $ownerValue != $currentUserId))
-          {{html}}ERREUR_DROITS{{/html}}
-        #else
-          #set($deleteSuccess = $targetDoc.delete())
-          #if($deleteSuccess)
-            {{html}}GLOSSAIRE_OK{{/html}}
-          #else
-            {{html}}ERREUR_DROITS{{/html}}
-          #end
-        #end
-      #end
-    #else
-      {{html}}ERREUR_ACTION_INCONNUE{{/html}}
+    #end
+    #if(!$missingRecordFields.isEmpty())
+      #set($liensSchemaError = "La classe $classPath doit contenir ces champs actifs : $missingRecordFields. Copiez les propriétés de la classe d'origine.")
     #end
   #end
-#else
-  {{warning}}Cette page n'accepte que les requêtes de type POST.{{/warning}}
 #end
+#macro(liensCheckWrittenFields $writtenObject $expectedFields)
+  #set($liensWriteError = '')
+  #if(!$writtenObject)
+    #set($liensWriteError = "Impossible de créer l'objet de classe $classPath. Vérifiez sa définition.")
+  #else
+    #foreach($writtenField in $expectedFields.entrySet())
+      #set($writtenValue = "$!writtenObject.getValue($writtenField.key)")
+      #if($writtenValue != $writtenField.value)
+        #set($liensWriteError = "Le champ $writtenField.key de $classPath n'a pas conservé sa valeur. Vérifiez sa définition et son type.")
+        #break
+      #end
+    #end
+  #end
+#end
+## END LIENS RECORD FIELDS
+
+## BEGIN LIENS ADDRESSES — même générateur que le Glossaire.
+#macro(liensFindDestination $destinationSpaces $sourcePage)
+  #set($candidateReference = false)
+  #set($candidateDoc = false)
+  #set($destinationRoot = $services.model.createDocumentReference($liensWiki, $destinationSpaces, 'WebHome'))
+  #set($destinationSpace = $services.model.serialize($destinationRoot.parent))
+  #set($hasStableAddress = false)
+  #if($sourcePage && $sourcePage.name.matches('[A-Za-z0-9]{16}'))
+    #set($stableMarker = "<!-- liens-id:$sourcePage.name -->")
+    #set($hasStableAddress = $sourcePage.content.contains($stableMarker))
+  #end
+  #foreach($addressAttempt in [1..100])
+    #if($hasStableAddress)
+      #set($candidateName = $sourcePage.name)
+    #else
+      #set($candidateName = $xwiki.getUniquePageName($destinationSpace))
+    #end
+    #if($candidateName.matches('[A-Za-z0-9]{16}'))
+      #set($candidate = $services.model.createDocumentReference($liensWiki, $destinationSpaces, $candidateName))
+      #set($candidateDoc = $xwiki.getDocument($candidate))
+      #if($sourcePage && $candidate.equals($sourcePage.documentReference))
+        #set($candidateReference = $candidate)
+        #break
+      #end
+      ## Ne pas entrer en collision avec une fiche terminale ou une page imbriquée.
+      #set($nestedSpaces = [])
+      #set($discard = $nestedSpaces.addAll($destinationSpaces))
+      #set($discard = $nestedSpaces.add($candidateName))
+      #set($nestedReference = $services.model.createDocumentReference($liensWiki, $nestedSpaces, 'WebHome'))
+      #if($candidateDoc.isNew() && $xwiki.getDocument($nestedReference).isNew())
+        #set($candidateReference = $candidate)
+        #break
+      #end
+    #end
+    ## Un déplacement d'auteur conserve aussi l'identifiant stable, sans écraser de fiche.
+    #if($hasStableAddress) #break #end
+  #end
+#end
+#macro(liensMarkStableAddress $stablePage)
+  #set($stableMarker = "<!-- liens-id:$stablePage.name -->")
+  #if(!$stablePage.content.contains($stableMarker))
+    #set($markerOpen = '{')
+    #set($markerClose = '}')
+    #set($stableContent = "$!stablePage.content")
+    #set($discard = $stablePage.setContent("${stableContent}${markerOpen}${markerOpen}html${markerClose}${markerClose}${stableMarker}${markerOpen}${markerOpen}/html${markerClose}${markerClose}"))
+  #end
+#end
+## END LIENS ADDRESSES
+#macro(liensSaveSettings)
+  #set($settingsError = '')
+  #set($expectedVersion = "$!request.getParameter('expectedVersion')")
+  #if(!$canConfigure)
+    #set($settingsError = 'Seul un administrateur du wiki peut modifier ces paramètres.')
+  #elseif(!$configuration)
+    #set($settingsError = "La configuration n'est pas accessible à l'auteur du service.")
+  #elseif($expectedVersion == '' || $expectedVersion != "$configuration.version")
+    #set($settingsError = 'Les paramètres ont changé. Rechargez la page avant de les enregistrer.')
+  #else
+    #set($newGroups = {'personalReadGroups':[], 'personalWriteGroups':[], 'commonReadGroups':[], 'commonWriteGroups':[]})
+    #set($seenGroups = [])
+    #set($settingsRowCount = 0)
+    #foreach($entry in $request.parameterMap.entrySet())
+      #set($parameterName = "$!entry.key")
+      #if($parameterName.startsWith('group_') && $settingsError == '')
+        #set($rowIndex = $parameterName.substring(6))
+        #set($groupText = "$!request.getParameter($parameterName)")
+        #set($personalParameter = "personal_$rowIndex")
+        #set($commonParameter = "common_$rowIndex")
+        #set($personalLevel = "$!request.getParameter($personalParameter)")
+        #set($commonLevel = "$!request.getParameter($commonParameter)")
+        #set($settingsRowCount = $settingsRowCount + 1)
+        #if(!$rowIndex.matches('[0-9]+') || !$personalLevel.matches('[012]') || !$commonLevel.matches('[012]') || $groupText == '' || $groupText.matches('\s*') || $groupText.matches('[\s\S]*[\r\n][\s\S]*'))
+          #set($settingsError = 'Un groupe ou un droit est invalide.')
+        #else
+          #set($groupText = $groupText.replaceAll('^\s+|\s+$', ''))
+          #set($candidateReference = $services.model.resolveDocument($groupText))
+          #set($canonicalGroup = $services.model.serialize($candidateReference))
+          #if($commonLevel == '2') #set($personalLevel = '2') #end
+          #if($seenGroups.contains($canonicalGroup))
+            #set($settingsError = 'Un même groupe ne peut apparaître plusieurs fois.')
+          #else
+            #set($discard = $seenGroups.add($canonicalGroup))
+            #set($validGroup = $personalLevel == '0' && $commonLevel == '0')
+            #if($candidateReference.equals($guestReference))
+              #set($validGroup = $personalLevel == '0' && $commonLevel != '2')
+            #elseif($candidateReference.equals($allGroupReference))
+              #set($validGroup = true)
+            #elseif(!$validGroup)
+              #set($candidateDoc = false)
+              #set($candidateDoc = $xwiki.getDocument($candidateReference))
+              #set($validGroup = $candidateDoc && !$candidateDoc.isNew() && $candidateDoc.getObject('XWiki.XWikiGroups'))
+            #end
+            #if(!$validGroup)
+              #set($settingsError = "Le groupe $canonicalGroup est introuvable ou ne peut pas recevoir ces droits.")
+            #else
+              #if($personalLevel != '0') #set($discard = $newGroups.get('personalReadGroups').add($canonicalGroup)) #end
+              #if($personalLevel == '2') #set($discard = $newGroups.get('personalWriteGroups').add($canonicalGroup)) #end
+              #if($commonLevel != '0') #set($discard = $newGroups.get('commonReadGroups').add($canonicalGroup)) #end
+              #if($commonLevel == '2') #set($discard = $newGroups.get('commonWriteGroups').add($canonicalGroup)) #end
+            #end
+          #end
+        #end
+      #end
+    #end
+    #if($settingsError == '' && ($settingsRowCount == 0 || $settingsRowCount > 500 || "$settingsRowCount" != "$!request.getParameter('groupCount')"))
+      #set($settingsError = 'La liste des groupes est incomplète. Rechargez les paramètres.')
+    #end
+    #if($settingsError == '')
+      #if(!$configurationObject) #set($configurationObject = $configuration.newObject($configurationClass)) #end
+      #if(!$configurationObject)
+        #set($settingsError = "La classe $configurationClass n'est pas installée.")
+      #else
+        #set($newFieldValues = {})
+        #foreach($field in $permissionFields)
+          #set($fieldText = '')
+          #set($separator = '')
+          #foreach($groupRef in $newGroups.get($field))
+            #set($fieldText = "$fieldText$separator$groupRef")
+            #set($separator = "
+")
+          #end
+          #set($discard = $newFieldValues.put($field, $fieldText))
+          #set($discard = $configurationObject.set($field, $fieldText))
+          #if("$!configurationObject.getValue($field)" != $fieldText)
+            #set($settingsError = "Le champ $field de la classe $configurationClass est absent ou incomplet.")
+          #end
+        #end
+        #set($discard = $configurationObject.set('schemaVersion', '1'))
+        #if("$!configurationObject.getValue('schemaVersion')" != '1')
+          #set($settingsError = "Le champ schemaVersion de la classe $configurationClass est absent.")
+        #end
+        #if($settingsError == '')
+          #set($discard = $configuration.save('Paramètres des droits Personnel et Commun', true))
+          #set($savedConfiguration = false)
+          #set($savedConfiguration = $xwiki.getDocumentAsAuthor($configurationRef))
+          #set($savedObject = false)
+          #if($savedConfiguration) #set($savedObject = $savedConfiguration.getObject($configurationClass)) #end
+          #if(!$savedConfiguration || $savedConfiguration.isNew() || !$savedObject || "$!savedObject.getValue('schemaVersion')" != '1' || "$savedConfiguration.version" == $expectedVersion)
+            #set($settingsError = "La configuration n'a pas été enregistrée. Vérifiez les droits sur sa page.")
+          #else
+            #foreach($field in $permissionFields)
+              #if("$!savedObject.getValue($field)" != $newFieldValues.get($field))
+                #set($settingsError = "Le champ $field n'a pas été conservé. Vérifiez l'installation de la classe.")
+              #end
+            #end
+          #end
+        #end
+      #end
+    #end
+  #end
+  #if($settingsError == '')
+    #set($resultLine = 'LIENS_SETTINGS_SAVED')
+  #else
+    #set($resultLine = "LIENS_ERROR|$escapetool.url($settingsError)")
+  #end
+#end
+
+#set($action = "$!request.getParameter('action')")
+#set($resultLine = 'ERREUR_ACTION_INCONNUE')
+#set($resultLines = [])
+
+#if($request.getMethod() != 'POST')
+  #set($resultLine = 'ERREUR_METHOD')
+#elseif(!$services.csrf.isTokenValid($request.getParameter('form_token')))
+  #set($resultLine = 'ERREUR_CSRF')
+#elseif($action == 'settings')
+  #liensSaveSettings()
+#elseif($action == 'listAuthors')
+  #if(!$canWriteCommon)
+    #set($resultLine = 'ERREUR_DROITS')
+  #else
+    #liensLoadAuthors()
+    #foreach($linkAuthor in $linkAuthors)
+      #set($discard = $resultLines.add("LIEN_AUTHOR|$escapetool.url($linkAuthor.id)|$escapetool.url($linkAuthor.label)|$escapetool.url($linkAuthor.reverseLabel)|$escapetool.url($linkAuthor.reference)"))
+    #end
+    #set($resultLine = 'LIENS_AUTHORS_OK')
+  #end
+#elseif($action == 'listVisible')
+  #set($query = $services.query.hql('select distinct doc.fullName from XWikiDocument doc, BaseObject obj where obj.name = doc.fullName and obj.className = :className').bindValue('className', $className))
+  #foreach($fullRef in $query.execute())
+    #set($targetDoc = $xwiki.getDocument($fullRef))
+    #set($obj = $targetDoc.getObject($className))
+    #if($obj && $xwiki.hasAccessLevel('view', $currentUser, $targetDoc.fullName))
+      #set($typeValue = "$!obj.getValue('type')")
+      #liensReadOwner($targetDoc $obj)
+      #set($ownerValue = $linkOwner)
+      #liensCheckCurrentOwner($ownerValue)
+      #if(($canReadCommon && $typeValue == 'commun') || ($canReadPersonal && $typeValue == 'personnel' && $isCurrentLinkOwner))
+        #if($isCurrentLinkOwner) #set($ownerValue = $currentUserId) #end
+        #set($a = "$!obj.getValue('nom_lien')")
+        #set($l = "$!obj.getValue('lien')")
+        #set($d = "$!obj.getValue('definition')")
+        #set($discard = $resultLines.add("LIEN_ROW|$escapetool.url($fullRef)|$escapetool.url($a)|$escapetool.url($l)|$escapetool.url($d)|$escapetool.url($typeValue)|$escapetool.url($ownerValue)"))
+      #end
+    #end
+  #end
+  #set($resultLine = "LIEN_LIST_OK|$escapetool.url($currentUserId)|$canWriteCommon|$canReadPersonal|$canWritePersonal|$canReadCommon|$canWriteCommon")
+#elseif($action == 'create' || $action == 'save' || $action == 'delete')
+  #set($error = '')
+  #set($targetDoc = false)
+  #set($obj = false)
+  #if($action != 'create')
+    #set($targetRef = "$!request.getParameter('targetRef')")
+    #set($targetDoc = $xwiki.getDocument($targetRef))
+    #set($obj = $targetDoc.getObject($className))
+    #if(!$targetRef || !$obj || $targetDoc.isNew())
+      #set($error = 'ERREUR_OBJET')
+    #else
+      #liensReadOwner($targetDoc $obj)
+      #set($oldOwner = $linkOwner)
+      #liensCheckCurrentOwner($oldOwner)
+      #set($oldType = "$!obj.getValue('type')")
+      #set($ownerSpaces = [])
+      #set($discard = $ownerSpaces.addAll($liensDataSpaces))
+      #set($discard = $ownerSpaces.add($oldOwner))
+      #set($ownerRoot = $services.model.createDocumentReference($liensWiki, $ownerSpaces, 'WebHome'))
+      #if(!$targetDoc.documentReference.getParent().equals($ownerRoot.getParent()))
+        #set($error = 'ERREUR_REFERENCE')
+      #elseif(($oldType == 'commun' && !$canWriteCommon) || ($oldType == 'personnel' && (!$canWritePersonal || !$isCurrentLinkOwner)) || ($oldType != 'commun' && $oldType != 'personnel'))
+        #set($error = 'ERREUR_DROITS')
+      #else
+        #set($requiredRight = 'edit')
+        #if($action == 'delete') #set($requiredRight = 'delete') #end
+        #if(!$xwiki.hasAccessLevel($requiredRight, $currentUser, $targetDoc.fullName))
+          #set($error = 'ERREUR_DROITS')
+        #end
+      #end
+    #end
+  #end
+
+  #if($error == '' && $action == 'delete')
+    #set($deleteRefs = [$targetDoc.documentReference])
+    #set($deleteRequest = $services.refactoring.requestFactory.createDeleteRequest($deleteRefs))
+    #set($discard = $deleteRequest.setDeep(false))
+    #set($discard = $deleteRequest.setInteractive(false))
+    #set($deleteJob = $services.refactoring.delete($deleteRequest))
+    #if(!$deleteJob)
+      #set($error = 'ERREUR_SUPPRESSION')
+    #else
+      #set($discard = $deleteJob.join())
+      #if(!$xwiki.getDocument($targetRef).isNew())
+        #set($error = 'ERREUR_SUPPRESSION')
+      #end
+    #end
+    #if($error == '') #set($resultLine = 'GLOSSAIRE_OK') #end
+  #elseif($error == '')
+    #set($acronym = "$!request.getParameter('acronym')")
+    #set($label = "$!request.getParameter('label')")
+    #set($definition = "$!request.getParameter('definition')")
+    #set($requestedType = "$!request.getParameter('type')")
+    #set($requestedOwner = "$!request.getParameter('proprietaire')")
+    #if($requestedType == '')
+      #set($requestedType = 'personnel')
+      #if($obj) #set($requestedType = "$!obj.getValue('type')") #end
+    #end
+    #if($requestedOwner == '')
+      #set($requestedOwner = $currentUserId)
+      #if($obj) #set($requestedOwner = $oldOwner) #end
+    #end
+    #set($requestedOwnerReference = false)
+    #if($requestedOwner.startsWith('XWiki.') || $requestedOwner.contains(':'))
+      #set($requestedOwnerReference = $services.model.resolveDocument($requestedOwner))
+    #end
+    #liensCheckCurrentOwner($requestedOwner)
+    #if($isCurrentLinkOwner) #set($requestedOwner = $currentUserId) #end
+    #if(!$acronym || !$label || !$definition || $acronym.matches('\s*') || $label.matches('\s*') || $definition.matches('\s*'))
+      #set($error = 'ERREUR_CHAMPS')
+    #elseif($acronym.contains('$') || $acronym.contains('{') || $acronym.contains('}') || $acronym.contains('/'))
+      #set($error = 'ERREUR_NOM')
+    #elseif($requestedType != 'personnel' && $requestedType != 'commun')
+      #set($error = 'ERREUR_TYPE')
+    #elseif(($requestedType == 'commun' && !$canWriteCommon) || ($requestedType == 'personnel' && !$canWritePersonal) || (!$canWriteCommon && $requestedOwner != $currentUserId))
+      #set($error = 'ERREUR_DROITS')
+    #end
+
+    #if($error == '' && ($action == 'create' || $requestedOwner != $oldOwner || $requestedType == 'commun'))
+      ## Recalculer la liste : le groupe ou ses membres ont pu changer depuis l'aperçu.
+      #set($ownerReference = $services.model.createDocumentReference('', ['XWiki'], $requestedOwner))
+      #if($requestedOwner == $currentUserId) #set($ownerReference = $currentUserReference) #end
+      #if($canWriteCommon)
+        #liensLoadAuthors()
+        #set($eligibleOwner = false)
+        #foreach($linkAuthor in $linkAuthors)
+          #if($linkAuthor.id == $requestedOwner)
+            #set($eligibleOwner = true)
+            #set($ownerReference = $linkAuthor.documentReference)
+          #end
+        #end
+        #if(!$eligibleOwner && $requestedOwnerReference)
+          #foreach($linkAuthor in $linkAuthors)
+            #if($linkAuthor.documentReference.equals($requestedOwnerReference))
+              #set($eligibleOwner = true)
+              #set($ownerReference = $linkAuthor.documentReference)
+              #set($requestedOwner = $linkAuthor.id)
+            #end
+          #end
+        #end
+        #if(!$eligibleOwner) #set($error = 'ERREUR_AUTEUR_DROITS') #end
+      #end
+      #set($ownerDoc = false)
+      #set($ownerDoc = $xwiki.getDocumentAsAuthor($ownerReference))
+      #if($error == '' && (!$ownerDoc || $ownerDoc.isNew() || !$ownerDoc.getObject('XWiki.XWikiUsers')))
+        #set($error = 'ERREUR_AUTEUR')
+      #end
+    #end
+
+    #if($error == '')
+      #liensCheckRecordClass()
+      #if($liensSchemaError != '') #set($error = "LIENS_ERROR|$escapetool.url($liensSchemaError)") #end
+    #end
+
+    #if($error == '')
+      ## Références construites par l'API, sans cleanName ni interpolation de chemins.
+      #set($destinationSpaces = [])
+      #set($discard = $destinationSpaces.addAll($liensDataSpaces))
+      #set($discard = $destinationSpaces.add($requestedOwner))
+      ## Création et conversion des anciennes fiches : identifiant aléatoire de 16 caractères.
+      ## Les fiches déjà converties gardent leur identifiant, même si l'acronyme change.
+      #liensFindDestination($destinationSpaces $targetDoc)
+      #if(!$candidateReference)
+        #set($error = 'ERREUR_NOM_INDISPONIBLE')
+      #elseif(!$xwiki.hasAccessLevel('edit', $currentUser, $candidateDoc.fullName))
+        #set($error = 'ERREUR_DROITS')
+      #elseif($action == 'save' && !$candidateReference.equals($targetDoc.documentReference))
+        #if(!$xwiki.hasAccessLevel('delete', $currentUser, $targetDoc.fullName))
+          #set($error = 'ERREUR_DROITS')
+        #else
+          ## Une seule requête déplace et renomme, sans ancienne page de redirection.
+          #set($renameRequest = $services.refactoring.requestFactory.createRenameRequest($targetDoc.documentReference, $candidateReference))
+          #set($discard = $renameRequest.setAutoRedirect(false))
+          #set($discard = $renameRequest.setDeep(false))
+          #set($discard = $renameRequest.setInteractive(false))
+          #set($discard = $renameRequest.setUpdateLinks(true))
+          #set($discard = $renameRequest.setUpdateParentField(true))
+          #set($renameJob = $services.refactoring.rename($renameRequest))
+          #if(!$renameJob)
+            #set($error = 'ERREUR_DEPLACEMENT')
+          #else
+            #set($discard = $renameJob.join())
+            #set($candidateDoc = $xwiki.getDocument($candidateReference))
+            #if(!$xwiki.getDocument($targetRef).isNew() || $candidateDoc.isNew() || !$candidateDoc.getObject($className))
+              #set($error = 'ERREUR_DEPLACEMENT')
+            #end
+          #end
+        #end
+      #end
+      #if($error == '')
+        #if($action == 'create')
+          #set($obj = $candidateDoc.newObject($className))
+        #else
+          #set($obj = $candidateDoc.getObject($className))
+        #end
+        #set($expectedFields = {'nom_lien':$acronym, 'lien':$label, 'definition':$definition, 'type':$requestedType, 'proprietaire':$requestedOwner})
+        #if($obj)
+          #foreach($field in $expectedFields.entrySet()) #set($discard = $obj.set($field.key, $field.value)) #end
+        #end
+        #liensCheckWrittenFields($obj $expectedFields)
+        #if($liensWriteError != '')
+          #set($error = "LIENS_ERROR|$escapetool.url($liensWriteError)")
+        #else
+          #set($discard = $candidateDoc.setTitle($acronym))
+          #liensMarkStableAddress($candidateDoc)
+          #set($discard = $candidateDoc.save('Ajout / modification via interface Liens', true))
+          #set($resultLine = "GLOSSAIRE_OK|$escapetool.url($candidateDoc.fullName)|$escapetool.url($candidateDoc.name)")
+        #end
+      #end
+    #end
+  #end
+  #if($error != '') #set($resultLine = $error) #end
+#end
+#if($action == 'settings' && "$!request.getParameter('settingsForm')" == 'true' && "$!request.getParameter('ajax')" != 'true')
+  #if($resultLine == 'LIENS_SETTINGS_SAVED')
+    ## Le formulaire peut être affiché hors de la racine, comme l'ancien Lien-test.
+    #set($returnReference = $services.model.resolveDocument($liensHomeRef))
+    #set($requestedReturn = "$!request.getParameter('returnTo')")
+    #if($requestedReturn != '')
+      #set($requestedReturnReference = $services.model.resolveDocument($requestedReturn))
+      #if($requestedReturnReference.wikiReference.equals($liensRootReference.wikiReference))
+        #set($returnReference = $requestedReturnReference)
+      #end
+    #end
+    #set($discard = $response.sendRedirect($xwiki.getURL($services.model.serialize($returnReference), 'view')))
+  #else
+    #set($discard = $response.setContentType('text/html; charset=UTF-8'))
+    #set($discard = $response.writer.print('<p>Les paramètres n’ont pas été enregistrés.</p><p>'))
+    #set($settingsDisplayMessage = $resultLine)
+    #if("$!settingsError" != '') #set($settingsDisplayMessage = $settingsError) #end
+    #set($discard = $response.writer.print($escapetool.xml($settingsDisplayMessage)))
+    #set($discard = $response.writer.print('</p>'))
+  #end
+  #set($discard = $xcontext.setFinished(true))
+  #stop
+#end
+#set($discard = $response.setContentType('text/plain; charset=UTF-8'))
+#foreach($line in $resultLines)
+  #set($discard = $response.writer.println($line))
+#end
+#set($discard = $response.writer.print($resultLine))
+#set($discard = $xcontext.setFinished(true))
 {{/velocity}}

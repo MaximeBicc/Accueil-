@@ -3,12 +3,19 @@
 (function () {
   'use strict';
 
-  var liensState = { userId: '', isManager: false };
+  var liensState = { userId: '', canReadPersonal: false, canWritePersonal: false, canReadCommon: false, canWriteCommon: false };
   var visibleLinksCache = [];
+  var popupRefreshVersion = 0;
+  var bulkDeleting = false;
+  var excelImporting = false;
   var bulkDeleteMode = false;
   var bulkDeleteTableKind = 'personal';
   var liensSheetJSLibrary = null;
+  var liensSheetJSLoading = null;
+  var excelReadVersion = 0;
   var excelRows = [];
+  var excelAuthors = [];
+  var excelAuthorById = new Map();
   var excelHeaderInfo = null;
   var excelFileName = '';
   var excelSheetName = '';
@@ -25,7 +32,8 @@
 
   function getCsrf() {
     var table = document.getElementById('mainGlossaryTable') || document.getElementById('secondaryGlossaryTable');
-    return table ? table.getAttribute('data-csrf') : '';
+    var root = document.querySelector('.liens-page');
+    return root ? root.getAttribute('data-csrf') : (table ? table.getAttribute('data-csrf') : '');
   }
 
   async function postLiens(fields) {
@@ -40,47 +48,38 @@
       credentials: 'same-origin',
       headers: { 'X-Requested-With': 'XMLHttpRequest' }
     });
-    return response.text();
+    return liensReadResponse(response);
   }
 
   function cleanServerLine(line) {
     return String(line || '').replace(/<[^>]+>/g, '').trim();
   }
 
-  function detectManagerFromExistingPage() {
-    var commonOption = document.querySelector('#glossaryModal select[name="type"] option[value="commun"]');
-    if (commonOption && !commonOption.disabled) liensState.isManager = true;
+  function readPermissionsFromPage() {
+    var root = document.querySelector('.liens-page');
+    if (!root) return;
+    liensState.userId = root.getAttribute('data-user-id') || '';
+    ['canReadPersonal', 'canWritePersonal', 'canReadCommon', 'canWriteCommon'].forEach(function (key) {
+      var attribute = 'data-' + key.replace(/[A-Z]/g, function (letter) { return '-' + letter.toLowerCase(); });
+      liensState[key] = root.getAttribute(attribute) === 'true';
+    });
   }
 
   async function loadVisibleLinks() {
-    detectManagerFromExistingPage();
     var text = await postLiens({ action: 'listVisible' });
-    var rows = [];
-    text.split(/\r?\n/).forEach(function (rawLine) {
-      var line = cleanServerLine(rawLine);
-      if (line.indexOf('LIEN_ROW|') !== -1) {
-        line = line.substring(line.indexOf('LIEN_ROW|'));
-        var p = line.split('|');
-        rows.push({
-          ref: p[1] || '', acronym: p[2] || '', label: p[3] || '', definition: p[4] || '',
-          type: p[5] || '', owner: p[6] || ''
-        });
-      } else if (line.indexOf('LIEN_LIST_OK|') !== -1) {
-        line = line.substring(line.indexOf('LIEN_LIST_OK|'));
-        var s = line.split('|');
-        liensState.userId = s[1] || liensState.userId;
-        liensState.isManager = liensState.isManager || String(s[2]).toLowerCase() === 'true';
-      }
-    });
-    visibleLinksCache = rows;
-    return rows;
+    var parsed = parseLiensVisibleResponse(text);
+    liensState = parsed.state;
+    visibleLinksCache = parsed.rows;
+    return parsed.rows;
   }
 
   async function refreshExistingPopup() {
     var tbody = document.querySelector('#popupCheckTable tbody');
     if (!tbody) return;
+    var version = ++popupRefreshVersion;
     try {
       var rows = await loadVisibleLinks();
+      if (version !== popupRefreshVersion) return;
       tbody.innerHTML = '';
       rows.sort(function (a, b) {
         return a.acronym.localeCompare(b.acronym, 'fr', { sensitivity: 'base', numeric: true });
@@ -95,27 +94,27 @@
         tbody.appendChild(tr);
       });
       if (typeof triggerGlobalFilter === 'function') triggerGlobalFilter();
-      applyManagerUi();
+      applyPermissionsUi();
     } catch (e) {
       console.error('Impossible de recharger les liens visibles', e);
     }
   }
 
-  function applyManagerUi() {
-    var table = document.getElementById('secondaryGlossaryTable');
-    if (table) {
-      Array.from(table.rows).forEach(function (row) {
-        if (!row.cells.length) return;
-        row.cells[row.cells.length - 1].style.display = liensState.isManager ? '' : 'none';
+  function canWriteTable(kind) {
+    return kind === 'common' ? liensState.canWriteCommon : liensState.canWritePersonal;
+  }
+
+  function applyPermissionsUi() {
+    [['mainGlossaryTable', 'personal'], ['secondaryGlossaryTable', 'common']].forEach(function (item) {
+      var table = document.getElementById(item[0]);
+      if (!table) return;
+      table.querySelectorAll('.liens-actions, .view-buttons, .edit-buttons').forEach(function (cell) {
+        if (!canWriteTable(item[1])) cell.style.display = 'none';
       });
-    }
-
-    document.querySelectorAll('#glossaryModal option[value="commun"], #secondaryGlossaryTable .edit-type-input option').forEach(function (option) {
-      if (option.value === 'commun' || option.value === 'personnel') {
-        option.disabled = !liensState.isManager && option.value === 'commun';
-      }
     });
-
+    document.querySelectorAll('#glossaryModal option[value="commun"], .edit-type-input option[value="commun"]').forEach(function (option) {
+      option.disabled = !liensState.canWriteCommon;
+    });
     updateToolbarForCurrentTab();
   }
 
@@ -193,7 +192,7 @@
 
       var button = document.createElement('button');
       button.type = 'button';
-      button.className = 'btn btn-default btn-xs liens-sort-btn';
+      button.className = 'btn btn-default btn-xs sort-column-btn liens-sort-btn';
       button.setAttribute('data-column', column);
       button.setAttribute('data-sort-active', 'false');
       button.setAttribute('data-sort-direction', 'asc');
@@ -201,6 +200,7 @@
 
       var label = document.createElement('span');
       label.className = 'sort-label';
+      label.innerHTML = 'A ' + getLiensXWikiIcon('right') + ' Z';
       button.appendChild(label);
 
       button.addEventListener('click', function () {
@@ -241,7 +241,7 @@
   function ensureBulkCells(kind) {
     var cfg = tableConfig(kind);
     var table = document.getElementById(cfg.id);
-    if (!table || table.dataset.bulkCellsReady === 'true') return;
+    if (!table || !canWriteTable(kind) || table.dataset.bulkCellsReady === 'true') return;
     table.dataset.bulkCellsReady = 'true';
 
     var headerRows = table.querySelectorAll('thead tr');
@@ -305,8 +305,8 @@
 
   function setBulkDeleteMode(enabled) {
     var kind = currentTableKind();
-    if (enabled && kind === 'common' && !liensState.isManager) {
-      alert('La suppression multiple des liens communs est réservée aux managers.');
+    if (enabled && !canWriteTable(kind)) {
+      alert('Vous ne disposez pas du droit d’écriture dans cet onglet.');
       return;
     }
 
@@ -343,6 +343,7 @@
   }
 
   async function executeBulkDelete() {
+    if (bulkDeleting) return;
     var rows = selectedBulkRows();
     if (!rows.length) return;
     var preview = rows.slice(0, 8).map(function (row) {
@@ -350,14 +351,18 @@
     }).join('\n');
     if (!window.confirm('Supprimer définitivement ' + rows.length + ' lien(s) ?\n\n' + preview)) return;
 
+    bulkDeleting = true;
     var failed = [];
     for (var i = 0; i < rows.length; i++) {
       var ref = rows[i].getAttribute('data-full-ref');
-      var result = await postLiens({ action: 'delete', targetRef: ref });
-      if (result.indexOf('GLOSSAIRE_OK') !== -1) rows[i].remove();
-      else failed.push(ref);
+      try {
+        var result = await postLiens({ action: 'delete', targetRef: ref });
+        if (liensResult(result)) rows[i].remove();
+        else failed.push(ref);
+      } catch (error) { failed.push(ref); }
     }
 
+    bulkDeleting = false;
     setBulkDeleteMode(false);
     var cfg = tableConfig(bulkDeleteTableKind);
     if (typeof window[cfg.pagination] === 'function') window[cfg.pagination]();
@@ -368,15 +373,13 @@
   function updateToolbarForCurrentTab() {
     var modeButton = document.getElementById('btnBulkDeleteModeLiens');
     if (!modeButton) return;
-    var common = currentTableKind() === 'common';
-    modeButton.style.display = common && !liensState.isManager ? 'none' : '';
+    modeButton.style.display = canWriteTable(currentTableKind()) ? '' : 'none';
     if (bulkDeleteMode && bulkDeleteTableKind !== currentTableKind()) setBulkDeleteMode(false);
   }
 
   function setupToolbar() {
-    var addButton = document.querySelector('button[data-target="#glossaryModal"]');
-    if (!addButton) return;
-    var left = addButton.parentNode;
+    var left = document.getElementById('liensToolbarLeft');
+    if (!left || (!liensState.canWritePersonal && !liensState.canWriteCommon)) return;
     var row = left.parentNode;
     if (!left.id) left.id = 'liensToolbarLeft';
     row.classList.add('glossary-toolbar');
@@ -409,7 +412,14 @@
       row.appendChild(right);
     }
 
-    right.innerHTML =
+    var importToolbar = document.getElementById('liensImportToolbar');
+    if (!importToolbar) {
+      importToolbar = document.createElement('div');
+      importToolbar.id = 'liensImportToolbar';
+      importToolbar.className = 'glossary-import-toolbar';
+      right.insertBefore(importToolbar, right.firstChild);
+    }
+    if (!importToolbar.querySelector('#btnExcelExampleLiens')) importToolbar.innerHTML =
       '<button type="button" id="btnExcelExampleLiens" class="btn btn-default">' +
         getLiensXWikiIcon('eye') + ' Voir un exemple Excel' +
       '</button>' +
@@ -430,7 +440,10 @@
       return Promise.resolve(liensSheetJSLibrary);
     }
 
-    return new Promise(function (resolve, reject) {
+    // Les sélections successives partagent le même chargement, sans retirer
+    // le script en cours ni perdre la restauration de RequireJS.
+    if (liensSheetJSLoading) return liensSheetJSLoading;
+    liensSheetJSLoading = new Promise(function (resolve, reject) {
       var previousXLSX = window.XLSX;
       var previousDefine = window.define;
       var previousDefineWasAMD = !!(previousDefine && previousDefine.amd);
@@ -448,8 +461,17 @@
       script.src = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
       script.type = 'text/javascript';
 
+      var timeout = window.setTimeout(function () { fail(new Error('Le chargement de SheetJS a expiré. Réessayez.')); }, 15000);
       function restoreRequireJS() {
+        window.clearTimeout(timeout);
         if (previousDefineWasAMD) window.define = previousDefine;
+      }
+      function fail(error) {
+        restoreRequireJS();
+        script.onload = script.onerror = null;
+        script.remove();
+        window.XLSX = previousXLSX;
+        reject(error);
       }
 
       script.onload = function () {
@@ -459,18 +481,16 @@
           resolve(liensSheetJSLibrary);
           return;
         }
-        window.XLSX = previousXLSX;
-        reject(new Error('SheetJS est chargé mais read() / utils.sheet_to_json() ne sont pas disponibles.'));
+        fail(new Error('SheetJS est chargé mais read() / utils.sheet_to_json() ne sont pas disponibles.'));
       };
 
       script.onerror = function () {
-        restoreRequireJS();
-        window.XLSX = previousXLSX;
-        reject(new Error('Impossible de charger SheetJS depuis cdn.sheetjs.com.'));
+        fail(new Error('Impossible de charger SheetJS depuis cdn.sheetjs.com. Réessayez.'));
       };
 
       document.head.appendChild(script);
-    });
+    }).finally(function () { liensSheetJSLoading = null; });
+    return liensSheetJSLoading;
   }
 
   function normalizeHeader(value) {
@@ -481,8 +501,8 @@
 
   function headerType(value) {
     var h = normalizeHeader(value);
-    if (['acronyme', 'acronym', 'sigle', 'nom', 'nomlien'].indexOf(h) >= 0) return 'acronym';
-    if (['libelle', 'label', 'lien', 'libellecomplet'].indexOf(h) >= 0) return 'label';
+    if (h === 'liens') return 'acronym';
+    if (h === 'domaine') return 'label';
     if (['definition', 'def', 'description'].indexOf(h) >= 0) return 'definition';
     if (['type', 'visibilite', 'onglet'].indexOf(h) >= 0) return 'type';
     if (['auteur', 'author', 'proprietaire', 'createur'].indexOf(h) >= 0) return 'author';
@@ -518,8 +538,8 @@
   }
 
   function duplicateKeys() {
-    var acronyms = {};
-    var labels = {};
+    var acronyms = Object.create(null);
+    var labels = Object.create(null);
     visibleLinksCache.forEach(function (row) {
       if (row.acronym) acronyms[normalizeHeader(row.acronym)] = true;
       if (row.label) labels[normalizeHeader(row.label)] = true;
@@ -527,14 +547,70 @@
     return { acronyms: acronyms, labels: labels };
   }
 
+  function normalizeAuthor(value) {
+    return String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+      .toLocaleLowerCase('fr').replace(/[^\p{L}\p{N}]/gu, '');
+  }
+
+  async function loadExcelAuthors() {
+    var catalog = liensState.canWriteCommon ? await liensLoadAuthorCatalog() : [];
+    excelAuthors = catalog.map(function (author) {
+      return {
+        id: author.id, text: author.label + ' (' + author.id + ')',
+        names: [author.id, author.label, author.reverseLabel].filter(Boolean),
+        aliases: [author.id, author.label, author.reverseLabel, author.reference, 'XWiki.' + author.id]
+          .filter(Boolean)
+      };
+    });
+    excelAuthors.sort(function (a, b) { return a.id.localeCompare(b.id, 'fr'); });
+    excelAuthorById = new Map(excelAuthors.map(function (author) { return [author.id, author]; }));
+  }
+
+  function authorDistance(a, b) {
+    var previous = Array.from({ length: b.length + 1 }, function (_, i) { return i; });
+    for (var i = 1; i <= a.length; i++) {
+      var current = [i];
+      for (var j = 1; j <= b.length; j++) {
+        current[j] = Math.min(current[j - 1] + 1, previous[j] + 1, previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      }
+      previous = current;
+    }
+    return previous[b.length];
+  }
+
+  function closestExcelAuthor(value) {
+    if (!liensState.canWriteCommon) return liensState.userId;
+    var original = String(value || '').trim() || liensState.userId;
+    // Un identifiant exact reste prioritaire sur un nom d'affichage identique.
+    if (excelAuthorById.has(original)) return original;
+    var normalized = normalizeAuthor(original.replace(/^(?:[^:]+:)?XWiki\./i, ''));
+    var exactId = excelAuthors.find(function (author) { return normalizeAuthor(author.id) === normalized; });
+    if (exactId) return exactId.id;
+    var exact = excelAuthors.find(function (author) { return author.aliases.indexOf(original) >= 0; });
+    if (exact) return exact.id;
+    var best = null;
+    var bestDistance = Infinity;
+    excelAuthors.forEach(function (author) {
+      // Les références servent à reconnaître une valeur exacte, les noms au rapprochement.
+      var distance = Math.min.apply(null, author.names.map(function (alias) {
+        var name = normalizeAuthor(alias);
+        return authorDistance(normalized, name) / Math.max(normalized.length, name.length, 1);
+      }));
+      if (distance < bestDistance) { best = author.id; bestDistance = distance; }
+    });
+    // Ne pas attribuer un nom inconnu à un compte arbitraire.
+    return best && bestDistance <= 0.25 ? best : original;
+  }
+
   function recomputeExcelFlags() {
     var existing = duplicateKeys();
-    var seenAcronyms = {};
-    var seenLabels = {};
+    var seenAcronyms = Object.create(null);
+    var seenLabels = Object.create(null);
     excelRows.forEach(function (row) {
       var a = normalizeHeader(row.acronym);
       var l = normalizeHeader(row.label);
-      row.invalid = !row.acronym || !row.label || !row.definition;
+      row.invalidAuthor = liensState.canWriteCommon && !excelAuthorById.has(row.author);
+      row.invalid = !row.acronym || !row.label || !row.definition || row.invalidAuthor;
       row.duplicateAcronymExisting = !!(a && existing.acronyms[a]);
       row.duplicateLabelExisting = !!(l && existing.labels[l]);
       row.duplicateAcronymFile = !!(a && seenAcronyms[a]);
@@ -546,6 +622,40 @@
     });
   }
 
+  function enhanceExcelAuthors() {
+    if (window.jQuery && jQuery('#excelLiensModal').is(':visible') && typeof jQuery.fn.xwikiSelectize === 'function') {
+      jQuery('#excelLiensPreviewBody select.excel-author-select:not(:disabled)').xwikiSelectize({ create: false });
+    }
+  }
+
+  function updateExcelSummary() {
+    var summary = document.getElementById('excelLiensSelectionSummary');
+    if (!summary) return;
+    var incomplete = excelRows.filter(function (row) { return !row.acronym || !row.label || !row.definition; }).length;
+    var invalidAuthors = excelRows.filter(function (row) { return row.invalidAuthor; }).length;
+    summary.textContent = excelRows.length + ' ligne(s) détectée(s)' +
+      (incomplete ? ' — ' + incomplete + ' incomplète(s)' : '') +
+      (invalidAuthors ? ' — ' + invalidAuthors + ' auteur(s) non reconnu(s), à corriger en rouge' : '') + '.';
+  }
+
+  function updateExcelAuthorCell(td, input, row) {
+    td.classList.toggle('danger', row.invalidAuthor);
+    td.classList.toggle('liens-invalid-author', row.invalidAuthor);
+    input.setAttribute('aria-invalid', row.invalidAuthor ? 'true' : 'false');
+    td.querySelectorAll('.excel-author-error, .excel-author-correction').forEach(function (hint) { hint.remove(); });
+    if (row.invalidAuthor) {
+      var error = document.createElement('small');
+      error.className = 'help-block text-danger excel-author-error';
+      error.textContent = 'Auteur non reconnu — choisissez un membre d’un groupe autorisé à écrire dans Commun.';
+      td.appendChild(error);
+    } else if (row.authorOriginal && row.authorOriginal !== row.author) {
+      var hint = document.createElement('small');
+      hint.className = 'help-block excel-author-correction';
+      hint.textContent = 'Auteur Excel : « ' + row.authorOriginal + ' ». Compte retenu : ' + (excelAuthorById.get(row.author) || {}).text;
+      td.appendChild(hint);
+    }
+  }
+
   function editableCell(tr, row, index, field, danger, textarea) {
     var td = document.createElement('td');
     if (danger) td.classList.add('danger');
@@ -555,27 +665,47 @@
       input = document.createElement('select');
       input.className = 'form-control input-sm excel-import-input';
       var personal = document.createElement('option'); personal.value = 'personnel'; personal.textContent = 'Personnel';
-      var common = document.createElement('option'); common.value = 'commun'; common.textContent = 'Commun'; common.disabled = !liensState.isManager;
+      var common = document.createElement('option'); common.value = 'commun'; common.textContent = 'Commun'; common.disabled = !liensState.canWriteCommon;
       input.appendChild(personal); input.appendChild(common);
       input.value = row.type || 'personnel';
+    } else if (field === 'author') {
+      input = document.createElement('select');
+      input.className = 'form-control input-sm excel-import-input excel-author-select xwiki-selectize';
+      input.setAttribute('aria-label', 'Auteur de la ligne ' + row.sourceLine);
+      if (liensState.canWriteCommon) {
+        if (row.invalidAuthor) input.add(new Option(row.author, row.author));
+        excelAuthors.forEach(function (author) { input.add(new Option(author.text, author.id)); });
+      } else {
+        input.add(new Option(liensState.userId, liensState.userId));
+        input.disabled = true;
+      }
+      input.value = row.author;
     } else {
       input = textarea ? document.createElement('textarea') : document.createElement('input');
       if (textarea) input.rows = 2; else input.type = 'text';
       input.className = 'form-control input-sm excel-import-input';
       input.value = row[field] || '';
-      if (field === 'author' && !liensState.isManager) input.disabled = true;
     }
 
     input.addEventListener('change', function () {
-      row[field] = String(input.value || '').trim();
-      if (!liensState.isManager) {
+      var value = String(input.value || '').trim();
+      if (row[field] === value) return;
+      row[field] = value;
+      if (!liensState.canWriteCommon) {
         row.type = 'personnel';
         row.author = liensState.userId;
       }
       recomputeExcelFlags();
+      if (field === 'author') {
+        row.authorOriginal = '';
+        updateExcelAuthorCell(td, input, row);
+        updateExcelSummary();
+        return;
+      }
       renderExcelPreview();
     });
     td.appendChild(input);
+    if (field === 'author') updateExcelAuthorCell(td, input, row);
     tr.appendChild(td);
   }
 
@@ -585,18 +715,22 @@
     var duplicatesBody = document.getElementById('excelLiensDuplicatesBody');
     var info = document.getElementById('excelLiensInfo');
     if (!previewBody || !duplicatesBody || !info) return;
+    previewBody.querySelectorAll('select.excel-author-select').forEach(function (select) {
+      var instance = select.tomselect || select.selectize;
+      if (instance && typeof instance.destroy === 'function') instance.destroy();
+    });
     previewBody.innerHTML = '';
     duplicatesBody.innerHTML = '';
 
     var inferred = (excelHeaderInfo && excelHeaderInfo.inferred) || [];
     var description = excelHeaderInfo && excelHeaderInfo.detected
       ? 'Entête détectée. Les colonnes manquantes ont été déduites par élimination.'
-      : 'Aucun entête reconnu : colonnes 1 à 5 utilisées dans l’ordre Acronyme, Libellé, Définition, Type, Auteur.';
+      : 'Aucun entête reconnu : colonnes 1 à 5 utilisées dans l’ordre Liens, Domaine, Définition, Type, Auteur.';
     if (!inferred.length && excelHeaderInfo && excelHeaderInfo.detected) description = 'Entête détectée.';
     info.textContent = excelFileName + ' — feuille « ' + excelSheetName + ' » — ' + description;
+    if (liensState.canWriteCommon && !excelAuthors.length) info.textContent += ' Liste des comptes indisponible : les auteurs Excel restent affichés en rouge.';
 
     var duplicateCount = 0;
-    var invalidCount = 0;
     excelRows.forEach(function (row, index) {
       var tr = document.createElement('tr');
       var line = document.createElement('td'); line.textContent = row.sourceLine; tr.appendChild(line);
@@ -610,15 +744,14 @@
       del.addEventListener('click', function () { excelRows.splice(index, 1); renderExcelPreview(); });
       action.appendChild(del); tr.appendChild(action); previewBody.appendChild(tr);
 
-      if (row.invalid) invalidCount++;
       if (row.duplicateAcronym || row.duplicateLabel) {
         duplicateCount++;
         var duplicate = document.createElement('tr');
         var reasons = [];
-        if (row.duplicateAcronymExisting) reasons.push('Acronyme : liens existants');
-        if (row.duplicateAcronymFile) reasons.push('Acronyme : fichier Excel');
-        if (row.duplicateLabelExisting) reasons.push('Libellé : liens existants');
-        if (row.duplicateLabelFile) reasons.push('Libellé : fichier Excel');
+        if (row.duplicateAcronymExisting) reasons.push('Liens : liens existants');
+        if (row.duplicateAcronymFile) reasons.push('Liens : fichier Excel');
+        if (row.duplicateLabelExisting) reasons.push('Domaine : liens existants');
+        if (row.duplicateLabelFile) reasons.push('Domaine : fichier Excel');
         duplicate.innerHTML = '<td></td><td></td><td></td><td></td>';
         duplicate.children[0].textContent = row.sourceLine;
         duplicate.children[1].textContent = row.acronym;
@@ -636,24 +769,27 @@
       duplicatesBody.appendChild(empty);
     }
 
-    var summary = document.getElementById('excelLiensSelectionSummary');
-    if (summary) {
-      summary.textContent = excelRows.length + ' ligne(s) détectée(s)' + (invalidCount ? ' — ' + invalidCount + ' incomplète(s)' : '') + '.';
-    }
+    updateExcelSummary();
+    enhanceExcelAuthors();
   }
 
   async function readExcelFile(file) {
+    var version = ++excelReadVersion;
     var xlsxLibrary;
     try {
       xlsxLibrary = await ensureLiensSheetJSLoaded();
     } catch (error) {
+      if (version !== excelReadVersion) return;
       console.error(error);
       alert('La bibliothèque Excel n\'a pas pu être chargée correctement : ' + error.message);
       return;
     }
 
     try {
+      if (version !== excelReadVersion) return;
+      await loadExcelAuthors();
       var buffer = await file.arrayBuffer();
+      if (version !== excelReadVersion) return;
       if (!isLiensSheetJSLibrary(xlsxLibrary)) throw new Error('La bibliothèque SheetJS chargée ne possède pas read()');
       var workbook = xlsxLibrary.read(buffer, { type: 'array' });
       if (!workbook.SheetNames || !workbook.SheetNames.length) {
@@ -671,6 +807,7 @@
       excelHeaderInfo = detectColumns(rawRows[0] || []);
       var start = excelHeaderInfo.detected ? 1 : 0;
       excelRows = [];
+      var matchedAuthors = new Map();
       for (var i = start; i < rawRows.length; i++) {
         var source = rawRows[i] || [];
         var item = {
@@ -683,24 +820,36 @@
         };
         if (!item.acronym && !item.label && !item.definition) continue;
         if (item.type !== 'commun') item.type = 'personnel';
-        if (!liensState.isManager) { item.type = 'personnel'; item.author = liensState.userId; }
+        if (!liensState.canWriteCommon) { item.type = 'personnel'; item.author = liensState.userId; }
+        else {
+          item.authorOriginal = item.author;
+          if (!matchedAuthors.has(item.author)) matchedAuthors.set(item.author, closestExcelAuthor(item.author));
+          item.author = matchedAuthors.get(item.author);
+        }
         excelRows.push(item);
       }
       excelFileName = file.name;
       renderExcelPreview();
-      jQuery('#excelLiensModal').modal('show');
+      await showExcelModal('excelLiensModal');
     } catch (error) {
+      if (version !== excelReadVersion) return;
       console.error(error);
       alert('Impossible de lire ce fichier Excel : ' + error.message);
     }
   }
 
   async function importExcelRows() {
+    if (excelImporting) return;
     var acceptAcronym = document.getElementById('excelLiensAcceptDuplicateAcronyms');
     var acceptLabel = document.getElementById('excelLiensAcceptDuplicateLabels');
     var allowA = !!(acceptAcronym && acceptAcronym.checked);
     var allowL = !!(acceptLabel && acceptLabel.checked);
     recomputeExcelFlags();
+
+    if (excelRows.some(function (row) { return row.invalidAuthor; })) {
+      alert('Corrigez les auteurs en rouge en choisissant un membre d’un groupe autorisé à écrire dans Commun avant de lancer l’import.');
+      return;
+    }
 
     var candidates = excelRows.filter(function (row) {
       if (row.invalid) return false;
@@ -713,82 +862,122 @@
       return;
     }
 
+    excelImporting = true;
+    var importButton = document.getElementById('btnConfirmExcelLiensImport');
+    importButton.disabled = true;
     var success = 0;
     var errors = [];
     for (var i = 0; i < candidates.length; i++) {
       var row = candidates[i];
-      var result = await postLiens({
-        action: 'create', acronym: row.acronym, label: row.label, definition: row.definition,
-        type: row.type || 'personnel', proprietaire: row.author || liensState.userId
-      });
-      if (result.indexOf('GLOSSAIRE_OK') !== -1) success++;
-      else errors.push('Ligne ' + row.sourceLine + ' : ' + cleanServerLine(result));
+      try {
+        var result = await postLiens({
+          action: 'create', acronym: row.acronym, label: row.label, definition: row.definition,
+          type: row.type || 'personnel', proprietaire: row.author || liensState.userId
+        });
+        if (liensResult(result)) success++;
+        else errors.push('Ligne ' + row.sourceLine + ' : ' + liensErrorMessage(result));
+      } catch (error) { errors.push('Ligne ' + row.sourceLine + ' : ' + error.message); }
     }
 
+    excelImporting = false;
+    importButton.disabled = false;
     jQuery('#excelLiensModal').modal('hide');
     await refreshExistingPopup();
-    alert(success + ' élément(s) ajouté(s).' + (errors.length ? '\n' + errors.length + ' erreur(s).' : ''));
+    alert(success + ' élément(s) ajouté(s).' + (errors.length ? '\n' + errors.length + ' erreur(s).\n' + errors.slice(0, 10).join('\n') : ''));
     if (success) window.location.reload();
   }
 
   function createExcelUi() {
-    if (document.getElementById('excelLiensModal')) return;
+    if (!document.getElementById('excelExampleLiensModal')) {
+      var exampleModal = document.createElement('div');
+      exampleModal.innerHTML =
+        '<div class="modal fade" id="excelExampleLiensModal" tabindex="-1" role="dialog" aria-hidden="true">' +
+          '<div class="modal-dialog modal-lg" role="document"><div class="modal-content">' +
+            '<div class="modal-header"><button type="button" class="close" data-dismiss="modal" aria-label="Fermer" title="Fermer">' + getLiensXWikiIcon('cross') + '</button><h4 class="modal-title">Exemple de fichier Excel</h4></div>' +
+            '<div class="modal-body"><p>Format conseillé : une première ligne d’entête, puis une ligne par lien. Exemples ci-dessous : un dossier local et un dossier partagé accessibles dans l’Explorateur de fichiers.</p>' +
+              '<div class="table-responsive"><table class="table table-striped table-bordered">' +
+                '<thead><tr><th>Liens</th><th>Domaine</th><th>Définition</th><th>Type</th><th>Auteur</th></tr></thead>' +
+                '<tbody><tr><td>C:\\Projets\\Documentation</td><td>Informatique</td><td>Documentation des projets sur cet ordinateur</td><td>personnel</td><td>' + (liensState.userId || 'DOE') + '</td></tr>' +
+                '<tr><td>\\\\serveur\\partage\\Equipe</td><td>Équipe</td><td>Dossier partagé de l’équipe sur le réseau</td><td>commun</td><td>' + (liensState.userId || 'DOE') + '</td></tr></tbody>' +
+              '</table></div>' +
+              '<p class="text-muted">Auteur est facultatif : s’il est vide, l’utilisateur qui importe est utilisé. Les identifiants et les noms sont comparés aux membres des groupes autorisés à écrire dans Commun, sous-groupes inclus. Une correspondance proche est sélectionnée ; sinon la valeur Excel reste affichée en rouge pour être corrigée dans la liste. Sans droit d’écriture dans Commun, l’import utilise Personnel et l’utilisateur connecté comme auteur.</p>' +
+            '</div><div class="modal-footer"><button type="button" class="btn btn-default" data-dismiss="modal">Fermer</button></div>' +
+          '</div></div></div>';
+      document.body.appendChild(exampleModal.firstChild);
+    }
 
-    var exampleModal = document.createElement('div');
-    exampleModal.innerHTML =
-      '<div class="modal fade" id="excelExampleLiensModal" tabindex="-1" role="dialog" aria-hidden="true">' +
-        '<div class="modal-dialog modal-lg" role="document"><div class="modal-content">' +
-          '<div class="modal-header"><button type="button" class="close" data-dismiss="modal" aria-label="Fermer" title="Fermer">' + getLiensXWikiIcon('cross') + '</button><h4 class="modal-title">Exemple de fichier Excel</h4></div>' +
-          '<div class="modal-body"><p>Format conseillé : une première ligne d’entête, puis une ligne par lien.</p>' +
-            '<div class="table-responsive"><table class="table table-striped table-bordered">' +
-              '<thead><tr><th>Acronyme</th><th>Libellé</th><th>Définition</th><th>Type</th><th>Auteur</th></tr></thead>' +
-              '<tbody><tr><td>API</td><td>Application Programming Interface</td><td>Interface de programmation</td><td>personnel</td><td>' + (liensState.userId || 'DOE') + '</td></tr>' +
-              '<tr><td>VPN</td><td>Virtual Private Network</td><td>Réseau privé virtuel</td><td>commun</td><td>' + (liensState.userId || 'DOE') + '</td></tr></tbody>' +
-            '</table></div>' +
-            '<p class="text-muted">Auteur est facultatif : s’il est vide, l’utilisateur qui importe est utilisé. Un non-manager est toujours forcé en Personnel avec lui-même comme auteur.</p>' +
-          '</div><div class="modal-footer"><button type="button" class="btn btn-default" data-dismiss="modal">Fermer</button></div>' +
-        '</div></div></div>';
-    document.body.appendChild(exampleModal.firstChild);
-
-    var modal = document.createElement('div');
-    modal.innerHTML =
-      '<div class="modal fade" id="excelLiensModal" tabindex="-1" role="dialog" aria-hidden="true">' +
-        '<div class="modal-dialog modal-lg excel-import-dialog" role="document"><div class="modal-content">' +
-          '<div class="modal-header"><button type="button" class="close" data-dismiss="modal" aria-label="Fermer" title="Fermer">' + getLiensXWikiIcon('cross') + '</button><h4 class="modal-title">Import Excel des liens</h4></div>' +
-          '<div class="modal-body">' +
-            '<div id="excelLiensInfo" class="text-muted excel-import-info"></div>' +
-            '<div class="row">' +
-              '<div class="col-md-8"><h5><strong>Données récupérées</strong></h5><div class="excel-import-table-wrap excel-import-preview-wrap">' +
-                '<table class="table table-striped table-bordered table-condensed excel-import-table"><thead><tr>' +
-                  '<th class="excel-line-col">Ligne</th><th>Acronyme</th><th>Libellé</th><th>Définition</th><th>Type</th><th>Auteur</th><th class="excel-action-col">Action</th>' +
-                '</tr></thead><tbody id="excelLiensPreviewBody"></tbody></table></div></div>' +
-              '<div class="col-md-4"><h5><strong>Doublons détectés</strong></h5>' +
-                '<p class="text-muted">Rouge = champ en doublon. Le motif indique s’il existe déjà dans les liens visibles ou dans le fichier Excel.</p>' +
-                '<div class="excel-import-table-wrap excel-import-duplicates-wrap"><table class="table table-bordered table-condensed excel-import-table">' +
-                  '<thead><tr><th>Ligne</th><th>Acronyme</th><th>Libellé</th><th>Motif</th></tr></thead><tbody id="excelLiensDuplicatesBody"></tbody>' +
-                '</table></div>' +
-                '<div class="excel-import-options">' +
-                  '<label><input type="checkbox" id="excelLiensAcceptDuplicateAcronyms"> Accepter les acronymes en double</label>' +
-                  '<label><input type="checkbox" id="excelLiensAcceptDuplicateLabels"> Accepter les libellés en double</label>' +
-                '</div><div id="excelLiensSelectionSummary" class="text-muted excel-import-summary"></div>' +
+    if (!document.getElementById('excelLiensModal')) {
+      var modal = document.createElement('div');
+      modal.innerHTML =
+        '<div class="modal fade" id="excelLiensModal" tabindex="-1" role="dialog" aria-hidden="true">' +
+          '<div class="modal-dialog modal-lg excel-import-dialog" role="document"><div class="modal-content">' +
+            '<div class="modal-header"><button type="button" class="close" data-dismiss="modal" aria-label="Fermer" title="Fermer">' + getLiensXWikiIcon('cross') + '</button><h4 class="modal-title">Import Excel des liens</h4></div>' +
+            '<div class="modal-body">' +
+              '<div id="excelLiensInfo" class="text-muted excel-import-info"></div>' +
+              '<p class="text-muted">Les auteurs doivent appartenir à un groupe autorisé à écrire dans Commun. Pour chaque auteur en rouge, choisissez un membre dans la liste avant d’ajouter les liens.</p>' +
+              '<div class="row">' +
+                '<div class="col-md-8"><h5><strong>Données récupérées</strong></h5><div class="excel-import-table-wrap excel-import-preview-wrap">' +
+                  '<table class="table table-striped table-bordered table-condensed excel-import-table"><thead><tr>' +
+                    '<th class="excel-line-col">Ligne</th><th>Liens</th><th>Domaine</th><th>Définition</th><th>Type</th><th>Auteur</th><th class="excel-action-col">Action</th>' +
+                  '</tr></thead><tbody id="excelLiensPreviewBody"></tbody></table></div></div>' +
+                '<div class="col-md-4"><h5><strong>Doublons détectés</strong></h5>' +
+                  '<p class="text-muted">Rouge = champ en doublon. Le motif indique s’il existe déjà dans les liens visibles ou dans le fichier Excel.</p>' +
+                  '<div class="excel-import-table-wrap excel-import-duplicates-wrap"><table class="table table-bordered table-condensed excel-import-table">' +
+                    '<thead><tr><th>Ligne</th><th>Liens</th><th>Domaine</th><th>Motif</th></tr></thead><tbody id="excelLiensDuplicatesBody"></tbody>' +
+                  '</table></div>' +
+                  '<div class="excel-import-options">' +
+                    '<label><input type="checkbox" id="excelLiensAcceptDuplicateAcronyms"> Accepter les liens en double</label>' +
+                    '<label><input type="checkbox" id="excelLiensAcceptDuplicateLabels"> Accepter les domaines en double</label>' +
+                  '</div><div id="excelLiensSelectionSummary" class="text-muted excel-import-summary"></div>' +
+                '</div>' +
               '</div>' +
             '</div>' +
-          '</div>' +
-          '<div class="modal-footer"><button type="button" class="btn btn-default" data-dismiss="modal">Annuler</button><button type="button" id="btnConfirmExcelLiensImport" class="btn btn-primary">Ajouter les éléments</button></div>' +
-        '</div></div></div>';
-    document.body.appendChild(modal.firstChild);
+            '<div class="modal-footer"><button type="button" class="btn btn-default" data-dismiss="modal">Annuler</button><button type="button" id="btnConfirmExcelLiensImport" class="btn btn-primary">Ajouter les éléments</button></div>' +
+          '</div></div></div>';
+      document.body.appendChild(modal.firstChild);
+    }
+    bindExcelUi();
+  }
 
-    document.getElementById('btnExcelExampleLiens').addEventListener('click', function () {
-      jQuery('#excelExampleLiensModal').modal('show');
-    });
-    document.getElementById('btnImportExcelLiens').addEventListener('click', function () {
-      document.getElementById('excelLiensFileInput').click();
-    });
-    document.getElementById('excelLiensFileInput').addEventListener('change', function () {
-      if (this.files && this.files[0]) readExcelFile(this.files[0]);
-      this.value = '';
-    });
-    document.getElementById('btnConfirmExcelLiensImport').addEventListener('click', importExcelRows);
+  async function showExcelModal(id) {
+    // Les extensions XWiki peuvent arriver avant jQuery / Bootstrap.
+    // Attendre leur disponibilité au clic, sans laisser l'interface inerte.
+    var started = Date.now();
+    while (!window.jQuery || !window.jQuery.fn || typeof window.jQuery.fn.modal !== 'function') {
+      if (Date.now() - started >= 10000) throw new Error('La fenêtre Excel n’est pas encore disponible. Réessayez.');
+      await new Promise(function (resolve) { window.setTimeout(resolve, 50); });
+    }
+    var modal = window.jQuery('#' + id);
+    if (id === 'excelLiensModal') modal.off('shown.bs.modal.liensAuthors').on('shown.bs.modal.liensAuthors', enhanceExcelAuthors);
+    modal.modal('show');
+  }
+
+  function bindExcelUi() {
+    // Délégation : les boutons restent utilisables quand XWiki remplace la barre.
+    // Réinstaller les extensions ne cumule pas les gestionnaires.
+    if (window.liensExcelEvents) window.liensExcelEvents.abort();
+    var events = new AbortController();
+    window.liensExcelEvents = events;
+    document.addEventListener('click', function (event) {
+      var button = event.target.closest('#btnExcelExampleLiens, #btnImportExcelLiens, #btnConfirmExcelLiensImport');
+      if (!button) return;
+      event.preventDefault();
+      readPermissionsFromPage();
+      if (!liensState.canWritePersonal && !liensState.canWriteCommon) return;
+      if (button.id === 'btnExcelExampleLiens') {
+        showExcelModal('excelExampleLiensModal').catch(function (error) { alert(error.message); });
+      } else if (button.id === 'btnImportExcelLiens') {
+        var input = document.getElementById('excelLiensFileInput');
+        if (input) input.click();
+      } else importExcelRows();
+    }, { signal: events.signal });
+    document.addEventListener('change', function (event) {
+      var input = event.target;
+      if (input.id !== 'excelLiensFileInput') return;
+      var file = input.files && input.files[0];
+      input.value = '';
+      if (file) readExcelFile(file);
+    }, { signal: events.signal });
   }
 
   function installTabWatcher() {
@@ -800,17 +989,73 @@
     });
   }
 
-  document.addEventListener('DOMContentLoaded', async function () {
+  function bindLiensSettings() {
+    var form = document.getElementById('liensSettingsForm');
+    if (!form || form.dataset.ready === 'true') return;
+    form.dataset.ready = 'true';
+    function normalizeRow(row) {
+      var common = row.querySelector('[data-kind="common"]');
+      var personal = row.querySelector('[data-kind="personal"]');
+      if (!common || !personal) return;
+      if (common.value === '2') personal.value = '2';
+      personal.querySelectorAll('option').forEach(function (option) { option.disabled = common.value === '2' && option.value !== '2'; });
+    }
+    form.querySelectorAll('.liens-permission-row').forEach(function (row) {
+      normalizeRow(row);
+      row.addEventListener('change', function () { normalizeRow(row); });
+    });
+    form.addEventListener('submit', async function (event) {
+      event.preventDefault();
+      if (form.dataset.saving === 'true') return;
+      form.dataset.saving = 'true';
+      var button = form.querySelector('[type="submit"]');
+      var feedback = form.querySelector('.liens-settings-feedback');
+      button.disabled = true;
+      feedback.textContent = '';
+      try {
+        // Les paramètres ne contiennent pas de fichiers : utiliser le format
+        // d'un formulaire HTML classique, sans les limites de parties multipart.
+        var data = new URLSearchParams(new FormData(form));
+        data.set('ajax', 'true');
+        // Le champ name="action" masque form.action par un HTMLInputElement.
+        var response = await fetch(form.getAttribute('action'), { method: 'POST', body: data, credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        var result = (await liensReadResponse(response)).trim();
+        if (result === 'LIENS_SETTINGS_SAVED') { window.location.reload(); return; }
+        throw new Error(liensErrorMessage(result));
+      } catch (error) {
+        feedback.textContent = error.message;
+      } finally {
+        form.dataset.saving = 'false';
+        button.disabled = false;
+      }
+    });
+  }
+
+  async function initialize() {
+    var root = document.querySelector('.liens-page');
+    if (!root || root.dataset.adaptationReady === 'true') return;
+    root.dataset.adaptationReady = 'true';
+    readPermissionsFromPage();
+    // Comme dans le Glossaire : sortir les modales du contexte d'empilement XWiki.
+    ['actionFeedbackModal', 'deleteConfirmModal', 'deleteConfirmModal2', 'glossaryModal', 'liensSettingsModal'].forEach(function (modalId) {
+      var modal = document.getElementById(modalId);
+      if (modal && modal.parentNode !== document.body) document.body.appendChild(modal);
+    });
+    bindLiensSettings();
     setupToolbar();
-    createExcelUi();
-    installSortButtons('mainGlossaryTable', 'main-term-row', 'personal', ['acronym', 'label', 'definition', 'type']);
-    installSortButtons('secondaryGlossaryTable', 'secondary-term-row', 'common', ['acronym', 'label', 'definition', 'author', 'type']);
+    if (liensState.canWritePersonal || liensState.canWriteCommon) createExcelUi();
+    installSortButtons('mainGlossaryTable', 'main-term-row', 'personal', ['acronym', 'label', 'definition']);
+    installSortButtons('secondaryGlossaryTable', 'secondary-term-row', 'common', ['acronym', 'label', 'definition', 'author']);
     ensureBulkCells('personal');
     ensureBulkCells('common');
     installTabWatcher();
-    detectManagerFromExistingPage();
-    try { await refreshExistingPopup(); } catch (e) { console.error(e); }
-    applyManagerUi();
+    applyPermissionsUi();
     setBulkDeleteMode(false);
-  });
+    if (window.jQuery) window.jQuery('#glossaryModal').on('shown.bs.modal.liensRows', refreshExistingPopup);
+    try { await refreshExistingPopup(); } catch (e) { console.error(e); }
+    applyPermissionsUi();
+    setBulkDeleteMode(false);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initialize, { once: true });
+  else initialize();
 })();
