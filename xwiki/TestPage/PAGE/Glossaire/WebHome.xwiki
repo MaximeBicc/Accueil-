@@ -1,92 +1,250 @@
 {{velocity}}
-{{html}}
-#set($classPath = "TestPage.PAGE.Glossaire.CODE.glossaireClass.WebHome")
-#set($dataSpace = "TestPage.PAGE.Glossaire.DATA")
-#set($dataSpaces = ['TestPage', 'PAGE', 'Glossaire', 'DATA'])
+#set($glossaryRoot = 'TestPage.PAGE.Glossaire')
+{{html clean="false"}}
+## Seule glossaryRoot est à adapter, avec la même valeur dans DATA.WebHome.
+#set($glossaryRootHome = "${glossaryRoot}.WebHome")
+#set($glossaryRootReference = $services.model.resolveDocument($glossaryRootHome))
+#set($glossaryWiki = $glossaryRootReference.wikiReference.name)
+#set($dataSpaces = [])
+#set($proposalSpaces = [])
+#set($trashSpaces = [])
+#foreach($glossarySpaceReference in $glossaryRootReference.spaceReferences)
+  #set($discard = $dataSpaces.add($glossarySpaceReference.name))
+  #set($discard = $proposalSpaces.add($glossarySpaceReference.name))
+  #set($discard = $trashSpaces.add($glossarySpaceReference.name))
+#end
+#set($discard = $dataSpaces.add('DATA'))
+#set($discard = $proposalSpaces.add('PROPOSITIONS'))
+#set($discard = $trashSpaces.add('CORBEILLE'))
+#set($dataHomeReference = $services.model.createDocumentReference($glossaryWiki, $dataSpaces, 'WebHome'))
+#set($proposalHomeReference = $services.model.createDocumentReference($glossaryWiki, $proposalSpaces, 'WebHome'))
+#set($trashHomeReference = $services.model.createDocumentReference($glossaryWiki, $trashSpaces, 'WebHome'))
+#set($dataSpace = $services.model.serialize($dataHomeReference.parent, 'local'))
+#set($proposalSpace = $services.model.serialize($proposalHomeReference.parent, 'local'))
+#set($trashSpace = $services.model.serialize($trashHomeReference.parent, 'local'))
+#set($dataHome = "${glossaryRoot}.DATA.WebHome")
+#set($classPath = "${glossaryRoot}.CODE.glossaireClass.WebHome")
+#set($configurationClass = "${glossaryRoot}.CODE.glossaireConfigurationClass.WebHome")
+#set($configurationRef = "${glossaryRoot}.CODE.Configuration.WebHome")
+#set($configurationDoc = false)
+#set($configurationObject = false)
+#set($configurationVersion = '')
+#set($configurationDoc = $xwiki.getDocumentAsAuthor($configurationRef))
+#if($configurationDoc)
+  #set($configurationObject = $configurationDoc.getObject($configurationClass))
+  #set($configurationVersion = $configurationDoc.version)
+#end
+#set($reviewGroup = "XWiki.GlossaireValidateurs")
+#if($configurationObject && "$!configurationObject.getValue('reviewGroup')" != "" && !$configurationObject.getValue('reviewGroup').matches('\s*'))
+  #set($reviewGroup = $configurationObject.getValue('reviewGroup'))
+#end
+#set($guestReference = $services.model.resolveDocument('XWiki.XWikiGuest'))
+#set($isAuthenticated = $xcontext.userReference && $xcontext.userReference.name != 'XWikiGuest')
+#set($canConfigure = false)
+#set($canConfigure = $xwiki.hasWikiAdminRights())
+#set($permissionFields = ['viewGroups', 'proposeGroups', 'directAddGroups', 'reviewGroups'])
+#set($configuredGroups = [[], [], [], []])
+#set($usesGroupPolicy = false)
+#if(!$configurationDoc)
+  ## Une configuration inaccessible à l'auteur du script ne doit jamais ouvrir l'accès.
+  #set($glossaryRank = 0)
+#elseif($configurationObject && "$!configurationObject.getValue('schemaVersion')" == '2')
+  #set($usesGroupPolicy = true)
+  #set($glossaryRank = 0)
+  #foreach($permissionField in $permissionFields)
+    #set($permissionLevel = $foreach.count)
+    #set($permissionIndex = $permissionLevel - 1)
+    #set($groupLines = "$!configurationObject.getValue($permissionField)")
+    #foreach($groupLine in $groupLines.split('\r?\n'))
+      #set($candidateGroup = $groupLine.replaceAll('^\s+|\s+$', ''))
+      #if($candidateGroup != '')
+        #set($candidateGroupReference = $services.model.resolveDocument($candidateGroup))
+        #if($candidateGroupReference.equals($guestReference))
+          #set($candidateGroup = 'XWiki.XWikiGuest')
+        #else
+          #set($candidateGroup = $services.model.serialize($candidateGroupReference))
+        #end
+        #set($discard = $configuredGroups.get($permissionIndex).add($candidateGroup))
+        #set($hasGroup = false)
+        #if($candidateGroup == 'XWiki.XWikiGuest')
+          #if(!$isAuthenticated && $permissionLevel == 1)
+            #set($hasGroup = true)
+          #end
+        #elseif($isAuthenticated)
+          #set($hasGroup = $services.user.group.getGroups($xcontext.userReference, $candidateGroupReference.wikiReference, true).contains($candidateGroupReference))
+        #end
+        #if($hasGroup && $permissionLevel > $glossaryRank)
+          #set($glossaryRank = $permissionLevel)
+        #end
+      #end
+    #end
+  #end
+#elseif($configurationObject && "$!configurationObject.getValue('schemaVersion')" != '')
+  ## Un schéma inconnu ne doit pas réactiver les autorisations historiques.
+  #set($glossaryRank = 0)
+#else
+  ## Compatibilité : lecture publique, propositions connectées, groupe historique validateur.
+  #set($glossaryRank = 1)
+  #set($discard = $configuredGroups.get(0).add('XWiki.XWikiGuest'))
+  #set($discard = $configuredGroups.get(1).add($services.model.serialize($services.model.resolveDocument('XWiki.XWikiAllGroup'))))
+  #set($discard = $configuredGroups.get(3).add($services.model.serialize($services.model.resolveDocument($reviewGroup))))
+  #if($isAuthenticated)
+    #set($glossaryRank = 2)
+    #set($groupReference = $services.model.resolveDocument($reviewGroup))
+    #if($services.user.group.getGroups($xcontext.userReference, $groupReference.wikiReference, true).contains($groupReference))
+      #set($glossaryRank = 4)
+    #end
+  #end
+#end
+#set($canView = $glossaryRank >= 1)
+#set($canPropose = $isAuthenticated && $glossaryRank >= 2)
+#set($canAdd = $isAuthenticated && $glossaryRank >= 3)
+#set($canManage = $canAdd)
+#set($canReview = $isAuthenticated && $glossaryRank >= 4)
+#set($settingsGroups = ['XWiki.XWikiGuest'])
+#if($canConfigure)
+  #foreach($groupName in $services.query.xwql('select distinct doc.fullName from Document doc, doc.object(XWiki.XWikiGroups) as grp order by doc.fullName').execute())
+    #set($listedGroupReference = $services.model.resolveDocument($groupName))
+    #set($listedGroup = $services.model.serialize($listedGroupReference))
+    #if(!$settingsGroups.contains($listedGroup) && $xwiki.hasAccessLevel('view', $xcontext.user, $listedGroup))
+      #set($discard = $settingsGroups.add($listedGroup))
+    #end
+  #end
+  #foreach($groupList in $configuredGroups)
+    #foreach($configuredGroup in $groupList)
+      #if(!$settingsGroups.contains($configuredGroup))
+        #set($discard = $settingsGroups.add($configuredGroup))
+      #end
+    #end
+  #end
+#end
+#set($proposalClass = "${glossaryRoot}.CODE.glossairePropositionClass.WebHome")
+#set($pendingProposalDocs = [])
+#set($trashProposalDocs = [])
+#set($ownProposalDocs = [])
+#set($nowMillis = $datetool.date.time)
+#set($currentAuthor = '')
+## Les fiches privées sont lues par l'auteur de confiance puis filtrées avant tout rendu.
+#if($canView && $isAuthenticated)
+  #set($currentAuthor = $services.model.serialize($xcontext.userReference))
+  #foreach($proposalName in $xwiki.getSpaceDocsName($proposalSpace))
+    #set($proposalReference = $services.model.createDocumentReference($glossaryWiki, $proposalSpaces, $proposalName))
+    #set($proposalDoc = false)
+    #set($proposalObject = false)
+    #set($proposalDoc = $xwiki.getDocumentAsAuthor($proposalReference))
+    #if($proposalDoc)
+      #set($proposalObject = $proposalDoc.getObject($proposalClass))
+    #end
+    #if($proposalObject && $proposalObject.getValue('status') == 'pending')
+      #if($canReview)
+        #set($discard = $pendingProposalDocs.add($proposalDoc))
+      #end
+      #if($proposalObject.getValue('author') == $currentAuthor)
+        #set($discard = $ownProposalDocs.add($proposalDoc))
+      #end
+    #end
+  #end
+  #foreach($trashName in $xwiki.getSpaceDocsName($trashSpace))
+    #set($trashReference = $services.model.createDocumentReference($glossaryWiki, $trashSpaces, $trashName))
+    #set($trashDoc = false)
+    #set($trashObject = false)
+    #set($trashDoc = $xwiki.getDocumentAsAuthor($trashReference))
+    #if($trashDoc)
+      #set($trashObject = $trashDoc.getObject($proposalClass))
+    #end
+    #if($trashObject && ($trashObject.getValue('status') == 'rejected' || $trashObject.getValue('status') == 'trashed'))
+      #set($deletedMillis = -1)
+      #set($deletedAt = false)
+      #set($deletedAt = $trashObject.getValue('deletedAt'))
+      #if($deletedAt)
+        #set($deletedMillis = $deletedAt.time)
+      #end
+      #set($expiresMillis = $deletedMillis + 604800000)
+      #if($deletedMillis >= 0 && $deletedMillis <= $nowMillis && $expiresMillis > $nowMillis)
+        #if($canReview)
+          #set($discard = $trashProposalDocs.add($trashDoc))
+        #end
+        #if($trashObject.getValue('author') == $currentAuthor)
+          #set($discard = $ownProposalDocs.add($trashDoc))
+        #end
+      #end
+    #end
+  #end
+#end
 
 ## Extensions JavaScript / CSS du module
-$xwiki.jsx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
-$xwiki.jsx.use("TestPage.PAGE.Glossaire.CODE.GlossairePageExtension")
-$xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
+$xwiki.jsx.use("${glossaryRoot}.CODE.GlossaireExtension")
+$xwiki.jsx.use("${glossaryRoot}.CODE.GlossairePageExtension")
+$xwiki.ssx.use("${glossaryRoot}.CODE.GlossaireExtension")
 
-#set($createAction = $request.getParameter("action"))
-#if("$!createAction" == "checkAndCreate" && $request.acronyme && $request.libelle)
-  ## Aucun .trim() côté Velocity sur cette instance XWiki.
-  #set($acronymeInput = "$!request.acronyme")
-  #set($libelleInput = "$!request.libelle")
-  #set($definitionInput = "$!request.definition")
-
-  ## 1. Génération du nom technique sans cleanName ni interpolation de chemin.
-  ## Sur cette instance, cleanName peut rester littéral dans la référence.
-  #set($baseCandidateName = $acronymeInput)
-  #set($candidateName = $baseCandidateName)
-  #set($counter = 1)
-  #set($candidateReference = false)
-  #set($alreadyExists = false)
-
-  ## 2. Recherche d'une vraie référence XWiki disponible.
-  #foreach($i in [1..100])
-    #set($terminalReference = $services.model.createDocumentReference('', $dataSpaces, $candidateName))
-    #set($nestedSpaces = ['TestPage', 'PAGE', 'Glossaire', 'DATA', $candidateName])
-    #set($nestedReference = $services.model.createDocumentReference('', $nestedSpaces, 'WebHome'))
-    #set($terminalDoc = $xwiki.getDocument($terminalReference))
-    #set($nestedDoc = $xwiki.getDocument($nestedReference))
-
-    #if($i == 1 && (!$terminalDoc.isNew() || !$nestedDoc.isNew()))
-      #set($alreadyExists = true)
-    #end
-
-    #if($terminalDoc.isNew() && $nestedDoc.isNew())
-      #set($candidateReference = $terminalReference)
-      #break
-    #else
-      #set($suffix = "_$counter")
-      #set($candidateName = "$baseCandidateName$suffix")
-      #set($counter = $counter + 1)
+## Les directives restent sur des lignes séparées du HTML, y compris les attributs.
+#set($urlGlossaireData = $xwiki.getURL($dataHome, "view"))
+#set($createButtonText = "Proposer un acronyme")
+#set($createModalTitle = "Proposer un acronyme")
+#set($createSubmitText = "Envoyer la proposition")
+#set($createAction = "propose")
+#if($canManage)
+  #set($createButtonText = "Ajouter un acronyme")
+  #set($createModalTitle = "Ajouter un terme")
+  #set($createSubmitText = "Ajouter")
+  #set($createAction = "create")
+#end
+#set($pendingEmptyClass = "alert alert-info")
+#if(!$pendingProposalDocs.isEmpty())
+  #set($pendingEmptyClass = "alert alert-info is-hidden")
+#end
+#set($ownEmptyClass = "text-muted")
+#if(!$ownProposalDocs.isEmpty())
+  #set($ownEmptyClass = "text-muted is-hidden")
+#end
+#set($legacyCount = 0)
+#if($canConfigure)
+  #set($markerOpen = '<')
+  #set($braceOpen = '{')
+  #set($braceClose = '}')
+  #foreach($legacyName in $xwiki.getSpaceDocsName($dataSpace))
+    #if($legacyName != 'WebHome')
+      #set($legacyReference = $services.model.createDocumentReference($glossaryWiki, $dataSpaces, $legacyName))
+      #set($legacyDoc = $xwiki.getDocument($legacyReference))
+      #set($legacyObject = false)
+      #set($legacyObject = $legacyDoc.getObject($classPath))
+      #if($legacyObject)
+        #set($stableMarker = "${markerOpen}!-- glossary-id:$legacyName -->")
+        #set($hasStableId = $legacyDoc.content.contains($stableMarker))
+        #if(!$hasStableId && $legacyName.startsWith('Proposition_'))
+          #set($legacyProposalId = $legacyName.substring(12))
+          #if($legacyProposalId.matches('[A-Za-z0-9_]+'))
+            #set($legacyProposalMarker = "${braceOpen}${braceOpen}html${braceClose}${braceClose}${markerOpen}!-- glossary-proposal:$legacyProposalId -->${braceOpen}${braceOpen}/html${braceClose}${braceClose}")
+            #set($hasStableId = $legacyDoc.content == $legacyProposalMarker)
+          #end
+        #end
+        #if(!$hasStableId)
+          #set($legacyCount = $legacyCount + 1)
+        #end
+      #end
     #end
   #end
-
-  ## 3. Création sur la référence typée trouvée.
-  #set($newPage = $xwiki.getDocument($candidateReference))
-
-  ## 4. Création et population de l'objet
-  #set($newObj = $newPage.newObject($classPath))
-  #set($discard = $newObj.set("acronyme", $acronymeInput))
-  #set($discard = $newObj.set("libelle", $libelleInput))
-  #set($discard = $newObj.set("definition", $definitionInput))
-  #set($discard = $newPage.setTitle($acronymeInput))
-  #set($discard = $newPage.save("Ajout via interface Glossaire", true))
-
-  ## 5. Notification après redirection
-  #if($alreadyExists)
-    $request.session.setAttribute('glossary_status', 'warning')
-  #else
-    $request.session.setAttribute('glossary_status', 'success')
-  #end
-  $request.session.setAttribute('glossary_msg', $acronymeInput)
-
-  $response.sendRedirect($doc.getURL())
-  #stop
+#end
+#set($migrationDisabledAttr = '')
+#if($legacyCount == 0)
+  #set($migrationDisabledAttr = ' disabled')
+#end
+#set($trashEmptyClass = "alert alert-info")
+#if(!$trashProposalDocs.isEmpty())
+  #set($trashEmptyClass = "alert alert-info is-hidden")
 #end
 
-## --- NOTIFICATIONS POST-REDIRECTION ---
-#set($status = $request.session.getAttribute('glossary_status'))
-#if($status)
-  #set($msg = $request.session.getAttribute('glossary_msg'))
-
-  #if($status == 'success')
-    <div class="alert alert-success glossary-status-alert">
-      Le terme <strong>$msg</strong> a été ajouté au glossaire.
-    </div>
-  #elseif($status == 'warning')
-    <div class="alert alert-warning glossary-status-alert">
-      L'acronyme <strong>$msg</strong> existe déjà. Une nouvelle fiche a été créée.
-    </div>
-  #end
-
-  $request.session.removeAttribute('glossary_status')
-  $request.session.removeAttribute('glossary_msg')
-#end
+<div id="glossaryBootstrap" class="is-hidden"
+     data-endpoint-url="$escapetool.xml($!urlGlossaireData)"
+     data-csrf="$escapetool.xml($services.csrf.getToken())"
+     data-can-view="$canView"
+     data-can-propose="$canPropose"
+     data-can-add="$canAdd"
+     data-can-manage="$canManage"
+     data-can-review="$canReview"
+     data-can-configure="$canConfigure"
+     data-config-version="$escapetool.xml($configurationVersion)"
+     data-current-author="$escapetool.xml($currentAuthor)"></div>
 
 <div class="glossary-page">
   <div class="nh-shell">
@@ -98,13 +256,41 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
 ## --- BARRE D'ACTIONS ---
 <div class="row glossary-toolbar">
   <div id="glossaryToolbarLeft" class="col-md-6 glossary-toolbar-left">
+    #if($canPropose)
     <button type="button" class="btn btn-success" data-toggle="modal" data-target="#glossaryModal">
-      $services.icon.renderHTML('add') Ajouter un acronyme
+      $services.icon.renderHTML('add') $escapetool.xml($createButtonText)
     </button>
+    #elseif(!$isAuthenticated && $canView)
+    <p class="text-muted">Connectez-vous pour proposer un acronyme.</p>
+    #end
+    #if($canReview)
+    <button type="button" id="btnReviewGlossaryProposals" class="btn btn-primary glossary-proposals-button" data-toggle="modal" data-target="#glossaryProposalsModal" aria-describedby="glossaryProposalCountLabel">
+      Propositions
+      <span id="glossaryProposalCount" class="glossary-proposals-badge" aria-hidden="true">$pendingProposalDocs.size()</span>
+      <span id="glossaryProposalCountLabel" class="sr-only" aria-live="polite">$pendingProposalDocs.size() proposition(s) en attente</span>
+    </button>
+    <button type="button" id="btnGlossaryTrash" class="btn btn-default glossary-proposals-button" data-toggle="modal" data-target="#glossaryTrashModal" aria-describedby="glossaryTrashCountLabel">
+      Corbeille
+      <span id="glossaryTrashCount" class="glossary-proposals-badge" aria-hidden="true">$trashProposalDocs.size()</span>
+      <span id="glossaryTrashCountLabel" class="sr-only" aria-live="polite">$trashProposalDocs.size() proposition(s) dans la corbeille</span>
+    </button>
+    #end
   </div>
-  <div id="glossaryToolbarRight" class="col-md-6 glossary-toolbar-right"></div>
+  <div id="glossaryToolbarRight" class="col-md-6 glossary-toolbar-right">
+    #if($canView)
+    <div id="glossaryImportToolbar" class="glossary-import-toolbar"></div>
+    #end
+    #if($canConfigure)
+    <button type="button" id="btnGlossarySettings" class="btn btn-default" data-toggle="modal" data-target="#glossarySettingsModal">Paramètres</button>
+    #end
+  </div>
 </div>
 
+#if(!$canView)
+<p class="alert alert-warning" role="status">Votre compte n'a pas accès au glossaire.</p>
+#end
+
+#if($canView)
 ## --- PAGINATION ---
 <div class="pagination-container">
   <div>
@@ -147,15 +333,19 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
   </div>
 </div>
 
-#set($urlGlossaireData = $xwiki.getURL("TestPage.PAGE.Glossaire.DATA.WebHome", "view"))
-
 ## --- TABLEAU PRINCIPAL ---
 <div class="table-responsive">
   <table class="table table-striped table-hover table-bordered"
          id="mainGlossaryTable"
          data-csrf="$services.csrf.getToken()"
+         data-can-view="$canView"
+         data-can-manage="$canManage"
+         data-can-add="$canAdd"
+         data-can-review="$canReview"
+         data-can-configure="$canConfigure"
+         data-can-propose="$canPropose"
          data-class-path="$classPath"
-         data-endpoint-url="$!urlGlossaireData"
+         data-endpoint-url="$escapetool.xml($!urlGlossaireData)"
          data-icon-right="$escapetool.xml($services.icon.renderHTML('right'))"
          data-icon-pencil="$escapetool.xml($services.icon.renderHTML('pencil'))"
          data-icon-trash="$escapetool.xml($services.icon.renderHTML('trash'))"
@@ -169,7 +359,9 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
         <th class="glossary-col-acronym">Acronyme</th>
         <th class="glossary-col-label">Libellé complet</th>
         <th class="glossary-col-definition">Définition</th>
+        #if($canManage)
         <th class="glossary-col-actions">Actions</th>
+        #end
       </tr>
       <tr class="filter-row">
         <th>
@@ -211,14 +403,18 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
             </button>
           </div>
         </th>
+        #if($canManage)
         <th class="glossary-empty-filter"></th>
+        #end
       </tr>
     </thead>
     <tbody>
       #set($allDocNames = $xwiki.getSpaceDocsName($dataSpace))
       #foreach($docName in $allDocNames)
-        #set($fullRef = "${dataSpace}.${docName}")
-        #set($tDoc = $xwiki.getDocument($fullRef))
+        #set($termReference = $services.model.createDocumentReference($glossaryWiki, $dataSpaces, $docName))
+        #set($fullRef = $services.model.serialize($termReference, 'local'))
+        #set($tDoc = $xwiki.getDocument($termReference))
+        #set($tObj = false)
         #set($tObj = $tDoc.getObject($classPath))
         #if($tObj)
           #set($acronymeValue = $!tObj.getValue('acronyme'))
@@ -226,21 +422,28 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
           #set($definitionValue = $!tObj.getValue('definition'))
 
           <tr class="main-term-row"
-              data-acronym="$!acronymeValue.toUpperCase()"
-              data-doc-name="$!docName"
-              data-full-ref="$!fullRef">
+              data-acronym="$escapetool.xml($!acronymeValue.toUpperCase())"
+              data-doc-name="$escapetool.xml($!docName)"
+              data-full-ref="$escapetool.xml($!fullRef)">
             <td class="main-acronym">
-              <span class="view-mode"><strong>$!acronymeValue</strong></span>
-              <input type="text" class="form-control edit-mode edit-acronym glossary-edit-field" value="$!acronymeValue">
+              <span class="view-mode"><strong>$escapetool.xml($!acronymeValue)</strong></span>
+              #if($canManage)
+              <input type="text" class="form-control edit-mode edit-acronym glossary-edit-field" value="$escapetool.xml($!acronymeValue)">
+              #end
             </td>
             <td class="main-label">
-              <span class="view-mode">$!libelleValue</span>
-              <input type="text" class="form-control edit-mode edit-label glossary-edit-field" value="$!libelleValue">
+              <span class="view-mode">$escapetool.xml($!libelleValue)</span>
+              #if($canManage)
+              <input type="text" class="form-control edit-mode edit-label glossary-edit-field" value="$escapetool.xml($!libelleValue)">
+              #end
             </td>
             <td class="main-definition">
-              <span class="view-mode">$!definitionValue</span>
-              <textarea class="form-control edit-mode edit-definition glossary-edit-field" rows="2">$!definitionValue</textarea>
+              <span class="view-mode">$escapetool.xml($!definitionValue)</span>
+              #if($canManage)
+              <textarea class="form-control edit-mode edit-definition glossary-edit-field" rows="2">$escapetool.xml($!definitionValue)</textarea>
+              #end
             </td>
+            #if($canManage)
             <td>
               <div class="view-buttons">
                 <button type="button" class="btn btn-xs btn-primary custom-action-btn js-edit-row" aria-label="Modifier" title="Modifier">
@@ -259,6 +462,7 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
                 </button>
               </div>
             </td>
+            #end
           </tr>
         #end
       #end
@@ -267,6 +471,7 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
 </div>
 
 ## --- CONFIRMATION DE SUPPRESSION SIMPLE ---
+#if($canManage)
 <div class="modal fade" id="deleteConfirmModal" tabindex="-1" role="dialog" aria-hidden="true">
   <div class="modal-dialog" role="document">
     <div class="modal-content">
@@ -298,29 +503,37 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
     </div>
   </div>
 </div>
+#end
 
 ## --- MODALE DE CRÉATION ---
+#if($canPropose)
 <div class="modal fade" id="glossaryModal" tabindex="-1" role="dialog" aria-labelledby="glossaryModalLabel" aria-hidden="true">
   <div class="modal-dialog modal-lg" role="document">
     <div class="modal-content">
       <div class="modal-header">
         <button type="button" class="close" data-dismiss="modal" aria-label="Fermer" title="Fermer">$services.icon.renderHTML('cross')</button>
-        <h4 class="modal-title" id="glossaryModalLabel">Ajouter un terme</h4>
+        <h4 class="modal-title" id="glossaryModalLabel">$escapetool.xml($createModalTitle)</h4>
       </div>
 
-      <form method="post" action="">
-        <input type="hidden" name="action" value="checkAndCreate">
+      <form id="glossaryCreateForm" method="post" action="$escapetool.xml($!urlGlossaireData)">
+        <input type="hidden" name="action" value="$escapetool.xml($createAction)">
+        <input type="hidden" name="xpage" value="plain">
+        <input type="hidden" name="form_token" value="$services.csrf.getToken()">
 
         <div class="modal-body">
+          #if(!$canManage)
+          <p class="alert alert-info">Votre proposition sera examinée par les validateurs avant son ajout au glossaire.</p>
+          #end
           <div class="row">
             <div class="col-md-5 modal-left-column">
               <h5 class="column-title">Nouveau terme</h5>
 
               <div class="form-group">
-                <label>Acronyme ou sigle :</label>
+                <label for="acronymeInputField">Acronyme ou sigle :</label>
                 <input type="text"
                        id="acronymeInputField"
                        name="acronyme"
+                       maxlength="255"
                        class="form-control"
                        autocomplete="off"
                        required
@@ -328,10 +541,11 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
               </div>
 
               <div class="form-group">
-                <label>Libellé complet :</label>
+                <label for="libelleInputField">Libellé complet :</label>
                 <input type="text"
                        id="libelleInputField"
                        name="libelle"
+                       maxlength="255"
                        class="form-control"
                        autocomplete="off"
                        required
@@ -339,8 +553,8 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
               </div>
 
               <div class="form-group">
-                <label>Définition (facultatif) :</label>
-                <textarea name="definition"
+                <label for="definitionInputField">Définition (facultatif) :</label>
+                <textarea id="definitionInputField" name="definition"
                           class="form-control"
                           rows="5"
                           placeholder="Saisir une définition"></textarea>
@@ -361,13 +575,15 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
                   </thead>
                   <tbody>
                     #foreach($docName in $allDocNames)
-                      #set($fullRef = "${dataSpace}.${docName}")
-                      #set($tDoc = $xwiki.getDocument($fullRef))
+                      #set($termReference = $services.model.createDocumentReference($glossaryWiki, $dataSpaces, $docName))
+                      #set($fullRef = $services.model.serialize($termReference, 'local'))
+                      #set($tDoc = $xwiki.getDocument($termReference))
+                      #set($tObj = false)
                       #set($tObj = $tDoc.getObject($classPath))
                       #if($tObj)
-                        <tr class="term-row" data-full-ref="$!fullRef">
-                          <td class="term-acronym">$!tObj.getValue('acronyme')</td>
-                          <td class="term-label">$!tObj.getValue('libelle')</td>
+                        <tr class="term-row" data-full-ref="$escapetool.xml($!fullRef)">
+                          <td class="term-acronym">$escapetool.xml($!tObj.getValue('acronyme'))</td>
+                          <td class="term-label">$escapetool.xml($!tObj.getValue('libelle'))</td>
                         </tr>
                       #end
                     #end
@@ -380,12 +596,258 @@ $xwiki.ssx.use("TestPage.PAGE.Glossaire.CODE.GlossaireExtension")
 
         <div class="modal-footer">
           <button type="button" class="btn btn-default" data-dismiss="modal">Annuler</button>
-          <button type="submit" class="btn btn-primary">Ajouter</button>
+          <button type="submit" class="btn btn-primary">$escapetool.xml($createSubmitText)</button>
         </div>
       </form>
     </div>
   </div>
 </div>
+#end
+
+#end
+
+## --- VALIDATION DES PROPOSITIONS ---
+#if($canReview)
+<div class="modal fade" id="glossaryProposalsModal" tabindex="-1" role="dialog" aria-labelledby="glossaryProposalsTitle" aria-hidden="true">
+  <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close" data-dismiss="modal" aria-label="Fermer" title="Fermer">$services.icon.renderHTML('cross')</button>
+        <h4 class="modal-title" id="glossaryProposalsTitle">Propositions d'acronymes en attente</h4>
+      </div>
+      <div class="modal-body">
+        <p>Vous pouvez corriger une proposition avant de la valider. Un motif est obligatoire pour la refuser.</p>
+        <p id="glossaryProposalsEmpty" class="$escapetool.xml($pendingEmptyClass)">Aucune proposition en attente.</p>
+        <div id="glossaryPendingProposals">
+          #foreach($proposalDoc in $pendingProposalDocs)
+            #set($proposalObject = $proposalDoc.getObject($proposalClass))
+          <form class="glossary-proposal-card" data-proposal-ref="$escapetool.xml($proposalDoc.fullName)" data-expected-version="$escapetool.xml($proposalDoc.version)"
+                data-proposal-author="$escapetool.xml($!proposalObject.getValue('author'))"
+                data-proposal-submitted-at="$escapetool.xml($!proposalObject.getValue('submittedAt'))">
+            <h5>$escapetool.xml($!proposalObject.getValue('acronyme')) : $escapetool.xml($!proposalObject.getValue('libelle'))</h5>
+            <p class="text-muted glossary-proposal-meta">Proposé par $escapetool.xml($!proposalObject.getValue('author')) le $escapetool.xml($!proposalObject.getValue('submittedAt'))</p>
+            <div class="form-group">
+              <label for="proposalAcronym${foreach.count}">Acronyme ou sigle</label>
+              <input id="proposalAcronym${foreach.count}" name="acronym" class="form-control" maxlength="255" value="$escapetool.xml($!proposalObject.getValue('acronyme'))" required>
+            </div>
+            <div class="form-group">
+              <label for="proposalLabel${foreach.count}">Libellé complet</label>
+              <input id="proposalLabel${foreach.count}" name="label" class="form-control" maxlength="255" value="$escapetool.xml($!proposalObject.getValue('libelle'))" required>
+            </div>
+            <div class="form-group">
+              <label for="proposalDefinition${foreach.count}">Définition (facultatif)</label>
+              <textarea id="proposalDefinition${foreach.count}" name="definition" class="form-control" rows="3">$escapetool.xml($!proposalObject.getValue('definition'))</textarea>
+            </div>
+            <div class="form-group">
+              <label for="proposalComment${foreach.count}">Commentaire / motif du refus</label>
+              <textarea id="proposalComment${foreach.count}" name="comment" class="form-control" rows="2" placeholder="Obligatoire en cas de refus"></textarea>
+            </div>
+            <p class="glossary-proposal-feedback text-danger is-hidden" role="alert"></p>
+            <div class="glossary-proposal-actions">
+              <button type="button" class="btn btn-success" data-review-action="approve">Valider et publier</button>
+              <button type="button" class="btn btn-danger" data-review-action="reject">Refuser</button>
+            </div>
+          </form>
+          #end
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-default" data-dismiss="modal">Fermer</button>
+      </div>
+    </div>
+  </div>
+</div>
+#end
+
+## --- CORBEILLE DES PROPOSITIONS ---
+#if($canReview)
+<div class="modal fade" id="glossaryTrashModal" tabindex="-1" role="dialog" aria-labelledby="glossaryTrashTitle" aria-hidden="true">
+  <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close" data-dismiss="modal" aria-label="Fermer" title="Fermer">$services.icon.renderHTML('cross')</button>
+        <h4 class="modal-title" id="glossaryTrashTitle">Corbeille des propositions</h4>
+      </div>
+      <div class="modal-body">
+        <p>Les propositions refusées ou retirées sont conservées pendant 7 jours. Vous pouvez les corriger et les revalider pendant ce délai.</p>
+        <p id="glossaryTrashEmpty" class="$escapetool.xml($trashEmptyClass)">La corbeille est vide.</p>
+        <div id="glossaryTrashProposals">
+          #foreach($trashDoc in $trashProposalDocs)
+            #set($trashObject = $trashDoc.getObject($proposalClass))
+            #set($deletedAt = $trashObject.getValue('deletedAt'))
+            #set($expiresMillis = $deletedAt.time + 604800000)
+            #set($trashStatusLabel = 'Proposition retirée')
+            #if($trashObject.getValue('status') == 'rejected')
+              #set($trashStatusLabel = 'Proposition refusée')
+            #end
+          <form class="glossary-trash-card" data-proposal-ref="$escapetool.xml($trashDoc.fullName)" data-expected-version="$escapetool.xml($trashDoc.version)"
+                data-expires-at="$expiresMillis" data-deleted-at="$deletedAt.time" data-proposal-author="$escapetool.xml($!trashObject.getValue('author'))">
+            <h5>$escapetool.xml($!trashObject.getValue('acronyme')) : $escapetool.xml($!trashObject.getValue('libelle'))</h5>
+            <p><strong>$escapetool.xml($trashStatusLabel)</strong></p>
+            <p class="text-muted glossary-proposal-meta">Proposé par $escapetool.xml($!trashObject.getValue('author')) le $escapetool.xml($!trashObject.getValue('submittedAt'))</p>
+            <p class="text-muted glossary-proposal-meta">Mise à la corbeille le $escapetool.xml($deletedAt). <span class="glossary-trash-expiration" data-expires-at="$expiresMillis">Suppression après 7 jours.</span></p>
+            <p class="glossary-proposal-comment">$escapetool.xml($!trashObject.getValue('reviewComment'))</p>
+            <div class="form-group">
+              <label for="trashAcronym${foreach.count}">Acronyme ou sigle</label>
+              <input id="trashAcronym${foreach.count}" name="acronym" class="form-control" maxlength="255" value="$escapetool.xml($!trashObject.getValue('acronyme'))" required>
+            </div>
+            <div class="form-group">
+              <label for="trashLabel${foreach.count}">Libellé complet</label>
+              <input id="trashLabel${foreach.count}" name="label" class="form-control" maxlength="255" value="$escapetool.xml($!trashObject.getValue('libelle'))" required>
+            </div>
+            <div class="form-group">
+              <label for="trashDefinition${foreach.count}">Définition (facultatif)</label>
+              <textarea id="trashDefinition${foreach.count}" name="definition" class="form-control" rows="3">$escapetool.xml($!trashObject.getValue('definition'))</textarea>
+            </div>
+            <div class="form-group">
+              <label for="trashComment${foreach.count}">Commentaire de revalidation (facultatif)</label>
+              <textarea id="trashComment${foreach.count}" name="comment" class="form-control" rows="2"></textarea>
+            </div>
+            <p class="glossary-proposal-feedback text-danger is-hidden" role="alert"></p>
+            <button type="button" class="btn btn-success" data-review-action="restore">Revalider et publier</button>
+          </form>
+          #end
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-default" data-dismiss="modal">Fermer</button>
+      </div>
+    </div>
+  </div>
+</div>
+#end
+
+## --- PARAMÈTRES ADMINISTRATEUR ---
+#if($canConfigure)
+#set($roleNames = ['Aucun accès', 'Lecture', 'Proposition', 'Ajout direct', 'Validation'])
+<div class="modal fade" id="glossarySettingsModal" tabindex="-1" role="dialog" aria-labelledby="glossarySettingsTitle" aria-hidden="true">
+  <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close" data-dismiss="modal" aria-label="Fermer" title="Fermer">$services.icon.renderHTML('cross')</button>
+        <h4 class="modal-title" id="glossarySettingsTitle">Paramètres du glossaire</h4>
+      </div>
+      <form id="glossarySettingsForm" method="post" action="$escapetool.xml($!urlGlossaireData)" data-expected-version="$escapetool.xml($configurationVersion)">
+        <input type="hidden" name="action" value="settings">
+        <input type="hidden" name="xpage" value="plain">
+        <input type="hidden" name="form_token" value="$escapetool.xml($services.csrf.getToken())">
+        <input type="hidden" name="expectedVersion" value="$escapetool.xml($configurationVersion)">
+        <input type="hidden" name="settingsForm" value="true">
+        <input type="hidden" name="groupCount" value="$settingsGroups.size()">
+        <div class="modal-body">
+          <p>Les niveaux sont cumulatifs : un validateur peut aussi ajouter, proposer et consulter. L'ajout direct permet de modifier et supprimer les acronymes publiés. Les membres de plusieurs groupes reçoivent le niveau le plus élevé.</p>
+          #if($configurationDoc && !$configurationObject)
+          <p class="alert alert-info glossary-settings-first-use">La configuration sera créée automatiquement lors du premier enregistrement. Aucun objet n'est à ajouter manuellement.</p>
+          #end
+          <div class="table-responsive">
+            <table class="table table-striped table-bordered glossary-permissions-table">
+              <thead><tr><th>Groupe XWiki</th><th>Niveau d'autorisation</th></tr></thead>
+              <tbody>
+                #foreach($settingGroup in $settingsGroups)
+                  #set($settingRowIndex = $foreach.index)
+                  #set($settingLevel = 0)
+                  #foreach($level in [1..4])
+                    #set($permissionIndex = $level - 1)
+                    #if($configuredGroups.get($permissionIndex).contains($settingGroup))
+                      #set($settingLevel = $level)
+                    #end
+                  #end
+                  #set($settingGroupMissing = false)
+                  #if($settingGroup != 'XWiki.XWikiGuest')
+                    #set($settingGroupDoc = false)
+                    #set($settingGroupObject = false)
+                    #set($settingGroupDoc = $xwiki.getDocument($services.model.resolveDocument($settingGroup)))
+                    #if($settingGroupDoc && !$settingGroupDoc.isNew())
+                      #set($settingGroupObject = $settingGroupDoc.getObject('XWiki.XWikiGroups'))
+                    #end
+                    #if(!$settingGroupObject)
+                      #set($settingGroupMissing = true)
+                      #set($settingLevel = 0)
+                    #end
+                  #end
+                <tr class="glossary-permission-row" data-group-ref="$escapetool.xml($settingGroup)">
+                  <td>
+                    <label for="glossaryGroupLevel$settingRowIndex">$escapetool.xml($settingGroup)</label>
+                    <input type="hidden" name="group_$settingRowIndex" value="$escapetool.xml($settingGroup)">
+                    #if($settingGroup == 'XWiki.XWikiGuest')
+                    <span class="text-muted"> (visiteurs non connectés)</span>
+                    #elseif($settingGroupMissing)
+                    <span class="text-warning glossary-missing-group"> (groupe introuvable)</span>
+                    #end
+                  </td>
+                  <td>
+                    <select id="glossaryGroupLevel$settingRowIndex" name="level_$settingRowIndex" class="form-control glossary-role-select">
+                      #foreach($level in [0..4])
+                        #if($settingGroup != 'XWiki.XWikiGuest' || $level <= 1)
+                          #set($selectedRoleAttr = '')
+                          #if($settingLevel == $level)
+                            #set($selectedRoleAttr = ' selected')
+                          #end
+                      <option value="$level"$selectedRoleAttr>$escapetool.xml($roleNames.get($level))</option>
+                        #end
+                      #end
+                    </select>
+                  </td>
+                </tr>
+                #end
+              </tbody>
+            </table>
+          </div>
+          <section class="glossary-migration" aria-labelledby="glossaryMigrationTitle">
+            <h5 id="glossaryMigrationTitle">Adresses des fiches existantes</h5>
+            <p><span id="glossaryLegacyCount">$legacyCount</span> fiche(s) utilisent encore leur ancienne adresse. La conversion leur attribue une adresse permanente et met à jour les liens internes.</p>
+            <button type="button" id="btnMigrateGlossary" class="btn btn-default"$migrationDisabledAttr>Convertir les adresses existantes</button>
+          </section>
+          <p class="glossary-settings-feedback text-danger is-hidden" role="alert"></p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-default" data-dismiss="modal">Annuler</button>
+          <button type="submit" class="btn btn-primary">Enregistrer les autorisations</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+#end
+
+#if($canView && $isAuthenticated)
+<section class="glossary-own-proposals" aria-labelledby="glossaryOwnProposalsTitle">
+  <h2 id="glossaryOwnProposalsTitle">Mes propositions</h2>
+  <p id="glossaryOwnProposalsEmpty" class="$escapetool.xml($ownEmptyClass)">Vous n'avez pas encore envoyé de proposition.</p>
+  <div id="glossaryOwnProposals">
+    #foreach($proposalDoc in $ownProposalDocs)
+      #set($proposalObject = $proposalDoc.getObject($proposalClass))
+      #set($proposalStatus = $proposalObject.getValue('status'))
+      #set($ownExpiresAt = '')
+      #if($proposalStatus == 'rejected' || $proposalStatus == 'trashed')
+        #set($ownDeletedAt = $proposalObject.getValue('deletedAt'))
+        #set($ownExpiresAt = $ownDeletedAt.time + 604800000)
+      #end
+      #set($proposalStatusLabel = "En attente de validation")
+      #if($proposalStatus == 'approved')
+        #set($proposalStatusLabel = "Validée et publiée")
+      #elseif($proposalStatus == 'rejected')
+        #set($proposalStatusLabel = "Refusée (dans la corbeille)")
+      #elseif($proposalStatus == 'trashed')
+        #set($proposalStatusLabel = "Retirée (dans la corbeille)")
+      #end
+    <article class="glossary-proposal-status-card"
+             data-proposal-ref="$escapetool.xml($proposalDoc.fullName)"
+             data-proposal-status="$escapetool.xml($!proposalStatus)"
+             data-expires-at="$ownExpiresAt"
+             data-proposal-acronym="$escapetool.xml($!proposalObject.getValue('acronyme'))"
+             data-proposal-label="$escapetool.xml($!proposalObject.getValue('libelle'))">
+      <h3>$escapetool.xml($!proposalObject.getValue('acronyme')) : $escapetool.xml($!proposalObject.getValue('libelle'))</h3>
+      <p class="glossary-proposal-meta text-muted">Envoyée le $escapetool.xml($!proposalObject.getValue('submittedAt'))</p>
+      <p><strong>$escapetool.xml($proposalStatusLabel)</strong></p>
+      #if("$!proposalObject.getValue('reviewComment')" != "")
+      <p class="glossary-proposal-comment">$escapetool.xml($!proposalObject.getValue('reviewComment'))</p>
+      #end
+    </article>
+    #end
+  </div>
+</section>
+#end
   </div>
 </div>
 

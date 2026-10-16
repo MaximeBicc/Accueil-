@@ -153,8 +153,8 @@ function fixedDetectExcelHeader(firstRow) {
 
 function fixedRecomputeExcelDuplicateFlags(rows) {
     var existing = getExistingGlossaryKeys();
-    var seenAcronyms = {};
-    var seenLabels = {};
+    var seenAcronyms = Object.create(null);
+    var seenLabels = Object.create(null);
 
     rows.forEach(function(row) {
         var acronymKey = normalizeDuplicateKey(row.acronym);
@@ -199,6 +199,7 @@ function fixedAnalyzeExcelRows(rawRows, headerInfo) {
 }
 
 function fixedEditExcelImportRow(rowIndex, field, value) {
+    if (!canImportGlossary() || glossaryImportBusy) return;
     if (!excelImportRows[rowIndex]) return;
     excelImportRows[rowIndex][field] = String(value == null ? '' : value).trim();
     fixedRecomputeExcelDuplicateFlags(excelImportRows);
@@ -206,6 +207,7 @@ function fixedEditExcelImportRow(rowIndex, field, value) {
 }
 
 function fixedDeleteExcelImportRow(rowIndex) {
+    if (!canImportGlossary() || glossaryImportBusy) return;
     if (rowIndex < 0 || rowIndex >= excelImportRows.length) return;
     excelImportRows.splice(rowIndex, 1);
     fixedRecomputeExcelDuplicateFlags(excelImportRows);
@@ -297,9 +299,10 @@ function fixedRenderExcelImportPreview(fileName) {
             var duplicateRow = document.createElement('tr');
             var reasons = [];
 
-            if (row.duplicateAcronymGlossary) reasons.push('Acronyme : glossaire');
+            var existingSource = canManageGlossary() ? 'glossaire' : 'glossaire ou mes propositions en attente';
+            if (row.duplicateAcronymGlossary) reasons.push('Acronyme : ' + existingSource);
             if (row.duplicateAcronymFile) reasons.push('Acronyme : fichier Excel');
-            if (row.duplicateLabelGlossary) reasons.push('Libellé : glossaire');
+            if (row.duplicateLabelGlossary) reasons.push('Libellé : ' + existingSource);
             if (row.duplicateLabelFile) reasons.push('Libellé : fichier Excel');
 
             duplicateRow.innerHTML = '<td>' + row.sourceLine + '</td><td></td><td></td><td></td>';
@@ -334,6 +337,7 @@ function fixedRenderExcelImportPreview(fileName) {
 }
 
 async function fixedReadGlossaryExcelFile(file) {
+    if (!canImportGlossary() || glossaryImportBusy) return;
     var xlsxLibrary;
 
     try {
@@ -394,22 +398,23 @@ async function fixedReadGlossaryExcelFile(file) {
 }
 
 function createExcelImportUi() {
-    if (document.getElementById('excelGlossaryModal')) return;
+    if (!canViewGlossary()) return;
+    if (document.getElementById('excelExampleGlossaryModal')) return;
 
     var eyeIcon = getGlossaryXWikiIcon('eye');
     var downloadIcon = getGlossaryXWikiIcon('download');
     var crossIcon = getGlossaryXWikiIcon('cross');
 
-    var toolbarRight = document.getElementById('glossaryToolbarRight');
+    var toolbarRight = document.getElementById('glossaryImportToolbar');
     if (toolbarRight) {
         toolbarRight.innerHTML =
             '<button type="button" id="btnExcelExampleGlossary" class="btn btn-default">' +
                 eyeIcon + ' Voir un exemple Excel' +
-            '</button>' +
+            '</button>' + (canImportGlossary() ?
             '<input type="file" id="excelGlossaryFileInput" accept=".xlsx,.xls,.xlsm,.xlsb" class="glossary-hidden-file-input">' +
             '<button type="button" id="btnImportExcelGlossary" class="btn btn-default">' +
                 downloadIcon + ' Importer un Excel' +
-            '</button>';
+            '</button>' : '');
     }
 
     var exampleModal = document.createElement('div');
@@ -447,6 +452,15 @@ function createExcelImportUi() {
         '</div>';
     document.body.appendChild(exampleModal.firstChild);
 
+    var exampleButton = document.getElementById('btnExcelExampleGlossary');
+    if (exampleButton) {
+        exampleButton.addEventListener('click', function() {
+            jQuery('#excelExampleGlossaryModal').modal('show');
+        });
+    }
+    if (!canImportGlossary()) return;
+    var directImport = canManageGlossary();
+
     var modal = document.createElement('div');
     modal.innerHTML =
         '<div class="modal fade" id="excelGlossaryModal" tabindex="-1" role="dialog" aria-hidden="true">' +
@@ -454,9 +468,13 @@ function createExcelImportUi() {
             '<div class="modal-content">' +
               '<div class="modal-header">' +
                 '<button type="button" class="close" data-dismiss="modal" aria-label="Fermer">' + crossIcon + '</button>' +
-                '<h4 class="modal-title">Import Excel du glossaire</h4>' +
+                '<h4 class="modal-title">' + (directImport ? 'Import Excel du glossaire' : 'Proposer des acronymes depuis Excel') + '</h4>' +
               '</div>' +
               '<div class="modal-body">' +
+                '<p id="excelImportPublicationHint" class="alert alert-info">' +
+                  (directImport ? 'Chaque ligne retenue sera ajoutée directement au glossaire.' :
+                    'Chaque ligne retenue sera envoyée comme proposition aux validateurs. Les acronymes apparaîtront dans le glossaire après validation. Vous pourrez suivre chaque proposition dans « Mes propositions ».') +
+                '</p>' +
                 '<div id="excelImportInfo" class="alert alert-info excel-import-info"></div>' +
                 '<div class="row">' +
                   '<div class="col-md-7">' +
@@ -470,7 +488,8 @@ function createExcelImportUi() {
                   '</div>' +
                   '<div class="col-md-5">' +
                     '<h5><strong>Doublons détectés</strong></h5>' +
-                    '<p class="text-muted">Rouge = champ en doublon. Le motif précise s’il existe déjà dans le glossaire ou dans le fichier Excel.</p>' +
+                    '<p class="text-muted">Rouge = champ en doublon. Vérification dans le glossaire' +
+                      (directImport ? '' : ', vos propositions en attente') + ' et le fichier Excel.</p>' +
                     '<div class="excel-import-table-wrap excel-import-duplicates-wrap">' +
                       '<table class="table table-bordered table-condensed excel-import-table">' +
                         '<thead><tr><th>Ligne</th><th>Acronyme</th><th>Libellé</th><th>Motif</th></tr></thead>' +
@@ -487,21 +506,14 @@ function createExcelImportUi() {
               '</div>' +
               '<div class="modal-footer">' +
                 '<button type="button" class="btn btn-default" data-dismiss="modal">Annuler</button>' +
-                '<button type="button" id="btnExcelImportOnlyNew" class="btn btn-primary">Ajouter uniquement les nouveaux</button>' +
-                '<button type="button" id="btnExcelImportWithOptions" class="btn btn-success">Ajouter selon les options</button>' +
+                '<button type="button" id="btnExcelImportOnlyNew" class="btn btn-primary">' + (directImport ? 'Ajouter uniquement les nouveaux' : 'Proposer uniquement les nouveaux') + '</button>' +
+                '<button type="button" id="btnExcelImportWithOptions" class="btn btn-success">' + (directImport ? 'Ajouter selon les options' : 'Proposer selon les options') + '</button>' +
               '</div>' +
             '</div>' +
           '</div>' +
         '</div>';
 
     document.body.appendChild(modal.firstChild);
-
-    var exampleButton = document.getElementById('btnExcelExampleGlossary');
-    if (exampleButton) {
-        exampleButton.addEventListener('click', function() {
-            jQuery('#excelExampleGlossaryModal').modal('show');
-        });
-    }
 
     var importButton = document.getElementById('btnImportExcelGlossary');
     var fileInput = document.getElementById('excelGlossaryFileInput');
@@ -527,8 +539,13 @@ function createExcelImportUi() {
 }
 
 function appendImportedGlossaryRow(data, fullRef, docName) {
+    if (!canManageGlossary()) return;
     var tbody = document.querySelector('#mainGlossaryTable tbody');
     if (!tbody) return;
+    var alreadyDisplayed = Array.from(tbody.querySelectorAll('.main-term-row')).some(function(row) {
+        return row.getAttribute('data-full-ref') === fullRef;
+    });
+    if (alreadyDisplayed) return;
 
     var tr = document.createElement('tr');
     tr.className = 'main-term-row';
@@ -577,6 +594,7 @@ function appendImportedGlossaryRow(data, fullRef, docName) {
 }
 
 function ensureGlossaryBulkSelectCell(row) {
+    if (!canManageGlossary()) return;
     if (!row || row.querySelector('.glossary-row-select')) return;
 
     var cell = document.createElement('td');
@@ -637,6 +655,7 @@ function toggleSelectVisibleGlossaryRows(masterCheckbox) {
 }
 
 function setGlossaryBulkDeleteMode(enabled) {
+    if (!canManageGlossary()) return;
     glossaryBulkDeleteMode = !!enabled;
     var table = document.getElementById('mainGlossaryTable');
     var modeButton = document.getElementById('btnBulkDeleteModeGlossary');
@@ -682,6 +701,7 @@ function removeGlossaryPopupRowByReference(fullRef) {
 }
 
 async function executeBulkGlossaryDelete() {
+    if (!canManageGlossary()) return;
     var selectedRows = getSelectedGlossaryRows();
     if (!selectedRows.length) return;
 
@@ -720,7 +740,7 @@ async function executeBulkGlossaryDelete() {
         donnees.append('form_token', csrfToken);
 
         try {
-            var response = await fetch(urlGlossaireData + '?xpage=plain', {
+            var response = await fetch(getGlossaryDataUrl(), {
                 method: 'POST',
                 body: donnees,
                 credentials: 'same-origin',
@@ -728,7 +748,7 @@ async function executeBulkGlossaryDelete() {
             });
             var result = await response.text();
 
-            if (result.indexOf('GLOSSAIRE_OK') !== -1) {
+            if (response.ok && getGlossaryResultLine(result, 'GLOSSAIRE_OK') === 'GLOSSAIRE_OK') {
                 removeGlossaryPopupRowByReference(fullRef);
                 row.remove();
                 deletedCount++;
@@ -756,6 +776,7 @@ async function executeBulkGlossaryDelete() {
 }
 
 function setupGlossaryBulkDeleteUi() {
+    if (!canManageGlossary()) return;
     var table = document.getElementById('mainGlossaryTable');
     if (!table || document.getElementById('btnBulkDeleteModeGlossary')) return;
 
@@ -829,7 +850,8 @@ function setupGlossaryBulkDeleteUi() {
 
 function bindGlossaryPageEvents() {
     var table = document.getElementById('mainGlossaryTable');
-    if (!table) return;
+    if (!table || table.dataset.pageEventsBound === 'true') return;
+    table.dataset.pageEventsBound = 'true';
 
     ['actionFeedbackModal', 'deleteConfirmModal', 'glossaryModal'].forEach(function(modalId) {
         var modal = document.getElementById(modalId);
@@ -840,15 +862,15 @@ function bindGlossaryPageEvents() {
 
     window.urlGlossaireData = table.getAttribute('data-endpoint-url') || '';
 
-    document.querySelectorAll('.glossary-status-alert').forEach(function(alertElement) {
-        var message = alertElement.textContent.replace(/\s+/g, ' ').trim();
-        showGlossaryToast(message, alertElement.classList.contains('alert-danger'));
-        alertElement.classList.add('hidden');
-    });
-
     table.addEventListener('click', function(event) {
         var button = event.target.closest('button');
         if (!button) return;
+
+        if (button.classList.contains('sort-column-btn')) {
+            toggleColumnSort(button.getAttribute('data-column'), button);
+            return;
+        }
+        if (!canManageGlossary()) return;
 
         if (button.classList.contains('js-edit-row')) {
             toggleEditMode(button, true);
@@ -858,8 +880,6 @@ function bindGlossaryPageEvents() {
             saveRowEdition(button);
         } else if (button.classList.contains('js-cancel-row')) {
             toggleEditMode(button, false);
-        } else if (button.classList.contains('sort-column-btn')) {
-            toggleColumnSort(button.getAttribute('data-column'), button);
         }
     });
 
@@ -899,9 +919,440 @@ window.createExcelImportUi = createExcelImportUi;
 window.appendImportedGlossaryRow = appendImportedGlossaryRow;
 window.updateSortButtons = updateGlossarySortButtons;
 
-document.addEventListener('DOMContentLoaded', function() {
+// Création, propositions d'acronymes et décisions des validateurs.
+// Les droits sont vérifiés à nouveau par l'endpoint XWiki à chaque requête.
+
+function decodeGlossaryWorkflowValue(value) {
+    return decodeURIComponent(String(value || '').replace(/\+/g, ' '));
+}
+
+async function requestGlossaryWorkflow(action, values) {
+    var metadata = getGlossaryMetadata();
+    if (!metadata || !metadata.getAttribute('data-endpoint-url')) {
+        throw new Error('Le service des propositions est indisponible. Rechargez la page.');
+    }
+
+    var endpoint = getGlossaryDataUrl();
+    var data = new FormData();
+    data.append('action', action);
+    data.append('form_token', metadata.getAttribute('data-csrf') || '');
+    Object.keys(values).forEach(function(key) {
+        data.append(key, values[key]);
+    });
+
+    var response = await fetch(endpoint, {
+        method: 'POST',
+        body: data,
+        credentials: 'same-origin',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    });
+    var result = await response.text();
+    var error = getGlossaryResultLine(result, 'GLOSSAIRE_ERROR');
+    if (error) {
+        throw new Error(decodeGlossaryWorkflowValue(error.split('|')[1]) || 'La demande a échoué.');
+    }
+    var expectedCode = {
+        create: 'GLOSSAIRE_OK',
+        propose: 'GLOSSAIRE_PROPOSED',
+        approve: 'GLOSSAIRE_APPROVED',
+        restore: 'GLOSSAIRE_APPROVED',
+        reject: 'GLOSSAIRE_REJECTED',
+        trash: 'GLOSSAIRE_TRASHED',
+        settings: 'GLOSSAIRE_SETTINGS_SAVED',
+        purge: 'GLOSSAIRE_PURGED',
+        migrate: 'GLOSSAIRE_MIGRATED'
+    }[action];
+    var success = expectedCode && getGlossaryResultLine(result, expectedCode);
+    if (!response.ok || !success) {
+        throw new Error('La demande n\'a pas abouti. Rechargez la page et réessayez.');
+    }
+    var parts = success.split('|');
+    if ((action === 'create' && (parts.length !== 3 || !parts[1] || !parts[2])) ||
+        (action === 'propose' && (parts.length !== 2 || !parts[1])) ||
+        ((action === 'approve' || action === 'restore') && (parts.length !== 6 || !parts[1] || !parts[2] || !parts[3] || !parts[4])) ||
+        ((action === 'reject' || action === 'trash') && (parts.length !== 4 || !parts[1] || !parts[2] || !/^\d+$/.test(decodeGlossaryWorkflowValue(parts[3])))) ||
+        (action === 'settings' && parts.length !== 1) ||
+        (action === 'purge' && (parts.length !== 2 || !/^\d+$/.test(parts[1]))) ||
+        (action === 'migrate' && (parts.length !== 3 || !/^\d+$/.test(parts[1]) || !/^\d+$/.test(parts[2])))) {
+        throw new Error('Réponse du service incomplète. Rechargez la page.');
+    }
+    return parts.slice(1).map(decodeGlossaryWorkflowValue);
+}
+
+function setGlossaryWorkflowBusy(form, busy) {
+    form.dataset.workflowBusy = busy ? 'true' : 'false';
+    if (busy) {
+        form.querySelectorAll('input, textarea, select, button').forEach(function(control) {
+            control.dataset.workflowWasDisabled = control.disabled ? 'true' : 'false';
+            control.disabled = true;
+        });
+    } else {
+        form.querySelectorAll('[data-workflow-was-disabled]').forEach(function(control) {
+            control.disabled = control.dataset.workflowWasDisabled === 'true';
+            delete control.dataset.workflowWasDisabled;
+        });
+    }
+    form.setAttribute('aria-busy', busy ? 'true' : 'false');
+}
+
+function showGlossaryWorkflowError(element, message) {
+    if (!element) return;
+    element.textContent = message || '';
+    element.classList.toggle('is-hidden', !message);
+}
+
+function appendOwnGlossaryProposal(values, reference, state) {
+    var list = document.getElementById('glossaryOwnProposals');
+    if (!list) return;
+    var alreadyDisplayed = Array.from(list.querySelectorAll('.glossary-proposal-status-card')).some(function(card) {
+        return card.getAttribute('data-proposal-ref') === reference;
+    });
+    if (alreadyDisplayed) return;
+    state = state || {};
+    var proposalStatus = state.status || 'pending';
+    var card = document.createElement('article');
+    card.className = 'glossary-proposal-status-card';
+    card.setAttribute('data-proposal-ref', reference);
+    card.setAttribute('data-proposal-status', proposalStatus);
+    card.setAttribute('data-proposal-acronym', values.acronym);
+    card.setAttribute('data-proposal-label', values.label);
+    if (state.expiresAt) card.setAttribute('data-expires-at', String(state.expiresAt));
+    var title = document.createElement('h3');
+    title.textContent = values.acronym + ' : ' + values.label;
+    var date = document.createElement('p');
+    date.className = 'glossary-proposal-meta text-muted';
+    date.textContent = values.submittedAt ? 'Envoyée le ' + values.submittedAt : 'Proposition envoyée à l’instant';
+    var status = document.createElement('p');
+    var label = document.createElement('strong');
+    label.textContent = proposalStatus === 'rejected' ? 'Refusée (dans la corbeille)' :
+        (proposalStatus === 'trashed' ? 'Retirée (dans la corbeille)' : 'En attente de validation');
+    status.appendChild(label);
+    card.appendChild(title);
+    card.appendChild(date);
+    card.appendChild(status);
+    if (state.comment) {
+        var comment = document.createElement('p');
+        comment.className = 'glossary-proposal-comment';
+        comment.textContent = state.comment;
+        card.appendChild(comment);
+    }
+    list.insertBefore(card, list.firstChild);
+    updateOwnGlossaryProposalsEmpty();
+}
+
+function updateOwnGlossaryProposalsEmpty() {
+    var list = document.getElementById('glossaryOwnProposals');
+    var empty = document.getElementById('glossaryOwnProposalsEmpty');
+    if (list && empty) empty.classList.toggle('is-hidden', !!list.querySelector('.glossary-proposal-status-card'));
+}
+
+function removeOwnGlossaryProposal(reference) {
+    document.querySelectorAll('#glossaryOwnProposals .glossary-proposal-status-card').forEach(function(card) {
+        if (card.getAttribute('data-proposal-ref') === reference) card.remove();
+    });
+    updateOwnGlossaryProposalsEmpty();
+}
+
+async function submitGlossaryProposal(event) {
+    event.preventDefault();
+    var form = event.currentTarget;
+    var table = document.getElementById('mainGlossaryTable');
+    if (!table || (!canProposeGlossary() && !canAddGlossary()) ||
+        form.dataset.workflowBusy === 'true') return;
+    var feedback = form.querySelector('.glossary-proposal-feedback');
+    var values = {
+        acronym: form.querySelector('[name="acronyme"]').value.trim(),
+        label: form.querySelector('[name="libelle"]').value.trim(),
+        definition: form.querySelector('[name="definition"]').value.trim()
+    };
+    if (!values.acronym || !values.label) {
+        showGlossaryWorkflowError(feedback, 'L’acronyme et le libellé sont obligatoires.');
+        return;
+    }
+    if (!form.reportValidity()) return;
+    showGlossaryWorkflowError(feedback, '');
+    setGlossaryWorkflowBusy(form, true);
+    try {
+        var managing = canAddGlossary();
+        var result = await requestGlossaryWorkflow(managing ? 'create' : 'propose', values);
+        if (managing) {
+            appendImportedGlossaryRow(values, result[0], result[1]);
+            applyCurrentSort();
+            filterMainTableColumns(false);
+            sortPopupTableAlphabetically();
+        } else {
+            appendOwnGlossaryProposal(values, result[0]);
+        }
+        form.reset();
+        if (typeof triggerGlobalFilter === 'function') triggerGlobalFilter();
+        jQuery('#glossaryModal').modal('hide');
+        showGlossaryToast(managing ? 'L’acronyme a été ajouté au glossaire.' : 'Votre proposition a été envoyée aux validateurs.');
+    } catch (error) {
+        showGlossaryWorkflowError(feedback, error.message || 'Impossible d’enregistrer le terme.');
+    } finally {
+        setGlossaryWorkflowBusy(form, false);
+    }
+}
+
+function updateGlossaryProposalCount() {
+    var list = document.getElementById('glossaryPendingProposals');
+    if (!list) return;
+    var count = list.querySelectorAll('.glossary-proposal-card').length;
+    var badge = document.getElementById('glossaryProposalCount');
+    var label = document.getElementById('glossaryProposalCountLabel');
+    var empty = document.getElementById('glossaryProposalsEmpty');
+    if (badge) badge.textContent = String(count);
+    if (label) label.textContent = count + ' proposition(s) en attente';
+    if (empty) empty.classList.toggle('is-hidden', count !== 0);
+}
+
+var glossaryTrashDynamicIndex = 0;
+
+function appendGlossaryTrashProposal(values, reference, version, deletedMillis, status, comment) {
+    var list = document.getElementById('glossaryTrashProposals');
+    if (!list) return;
+    var alreadyDisplayed = Array.from(list.querySelectorAll('.glossary-trash-card')).some(function(card) {
+        return card.getAttribute('data-proposal-ref') === reference;
+    });
+    if (alreadyDisplayed) return;
+    var card = document.createElement('form');
+    var expiresAt = Number(deletedMillis) + 604800000;
+    card.className = 'glossary-trash-card';
+    card.setAttribute('data-proposal-ref', reference);
+    card.setAttribute('data-expected-version', version);
+    card.setAttribute('data-deleted-at', String(deletedMillis));
+    card.setAttribute('data-expires-at', String(expiresAt));
+    card.setAttribute('data-proposal-author', values.author || '');
+    card.innerHTML =
+        '<h5></h5><p><strong class="glossary-trash-status"></strong></p>' +
+        '<p class="text-muted glossary-proposal-meta glossary-trash-author"></p>' +
+        '<p class="text-muted glossary-proposal-meta glossary-trash-date"></p>' +
+        '<p class="glossary-proposal-comment"></p>' +
+        '<div class="form-group"><label data-field-label="acronym">Acronyme ou sigle</label>' +
+          '<input name="acronym" class="form-control" maxlength="255" required></div>' +
+        '<div class="form-group"><label data-field-label="label">Libellé complet</label>' +
+          '<input name="label" class="form-control" maxlength="255" required></div>' +
+        '<div class="form-group"><label data-field-label="definition">Définition (facultatif)</label>' +
+          '<textarea name="definition" class="form-control" rows="3"></textarea></div>' +
+        '<div class="form-group"><label data-field-label="comment">Commentaire de revalidation (facultatif)</label>' +
+          '<textarea name="comment" class="form-control" rows="2"></textarea></div>' +
+        '<p class="glossary-proposal-feedback text-danger is-hidden" role="alert"></p>' +
+        '<button type="button" class="btn btn-success" data-review-action="restore">Revalider et publier</button>';
+    card.querySelector('h5').textContent = values.acronym + ' : ' + values.label;
+    card.querySelector('.glossary-trash-status').textContent = status === 'rejected' ? 'Proposition refusée' : 'Proposition retirée';
+    card.querySelector('.glossary-trash-author').textContent = 'Proposé par ' + (values.author || '') +
+        (values.submittedAt ? ' le ' + values.submittedAt : '');
+    card.querySelector('.glossary-trash-date').textContent = 'Mise à la corbeille le ' + new Date(Number(deletedMillis)).toLocaleString('fr-FR') +
+        '. Suppression après le ' + new Date(expiresAt).toLocaleString('fr-FR') + '.';
+    card.querySelector('.glossary-proposal-comment').textContent = comment || '';
+    var prefix = 'glossaryTrashDynamic' + (++glossaryTrashDynamicIndex);
+    ['acronym', 'label', 'definition', 'comment'].forEach(function(field) {
+        var control = card.querySelector('[name="' + field + '"]');
+        control.id = prefix + field;
+        control.value = field === 'comment' ? '' : values[field];
+        control.defaultValue = control.value;
+        card.querySelector('[data-field-label="' + field + '"]').htmlFor = control.id;
+    });
+    list.insertBefore(card, list.firstChild);
+}
+
+function updateGlossaryTrashCount() {
+    var list = document.getElementById('glossaryTrashProposals');
+    if (!list) return;
+    var count = list.querySelectorAll('.glossary-trash-card').length;
+    var badge = document.getElementById('glossaryTrashCount');
+    var label = document.getElementById('glossaryTrashCountLabel');
+    var empty = document.getElementById('glossaryTrashEmpty');
+    if (badge) badge.textContent = String(count);
+    if (label) label.textContent = count + ' proposition(s) dans la corbeille';
+    if (empty) empty.classList.toggle('is-hidden', count !== 0);
+}
+
+async function reviewGlossaryProposal(card, action) {
+    if (!canReviewGlossary() || !card || card.dataset.workflowBusy === 'true' ||
+        ['approve', 'reject', 'trash', 'restore'].indexOf(action) === -1) return;
+    var feedback = card.querySelector('.glossary-proposal-feedback');
+    var values = {
+        targetRef: card.getAttribute('data-proposal-ref') || '',
+        expectedVersion: card.getAttribute('data-expected-version') || '',
+        acronym: card.querySelector('[name="acronym"]').value.trim(),
+        label: card.querySelector('[name="label"]').value.trim(),
+        definition: card.querySelector('[name="definition"]').value.trim(),
+        comment: card.querySelector('[name="comment"]').value.trim()
+    };
+    var originalValues = {
+        acronym: card.querySelector('[name="acronym"]').defaultValue,
+        label: card.querySelector('[name="label"]').defaultValue,
+        definition: card.querySelector('[name="definition"]').defaultValue,
+        author: card.getAttribute('data-proposal-author') || '',
+        submittedAt: card.getAttribute('data-proposal-submitted-at') || ''
+    };
+    if (action === 'reject' && !values.comment) {
+        showGlossaryWorkflowError(feedback, 'Indiquez un motif pour refuser cette proposition.');
+        card.querySelector('[name="comment"]').focus();
+        return;
+    }
+    var publishes = action === 'approve' || action === 'restore';
+    if (publishes && (!values.acronym || !values.label)) {
+        showGlossaryWorkflowError(feedback, 'L’acronyme et le libellé sont obligatoires.');
+        return;
+    }
+    if (publishes && !card.reportValidity()) return;
+    showGlossaryWorkflowError(feedback, '');
+    setGlossaryWorkflowBusy(card, true);
+    try {
+        var result = await requestGlossaryWorkflow(action, values);
+        if (publishes) {
+            appendImportedGlossaryRow({ acronym: result[2], label: result[3], definition: result[4] }, result[0], result[1]);
+            applyCurrentSort();
+            filterMainTableColumns(false);
+            if (typeof sortPopupTableAlphabetically === 'function') sortPopupTableAlphabetically();
+        } else {
+            var status = action === 'reject' ? 'rejected' : 'trashed';
+            appendGlossaryTrashProposal(originalValues, result[0], result[1], result[2], status, values.comment);
+            var bootstrap = document.getElementById('glossaryBootstrap');
+            if (bootstrap && bootstrap.getAttribute('data-current-author') === originalValues.author) {
+                removeOwnGlossaryProposal(values.targetRef);
+                appendOwnGlossaryProposal(originalValues, result[0], {
+                    status: status, comment: values.comment, expiresAt: Number(result[2]) + 604800000
+                });
+            }
+        }
+        if (publishes) removeOwnGlossaryProposal(values.targetRef);
+        card.remove();
+        updateGlossaryProposalCount();
+        updateGlossaryTrashCount();
+        showGlossaryToast(publishes ? 'L’acronyme a été validé et ajouté au glossaire.' :
+            (action === 'reject' ? 'La proposition a été refusée et mise à la corbeille pour 7 jours.' : 'La proposition a été mise à la corbeille pour 7 jours.'));
+    } catch (error) {
+        showGlossaryWorkflowError(feedback, error.message || 'Impossible de traiter cette proposition.');
+    } finally {
+        setGlossaryWorkflowBusy(card, false);
+    }
+}
+
+function reloadGlossaryAfterSettings() {
+    window.location.reload();
+}
+
+async function saveGlossarySettings(event) {
+    event.preventDefault();
+    var form = event.currentTarget;
+    if (!canConfigureGlossary() || form.dataset.workflowBusy === 'true') return;
+    var feedback = form.querySelector('.glossary-settings-feedback');
+    var rows = Array.from(form.querySelectorAll('.glossary-permission-row'));
+    var values = { expectedVersion: form.getAttribute('data-expected-version') || '', groupCount: String(rows.length) };
+    rows.forEach(function(row, index) {
+        values['group_' + index] = row.getAttribute('data-group-ref');
+        values['level_' + index] = row.querySelector('.glossary-role-select').value;
+    });
+    showGlossaryWorkflowError(feedback, '');
+    setGlossaryWorkflowBusy(form, true);
+    try {
+        await requestGlossaryWorkflow('settings', values);
+        reloadGlossaryAfterSettings();
+    } catch (error) {
+        showGlossaryWorkflowError(feedback, error.message || 'Impossible d’enregistrer les autorisations.');
+    } finally {
+        setGlossaryWorkflowBusy(form, false);
+    }
+}
+
+async function migrateGlossaryReferences() {
+    var form = document.getElementById('glossarySettingsForm');
+    var countElement = document.getElementById('glossaryLegacyCount');
+    if (!canConfigureGlossary() || !form || form.dataset.workflowBusy === 'true') return;
+    var count = countElement ? Number(countElement.textContent) : 0;
+    if (!Number.isInteger(count) || count < 1) return;
+    if (!window.confirm('Convertir les adresses des ' + count + ' fiches existantes ? Les liens internes seront mis à jour.')) return;
+    var feedback = form.querySelector('.glossary-settings-feedback');
+    showGlossaryWorkflowError(feedback, '');
+    setGlossaryWorkflowBusy(form, true);
+    try {
+        var result = await requestGlossaryWorkflow('migrate', {});
+        window.alert(result[0] + ' fiche(s) convertie(s), ' + result[1] + ' échec(s).');
+        reloadGlossaryAfterSettings();
+    } catch (error) {
+        showGlossaryWorkflowError(feedback, error.message || 'Impossible de convertir les adresses.');
+    } finally {
+        setGlossaryWorkflowBusy(form, false);
+    }
+}
+
+async function purgeGlossaryTrashOnVisit() {
+    var metadata = getGlossaryMetadata();
+    if (!metadata || (!canViewGlossary() && !canConfigureGlossary()) || metadata.dataset.purgeStarted === 'true') return;
+    metadata.dataset.purgeStarted = 'true';
+    try {
+        await requestGlossaryWorkflow('purge', {});
+    } catch (error) {
+        // La purge sera retentée lors de la prochaine visite ; les opérations serveur
+        // vérifient toujours elles-mêmes l'échéance de chaque proposition.
+        metadata.dataset.purgeStarted = 'false';
+    }
+}
+
+function initGlossaryWorkflow() {
+    if (!getGlossaryMetadata()) return;
+    ['glossaryProposalsModal', 'glossaryTrashModal', 'glossarySettingsModal'].forEach(function(id) {
+        var modal = document.getElementById(id);
+        if (modal && modal.parentNode !== document.body) document.body.appendChild(modal);
+    });
+    document.querySelectorAll('.glossary-trash-expiration[data-expires-at]').forEach(function(element) {
+        element.textContent = 'Suppression après le ' + new Date(Number(element.getAttribute('data-expires-at'))).toLocaleString('fr-FR') + '.';
+    });
+
+    var createForm = document.getElementById('glossaryCreateForm');
+    if (createForm && createForm.dataset.workflowBound !== 'true') {
+        createForm.dataset.workflowBound = 'true';
+        var feedback = document.createElement('p');
+        feedback.className = 'glossary-proposal-feedback text-danger is-hidden';
+        feedback.setAttribute('role', 'alert');
+        var body = createForm.querySelector('.modal-body');
+        if (body) body.insertBefore(feedback, body.firstChild);
+        createForm.addEventListener('submit', submitGlossaryProposal);
+    }
+    ['glossaryPendingProposals', 'glossaryTrashProposals'].forEach(function(id) {
+        var list = document.getElementById(id);
+        if (!canReviewGlossary() || !list || list.dataset.workflowBound === 'true') return;
+        list.dataset.workflowBound = 'true';
+        list.addEventListener('submit', function(event) { event.preventDefault(); });
+        list.addEventListener('click', function(event) {
+            var button = event.target.closest('[data-review-action]');
+            if (!button || !list.contains(button)) return;
+            reviewGlossaryProposal(button.closest('.glossary-proposal-card, .glossary-trash-card'), button.getAttribute('data-review-action'));
+        });
+    });
+    var settings = document.getElementById('glossarySettingsForm');
+    if (settings && canConfigureGlossary() && settings.dataset.workflowBound !== 'true') {
+        settings.dataset.workflowBound = 'true';
+        settings.addEventListener('submit', saveGlossarySettings);
+        var migrate = document.getElementById('btnMigrateGlossary');
+        if (migrate) migrate.addEventListener('click', migrateGlossaryReferences);
+    }
+    updateGlossaryProposalCount();
+    updateGlossaryTrashCount();
+    purgeGlossaryTrashOnVisit();
+}
+
+
+function initGlossaryPage() {
     bindGlossaryPageEvents();
     createExcelImportUi();
     setupGlossaryBulkDeleteUi();
+    initGlossaryWorkflow();
     updateGlossarySortButtons();
-});
+    var table = document.getElementById('mainGlossaryTable');
+    if (table && table.dataset.pageInitialized !== 'true') {
+        table.dataset.pageInitialized = 'true';
+        applyCurrentSort();
+        sortPopupTableAlphabetically();
+        applyPagination();
+    }
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initGlossaryPage, { once: true });
+} else {
+    initGlossaryPage();
+}
