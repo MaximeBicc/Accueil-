@@ -894,11 +894,11 @@
         '<div class="modal fade" id="excelExampleLiensModal" tabindex="-1" role="dialog" aria-hidden="true">' +
           '<div class="modal-dialog modal-lg" role="document"><div class="modal-content">' +
             '<div class="modal-header"><button type="button" class="close" data-dismiss="modal" aria-label="Fermer" title="Fermer">' + getLiensXWikiIcon('cross') + '</button><h4 class="modal-title">Exemple de fichier Excel</h4></div>' +
-            '<div class="modal-body"><p>Format conseillé : une première ligne d’entête, puis une ligne par lien.</p>' +
+            '<div class="modal-body"><p>Format conseillé : une première ligne d’entête, puis une ligne par lien. Exemples ci-dessous : un dossier local et un dossier partagé accessibles dans l’Explorateur de fichiers.</p>' +
               '<div class="table-responsive"><table class="table table-striped table-bordered">' +
                 '<thead><tr><th>Liens</th><th>Domaine</th><th>Définition</th><th>Type</th><th>Auteur</th></tr></thead>' +
-                '<tbody><tr><td>Portail XWiki</td><td>Informatique</td><td>Documentation et collaboration</td><td>personnel</td><td>' + (liensState.userId || 'DOE') + '</td></tr>' +
-                '<tr><td>Support interne</td><td>Assistance</td><td>Demandes et incidents</td><td>commun</td><td>' + (liensState.userId || 'DOE') + '</td></tr></tbody>' +
+                '<tbody><tr><td>C:\\Projets\\Documentation</td><td>Informatique</td><td>Documentation des projets sur cet ordinateur</td><td>personnel</td><td>' + (liensState.userId || 'DOE') + '</td></tr>' +
+                '<tr><td>\\\\serveur\\partage\\Equipe</td><td>Équipe</td><td>Dossier partagé de l’équipe sur le réseau</td><td>commun</td><td>' + (liensState.userId || 'DOE') + '</td></tr></tbody>' +
               '</table></div>' +
               '<p class="text-muted">Auteur est facultatif : s’il est vide, l’utilisateur qui importe est utilisé. Les identifiants et les noms sont comparés aux membres des groupes autorisés à écrire dans Commun, sous-groupes inclus. Une correspondance proche est sélectionnée ; sinon la valeur Excel reste affichée en rouge pour être corrigée dans la liste. Sans droit d’écriture dans Commun, l’import utilise Personnel et l’utilisateur connecté comme auteur.</p>' +
             '</div><div class="modal-footer"><button type="button" class="btn btn-default" data-dismiss="modal">Fermer</button></div>' +
