@@ -59,15 +59,15 @@ public class LiensVelocityTest {
   public static class Obj {
     final Map<String, String> values = new HashMap<>();
     String missingField = "";
-    public String getValue(String key) { return values.getOrDefault(key, ""); }
+    public String getValue(String key) { return values.get(key); }
     public void set(String key, String value) { if (!key.equals(missingField)) values.put(key, value); }
   }
   public static class Doc {
-    final Wiki wiki; final Ref ref; Obj obj; String objClass = "", title = "", content = ""; int saves;
+    final Wiki wiki; final Ref ref; Obj obj; List<String> classProperties; String objClass = "", title = "", content = ""; int saves;
     Doc(Wiki wiki, Ref ref) { this.wiki = wiki; this.ref = ref; }
-    public boolean isNew() { return !wiki.docs.containsKey(ref) && !wiki.profiles.containsKey(ref); }
+    public boolean isNew() { return !wiki.docs.containsKey(ref) && !wiki.profiles.containsKey(ref) && !wiki.definitions.containsKey(ref); }
     public Obj getObject(String type) { return objClass.equals(type) || (objClass.equals("") && type.equals("TestPage.PAGE.Liens.CODE.lienClass.WebHome")) ? obj : null; }
-    public Obj newObject(String type) { obj = new Obj(); objClass = type; obj.missingField = wiki.missingField; return obj; }
+    public Obj newObject(String type) { if (wiki.refuseObject && type.endsWith(".lienClass.WebHome")) return null; obj = new Obj(); objClass = type; obj.missingField = wiki.missingField; return obj; }
     public String getFullName() { return ref.toString(); }
     public String getName() { return ref.name; }
     public String getContent() { return content; }
@@ -79,13 +79,19 @@ public class LiensVelocityTest {
     public void save(String message, boolean minor) {
       if (!wiki.refuseSave) { saves++; (objClass.equals("XWiki.XWikiUsers") ? wiki.profiles : wiki.docs).put(ref, this); }
     }
+    public ClassDef getxWikiClass() { return new ClassDef(classProperties == null ? List.of() : classProperties); }
     public String getVersion() { return "1." + (saves + 1); }
+  }
+  public static class ClassDef {
+    final List<String> fields; ClassDef(List<String> fields) { this.fields = fields; }
+    public List<String> getEnabledPropertyNames() { return fields; }
   }
   public static class Extension { final List<String> refs = new ArrayList<>(); public void use(String reference) { refs.add(reference); } }
   public static class Wiki {
     final Map<Ref, Doc> docs = new LinkedHashMap<>();
     final Map<Ref, Doc> profiles = new LinkedHashMap<>();
-    boolean allowed = true, admin, configurationReadable = true, refuseSave, emptyUserQuery; String missingField = "";
+    final Map<Ref, Doc> definitions = new LinkedHashMap<>();
+    boolean allowed = true, admin, configurationReadable = true, refuseSave, emptyUserQuery, refuseObject; String missingField = "";
     final Extension jsx = new Extension(), ssx = new Extension();
     final List<String> queriedClasses = new ArrayList<>();
     final Deque<String> pageNames = new ArrayDeque<>();
@@ -104,7 +110,7 @@ public class LiensVelocityTest {
     public Extension getSsx() { return ssx; }
     public Doc getDocument(Object ref) {
       Ref reference = ref instanceof Ref r ? r : new Model().resolveDocument(String.valueOf(ref));
-      return docs.getOrDefault(reference, profiles.getOrDefault(reference, new Doc(this, reference)));
+      return docs.getOrDefault(reference, profiles.getOrDefault(reference, definitions.getOrDefault(reference, new Doc(this, reference))));
     }
     public boolean hasAccessLevel(String right, String user, String reference) { return allowed; }
     public List<String> getSpaceDocsName(String space) {
@@ -152,11 +158,12 @@ public class LiensVelocityTest {
     public void setFinished(boolean value) {}
   }
   public static class Escape {
-    public String url(String value) { return URLEncoder.encode(value, StandardCharsets.UTF_8); }
+    public String url(String value) { return value == null ? null : URLEncoder.encode(value, StandardCharsets.UTF_8); }
     public String html(Object value) { return xml(value); }
     public String javascript(Object value) { return String.valueOf(value); }
     public String xml(Object value) {
-      return String.valueOf(value == null ? "" : value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&#39;");
+      if (value == null) return null;
+      return String.valueOf(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&#39;");
     }
   }
   public static class Csrf {
@@ -210,6 +217,12 @@ public class LiensVelocityTest {
     Fixture() {
       request.params.put("form_token", "test-token");
       wiki.profile("Test", "Test", ""); wiki.profile("Autre", "Autre", "auteur");
+      installLinkClass(moduleRoot);
+    }
+    Doc installLinkClass(String root) {
+      Doc d = wiki.getDocument(root + ".CODE.lienClass.WebHome");
+      d.classProperties = new ArrayList<>(List.of("nom_lien", "lien", "definition", "type", "proprietaire"));
+      wiki.definitions.put(d.ref, d); return d;
     }
     String render(String filename, String action, String... pairs) throws Exception {
       request.params.put("action", action);
@@ -595,7 +608,7 @@ public class LiensVelocityTest {
     }
     for (String root : List.of("MonEspace.Liens", "Mon espace.Documentation utile.Liens")) {
       Fixture f = new Fixture(); f.moduleRoot = root; f.displayRef = root.equals("MonEspace.Liens") ? root + ".Portail.WebHome" : "Tableau de bord.Liens.WebHome"; f.wiki.admin = true;
-      configure(f, 2, 2);
+      f.installLinkClass(root); configure(f, 2, 2);
       Doc former = f.wiki.add("ANCIEN_MODULE", "ANCIEN_MODULE");
       String result = f.render("DATA/WebHome.xwiki", "create", "acronym", "NOUVEAU_MODULE", "label", "Informatique", "definition", "Description", "type", "commun", "proprietaire", "Test");
       check(result.startsWith("GLOSSAIRE_OK|"), "import sous la nouvelle racine " + root + " : " + result);
@@ -611,7 +624,7 @@ public class LiensVelocityTest {
       result = f.save(created.getFullName(), "MODIFIÉ");
       check(result.startsWith("GLOSSAIRE_OK|") && savedDoc(f, result).ref.equals(created.ref), "édition stable après déplacement du module " + root);
       f.render("WebHome.xwiki", "checkAndCreate", "acronyme", "MANUEL_DÉPLACÉ", "libelle", "Informatique", "definition", "Description", "type", "personnel");
-      Doc manual = f.wiki.docs.values().stream().filter(d -> d.obj != null && d.obj.getValue("nom_lien").equals("MANUEL_DÉPLACÉ")).findFirst().orElseThrow();
+      Doc manual = f.wiki.docs.values().stream().filter(d -> d.obj != null && "MANUEL_DÉPLACÉ".equals(d.obj.getValue("nom_lien"))).findFirst().orElseThrow();
       check(manual.ref.parent.equals(root + ".DATA.LIENDATA.Test") && manual.objClass.equals(root + ".CODE.lienClass.WebHome"), "création manuelle sous la même racine " + root);
       result = f.render("DATA/WebHome.xwiki", "save", "targetRef", created.getFullName(), "acronym", "COMMUN_DÉPLACÉ", "type", "commun", "proprietaire", "Autre");
       Doc transferred = savedDoc(f, result);
@@ -635,8 +648,65 @@ public class LiensVelocityTest {
       }
     }
   }
+  static void nullableFieldTests(String outputPath) throws Exception {
+    Fixture f = new Fixture(); f.groups.manager = true;
+    Doc personal = f.wiki.add("PERSONNEL_INCOMPLET", "PERSONNEL_INCOMPLET");
+    personal.obj.values.remove("proprietaire"); personal.obj.values.remove("definition");
+    Doc complete = f.wiki.add("COMMUN_COMPLET", "COMMUN_COMPLET");
+    complete.obj.set("type", "commun"); complete.obj.set("definition", "DEFINITION_UNIQUE");
+    Doc common = f.wiki.add("COMMUN_INCOMPLET", "COMMUN_INCOMPLET");
+    common.obj.set("type", "commun"); common.obj.values.remove("definition"); common.obj.values.remove("proprietaire");
+    Doc hidden = oldOwnerLink(f, "Autre", "PERSONNEL_AUTRE", "personnel"); hidden.obj.values.remove("proprietaire");
+    Doc invalid = f.wiki.add("TYPE_ABSENT", "TYPE_ABSENT"); invalid.obj.values.remove("type");
+    Doc explicitOther = f.wiki.add("AUTRE_EXPLICITE", "AUTRE_EXPLICITE"); explicitOther.obj.set("proprietaire", "Autre");
+    Doc outside = f.wiki.getDocument(new Ref("AutreModule.PAGE.Liens.DATA.LIENDATA.Test", "HORS_RACINE"));
+    outside.newObject("TestPage.PAGE.Liens.CODE.lienClass.WebHome"); outside.obj.set("nom_lien", "HORS_RACINE"); outside.obj.set("type", "personnel"); outside.save("", false);
+    String html = f.render("WebHome.xwiki", "");
+    check(!html.contains("AUTRE_EXPLICITE") && !html.contains("HORS_RACINE"), "le dossier ne remplace pas un auteur explicite et ne permet pas de lire une autre racine");
+    check(!html.contains("$escapetool."), "les champs absents ne doivent pas afficher les expressions d'échappement");
+    check(html.contains("data-full-ref=\"" + personal.getFullName() + "\"") && !html.contains("PERSONNEL_AUTRE"), "personnel sans propriétaire récupéré uniquement depuis son propre dossier");
+    check(html.split("DEFINITION_UNIQUE", -1).length == 3, "une définition absente ne reprend pas celle de la ligne précédente");
+    check(!html.contains("TYPE_ABSENT"), "un type absent ne reprend pas celui de la ligne précédente");
+    String result = f.render("DATA/WebHome.xwiki", "listVisible");
+    check(result.contains("|PERSONNEL_INCOMPLET|") && result.contains("|personnel|Test") && !result.contains("PERSONNEL_AUTRE") && !result.contains("AUTRE_EXPLICITE") && !result.contains("HORS_RACINE"), "DATA applique la même récupération du propriétaire et la même confidentialité");
+    if (outputPath != null) Files.writeString(Path.of(outputPath + ".incomplete.html"), html);
+    result = f.save(personal.getFullName(), "PERSONNEL_CORRIGÉ");
+    check(result.startsWith("GLOSSAIRE_OK|") && "Test".equals(savedDoc(f, result).obj.getValue("proprietaire")), "enregistrer une ancienne fiche renseigne son propriétaire récupéré");
+    f = new Fixture(); personal = f.wiki.add("SUPPRIMER_INCOMPLET", "SUPPRIMER_INCOMPLET"); personal.obj.values.remove("proprietaire");
+    check(f.delete(personal.getFullName()).equals("GLOSSAIRE_OK") && personal.isNew(), "suppression possible pour son propre personnel incomplet");
+  }
+  static void recordClassTests() throws Exception {
+    String home = Files.readString(ROOT.resolve("Lien-test/WebHome.xwiki"));
+    String data = Files.readString(ROOT.resolve("Liens/DATA/WebHome.xwiki"));
+    String begin = "## BEGIN LIENS RECORD FIELDS", end = "## END LIENS RECORD FIELDS";
+    check(home.substring(home.indexOf(begin), home.indexOf(end)).equals(data.substring(data.indexOf(begin), data.indexOf(end))), "mêmes règles de récupération et contrôle de classe dans l'affichage et DATA");
+    for (String missing : List.of("nom_lien", "lien", "definition", "type", "proprietaire")) {
+      Fixture f = new Fixture(); f.wiki.getDocument("TestPage.PAGE.Liens.CODE.lienClass.WebHome").classProperties.remove(missing);
+      String html = f.render("WebHome.xwiki", "");
+      check(html.contains("liens-class-warning") && html.contains("[" + missing + "]"), "classe incomplète signalée à l'affichage : " + missing);
+      String result = f.render("DATA/WebHome.xwiki", "create", "acronym", "INCOMPLET", "label", "Domaine", "definition", "Description", "type", "personnel");
+      check(result.startsWith("LIENS_ERROR|") && java.net.URLDecoder.decode(result.substring(12), StandardCharsets.UTF_8).contains(missing) && f.wiki.docs.isEmpty(), "classe incomplète refuse l'import sans créer de fiche : " + missing);
+      html = f.render("WebHome.xwiki", "checkAndCreate", "acronyme", "INCOMPLET", "libelle", "Domaine", "definition", "Description", "type", "personnel");
+      check(html.contains("alert-danger") && f.wiki.docs.isEmpty(), "classe incomplète refuse la création manuelle : " + missing);
+      Doc source = f.wiki.add("AVANT", "AVANT");
+      result = f.save(source.getFullName(), "APRÈS");
+      check(result.startsWith("LIENS_ERROR|") && f.refactoring.calls == 0 && !source.isNew() && "AVANT".equals(source.obj.getValue("nom_lien")), "classe incomplète refusée avant tout déplacement : " + missing);
+    }
+    Fixture f = new Fixture(); f.wiki.definitions.clear();
+    String result = f.render("DATA/WebHome.xwiki", "create", "acronym", "ABSENT", "label", "Domaine", "definition", "Description");
+    check(result.startsWith("LIENS_ERROR|") && f.wiki.docs.isEmpty(), "classe absente refuse la création");
+    for (boolean missingObject : List.of(false, true)) {
+      f = new Fixture(); f.wiki.refuseObject = missingObject; if (!missingObject) f.wiki.missingField = "definition";
+      result = f.render("DATA/WebHome.xwiki", "create", "acronym", "IGNORÉ", "label", "Domaine", "definition", "Description");
+      check(result.startsWith("LIENS_ERROR|") && f.wiki.docs.isEmpty(), "objet absent ou valeur non conservée : aucun faux succès DATA");
+      String html = f.render("WebHome.xwiki", "checkAndCreate", "acronyme", "IGNORÉ", "libelle", "Domaine", "definition", "Description", "type", "personnel");
+      check(html.contains("alert-danger") && f.wiki.docs.isEmpty() && f.lastRedirect == null, "objet absent ou valeur non conservée : aucun faux succès manuel");
+    }
+  }
   public static void main(String[] args) throws Exception {
     ENGINE.init();
+    nullableFieldTests(args.length > 0 ? args[0] : null);
+    recordClassTests();
     Fixture f = new Fixture(); Doc source = f.wiki.add("API", "API");
     String result = f.save(source.getFullName(), "NOUVEAU");
     check(result.startsWith("GLOSSAIRE_OK|"), "renommage : " + result);

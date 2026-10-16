@@ -67,6 +67,7 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
           let body;
           if (data.action === 'listVisible') body = manager ? list : list.replace('LIEN_LIST_OK|Test|true|true|true|true|true', 'LIEN_LIST_OK|Test|false|true|true|true|false');
           else if (mode === 'refuse') body = 'ERREUR_SUPPRESSION';
+          else if (mode === 'schema' && data.action === 'save') body = 'LIENS_ERROR|' + encode('La classe des liens doit contenir le champ definition.');
           else if (data.action === 'save') {
             const oldName = data.targetRef.split('.').at(-1);
             const technicalName = /^[A-Za-z0-9]{16}$/.test(oldName) ? oldName : 'Fiche' + String(++pageCounter).padStart(11, '0');
@@ -238,6 +239,10 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
     await failedRow.locator('.edit-buttons button').first().evaluate(button => saveRowEdition(button));
     check(await failedRow.locator('.main-label .view-mode').textContent(), 'Groupe pair', 'erreur HTTP conserve les valeurs');
     check(await failedRow.locator('.edit-buttons button').first().isEnabled(), true, 'erreur HTTP réactive Enregistrer');
+    state.setMode('schema');
+    await failedRow.locator('.edit-buttons button').first().evaluate(button => saveRowEdition(button));
+    check(state.alerts.at(-1).includes('La classe des liens doit contenir le champ definition.'), true, 'diagnostic de classe personnel décodé');
+    check(await failedRow.locator('.edit-buttons button').first().isEnabled(), true, 'erreur de classe personnelle permet de réessayer');
     await failedRow.locator('.edit-buttons button').nth(1).click();
     state.setMode('');
     await page.fill('#filterAcronym', '');
@@ -259,6 +264,11 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
     check(await common.locator('.secondary-proprietaire-value option[value="xwiki:XWiki.Login42"]').count(), 0, 'aucune référence complète utilisée comme valeur du sélecteur');
     check(await common.locator('.secondary-proprietaire-value option[value="NonAuteur"]').count(), 0, 'édition exclut le compte hors groupes');
     await common.locator('.secondary-proprietaire-value').selectOption('Login42');
+    state.setMode('schema');
+    await common.locator('.edit-buttons button').first().evaluate(button => saveRowEdition2(button));
+    check(state.alerts.at(-1).includes('La classe des liens doit contenir le champ definition.'), true, 'diagnostic de classe commun décodé');
+    check(await common.locator('.edit-buttons button').first().isEnabled(), true, 'erreur de classe commune permet de réessayer');
+    state.setMode('');
     await common.locator('.edit-buttons button').first().evaluate(button => saveRowEdition2(button));
     check(state.requests.filter(request => request.action === 'save').at(-1).proprietaire, 'Login42', 'édition envoie le membre autorisé choisi');
     check(await common.locator('.secondary-proprietaire .view-mode').textContent(), 'Jean Dupont (Login42)', 'édition affiche le nom du membre choisi');

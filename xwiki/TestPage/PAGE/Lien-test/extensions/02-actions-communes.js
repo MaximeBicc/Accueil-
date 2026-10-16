@@ -205,7 +205,7 @@ async function saveRowEdition2(button) {
       if (typeof applyPagination2 === 'function') applyPagination2();
       if (type === 'personnel') window.location.reload();
     } else {
-      alert('Erreur serveur : ' + resultat.trim());
+      alert('Erreur serveur : ' + liensErrorMessage(resultat));
     }
   } catch (erreur) {
     console.error(erreur);

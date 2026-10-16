@@ -200,7 +200,7 @@ async function saveRowEdition(button) {
       // Si un manager vient de passer un personnel en commun, le rechargement remet la ligne dans le bon onglet.
       if (type === 'commun') window.location.reload();
     } else {
-      alert('Erreur serveur : ' + resultat.trim());
+      alert('Erreur serveur : ' + liensErrorMessage(resultat));
     }
   } catch (erreur) {
     console.error(erreur);

@@ -138,6 +138,62 @@
 #end
 ## END LIENS AUTHORS
 
+## BEGIN LIENS RECORD FIELDS — bloc identique dans l'affichage et DATA.
+#macro(liensReadOwner $recordDocument $recordObject)
+  #set($linkOwner = "$!recordObject.getValue('proprietaire')")
+  #if($linkOwner == '' || $linkOwner.matches('\s*'))
+    ## Ancienne fiche incomplète : utiliser uniquement son dossier dans cette racine.
+    #set($recordSpaces = $recordDocument.documentReference.spaceReferences)
+    #set($expectedSpaceCount = $liensDataSpaces.size() + 1)
+    #if($recordSpaces.size() == $expectedSpaceCount)
+      #set($ownerIndex = $recordSpaces.size() - 1)
+      #set($folderOwner = $recordSpaces.get($ownerIndex).name)
+      #set($expectedOwnerSpaces = [])
+      #set($discard = $expectedOwnerSpaces.addAll($liensDataSpaces))
+      #set($discard = $expectedOwnerSpaces.add($folderOwner))
+      #set($expectedOwnerReference = $services.model.createDocumentReference($liensWiki, $expectedOwnerSpaces, 'WebHome'))
+      #if($recordDocument.documentReference.parent.equals($expectedOwnerReference.parent))
+        #set($linkOwner = $folderOwner)
+      #end
+    #end
+  #end
+#end
+#macro(liensCheckRecordClass)
+  #set($liensSchemaError = '')
+  #set($recordClassDocument = false)
+  #set($recordClassDocument = $xwiki.getDocumentAsAuthor($classPath))
+  #if(!$recordClassDocument || $recordClassDocument.isNew())
+    #set($liensSchemaError = "La classe $classPath est absente ou inaccessible. Copiez sa définition complète avant de créer des liens.")
+  #else
+    #set($recordClass = false)
+    #set($recordClass = $recordClassDocument.getxWikiClass())
+    #set($missingRecordFields = [])
+    #foreach($recordField in ['nom_lien', 'lien', 'definition', 'type', 'proprietaire'])
+      #if(!$recordClass || !$recordClass.getEnabledPropertyNames().contains($recordField))
+        #set($discard = $missingRecordFields.add($recordField))
+      #end
+    #end
+    #if(!$missingRecordFields.isEmpty())
+      #set($liensSchemaError = "La classe $classPath doit contenir ces champs actifs : $missingRecordFields. Copiez les propriétés de la classe d'origine.")
+    #end
+  #end
+#end
+#macro(liensCheckWrittenFields $writtenObject $expectedFields)
+  #set($liensWriteError = '')
+  #if(!$writtenObject)
+    #set($liensWriteError = "Impossible de créer l'objet de classe $classPath. Vérifiez sa définition.")
+  #else
+    #foreach($writtenField in $expectedFields.entrySet())
+      #set($writtenValue = "$!writtenObject.getValue($writtenField.key)")
+      #if($writtenValue != $writtenField.value)
+        #set($liensWriteError = "Le champ $writtenField.key de $classPath n'a pas conservé sa valeur. Vérifiez sa définition et son type.")
+        #break
+      #end
+    #end
+  #end
+#end
+## END LIENS RECORD FIELDS
+
 ## BEGIN LIENS ADDRESSES — même générateur que le Glossaire.
 #macro(liensFindDestination $destinationSpaces $sourcePage)
   #set($candidateReference = false)
@@ -322,7 +378,8 @@
     #set($obj = $targetDoc.getObject($className))
     #if($obj && $xwiki.hasAccessLevel('view', $currentUser, $targetDoc.fullName))
       #set($typeValue = "$!obj.getValue('type')")
-      #set($ownerValue = "$!obj.getValue('proprietaire')")
+      #liensReadOwner($targetDoc $obj)
+      #set($ownerValue = $linkOwner)
       #liensCheckCurrentOwner($ownerValue)
       #if(($canReadCommon && $typeValue == 'commun') || ($canReadPersonal && $typeValue == 'personnel' && $isCurrentLinkOwner))
         #if($isCurrentLinkOwner) #set($ownerValue = $currentUserId) #end
@@ -345,7 +402,8 @@
     #if(!$targetRef || !$obj || $targetDoc.isNew())
       #set($error = 'ERREUR_OBJET')
     #else
-      #set($oldOwner = "$!obj.getValue('proprietaire')")
+      #liensReadOwner($targetDoc $obj)
+      #set($oldOwner = $linkOwner)
       #liensCheckCurrentOwner($oldOwner)
       #set($oldType = "$!obj.getValue('type')")
       #set($ownerSpaces = [])
@@ -393,7 +451,7 @@
     #end
     #if($requestedOwner == '')
       #set($requestedOwner = $currentUserId)
-      #if($obj) #set($requestedOwner = "$!obj.getValue('proprietaire')") #end
+      #if($obj) #set($requestedOwner = $oldOwner) #end
     #end
     #set($requestedOwnerReference = false)
     #if($requestedOwner.startsWith('XWiki.') || $requestedOwner.contains(':'))
@@ -443,6 +501,11 @@
     #end
 
     #if($error == '')
+      #liensCheckRecordClass()
+      #if($liensSchemaError != '') #set($error = "LIENS_ERROR|$escapetool.url($liensSchemaError)") #end
+    #end
+
+    #if($error == '')
       ## Références construites par l'API, sans cleanName ni interpolation de chemins.
       #set($destinationSpaces = [])
       #set($discard = $destinationSpaces.addAll($liensDataSpaces))
@@ -483,15 +546,19 @@
         #else
           #set($obj = $candidateDoc.getObject($className))
         #end
-        #set($discard = $obj.set('nom_lien', $acronym))
-        #set($discard = $obj.set('lien', $label))
-        #set($discard = $obj.set('definition', $definition))
-        #set($discard = $obj.set('type', $requestedType))
-        #set($discard = $obj.set('proprietaire', $requestedOwner))
-        #set($discard = $candidateDoc.setTitle($acronym))
-        #liensMarkStableAddress($candidateDoc)
-        #set($discard = $candidateDoc.save('Ajout / modification via interface Liens', true))
-        #set($resultLine = "GLOSSAIRE_OK|$escapetool.url($candidateDoc.fullName)|$escapetool.url($candidateDoc.name)")
+        #set($expectedFields = {'nom_lien':$acronym, 'lien':$label, 'definition':$definition, 'type':$requestedType, 'proprietaire':$requestedOwner})
+        #if($obj)
+          #foreach($field in $expectedFields.entrySet()) #set($discard = $obj.set($field.key, $field.value)) #end
+        #end
+        #liensCheckWrittenFields($obj $expectedFields)
+        #if($liensWriteError != '')
+          #set($error = "LIENS_ERROR|$escapetool.url($liensWriteError)")
+        #else
+          #set($discard = $candidateDoc.setTitle($acronym))
+          #liensMarkStableAddress($candidateDoc)
+          #set($discard = $candidateDoc.save('Ajout / modification via interface Liens', true))
+          #set($resultLine = "GLOSSAIRE_OK|$escapetool.url($candidateDoc.fullName)|$escapetool.url($candidateDoc.name)")
+        #end
       #end
     #end
   #end

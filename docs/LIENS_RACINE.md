@@ -28,6 +28,26 @@ Changer la variable **ne copie ni les pages ni leurs objets**. Copier ou déplac
 
 La page d’affichage peut rester hors de cette structure, notamment sur l’ancien `Lien-test`. Le formulaire de paramètres transmet sa référence réelle pour y revenir après un enregistrement sans JavaScript. En l’absence de cette information, DATA revient sur `<racine>.WebHome` ; les retours sont limités au même wiki. Les rechargements JavaScript restent sur la page courante.
 
+## Champs absents, personnel invisible et expressions Velocity affichées
+
+XWiki renvoie `null` lorsqu’une propriété n’existe pas sur un objet. Les templates transforment maintenant les valeurs lues en chaînes avant de les afficher et utilisent des références silencieuses pour l’échappement. Une cellule sans définition reste vide ; elle n’affiche plus `$escapetool.html(...)` et ne reprend pas la valeur de la ligne précédente, y compris sous Velocity 1.7.
+
+Si `proprietaire` est vide sur une ancienne fiche, le propriétaire peut être retrouvé depuis le dernier dossier de **`<racine>.DATA.LIENDATA.<userid>`**. Le parent complet doit correspondre à cette racine, avec un seul dossier d’utilisateur. Un propriétaire déjà renseigné reste prioritaire. Personnel conserve le contrôle d’identité et les droits natifs : les personnels d’autres utilisateurs ou d’un autre emplacement ne sont pas ouverts par ce repli. L’affichage, la popup, DATA et les opérations utilisent la même règle ; un enregistrement renseigne le propriétaire récupéré dans l’objet.
+
+Avant une création ou une modification, le module contrôle que la définition de classe existe et que ses cinq propriétés sont actives. Une classe incomplète provoque un message précisant son chemin et les champs concernés, avant toute création ou tout déplacement. La création vérifie aussi que les valeurs ont bien été affectées à l’objet avant l’enregistrement. Les personnes ayant l’écriture voient également un avertissement si la classe est incomplète.
+
+Dans **Modifier → Classe** sur `<racine>.CODE.lienClass.WebHome`, conserver les noms techniques exacts, indépendamment des titres affichés dans les tableaux :
+
+| Nom technique | Intitulé affiché | Propriété conseillée |
+| --- | --- | --- |
+| `nom_lien` | Liens | String |
+| `lien` | Domaine | String |
+| `definition` | Définition | TextArea |
+| `type` | Type | String, ou liste simple conservant `personnel` / `commun` |
+| `proprietaire` | Créateur / Auteur | String contenant le userid court |
+
+Copier la définition complète de la classe d’origine est préférable à la recréer avec des noms de propriétés tirés des intitulés visibles. Ces intitulés n’ont pas renommé les propriétés XWiki. Le texte d’une définition qui n’a jamais été enregistré dans l’objet ne peut pas être reconstitué automatiquement ; après réparation de la classe, le renseigner en éditant la fiche.
+
 ## Objets JavaScript et CSS
 
 Le contenu des scripts **00, 01, 02, 03, 04, 06 et 07**, ainsi que du CSS **05**, n’a pas de racine du module à modifier. L’affichage fournit les adresses et la classe aux scripts.

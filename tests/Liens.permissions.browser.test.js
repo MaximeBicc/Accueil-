@@ -179,6 +179,15 @@ function check(value, expected, message) { assert.deepEqual(value, expected, mes
     check(admin.posts.at(-1).groupCount, '42', 'tous les groupes sont envoyés');
     check(admin.errors, [], 'aucune exception paramètres');
     await admin.page.close();
+    const incomplete = await open('.incomplete.html');
+    check(await incomplete.page.locator('#mainGlossaryTable .main-term-row').count(), 1, 'fiche personnelle sans propriétaire retrouvée uniquement dans son dossier');
+    check(await incomplete.page.locator('#mainGlossaryTable .main-definition .view-mode').textContent(), '', 'définition personnelle absente rendue vide');
+    const missingCommon = incomplete.page.locator('#secondaryGlossaryTable .secondary-term-row').filter({ hasText: 'COMMUN_INCOMPLET' });
+    check(await missingCommon.locator('.secondary-definition .view-mode').textContent(), '', 'définition commune absente rendue vide sans reprise de la précédente');
+    check(await missingCommon.locator('.secondary-proprietaire .view-mode').textContent(), 'Test', 'créateur commun récupéré depuis le dossier');
+    check(await incomplete.page.locator('.view-mode').evaluateAll(nodes => nodes.some(node => node.textContent.includes('$escapetool'))), false, 'aucune expression Velocity dans les cellules');
+    check(incomplete.errors, [], 'champs absents sans erreur JavaScript');
+    await incomplete.page.close();
     const moved = await open('.relocated.html');
     check(await moved.page.locator('.liens-page').getAttribute('data-endpoint-url'), '/bin/view/MonEspace/Liens/DATA/', 'racine déplacée : adresse DATA du HTML');
     check(await moved.page.evaluate(() => urlLienData), '/bin/view/MonEspace/Liens/DATA/', 'racine déplacée : adresse DATA des extensions');
