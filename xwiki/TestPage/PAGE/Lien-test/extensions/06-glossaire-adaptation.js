@@ -11,6 +11,8 @@
   var bulkDeleteMode = false;
   var bulkDeleteTableKind = 'personal';
   var liensSheetJSLibrary = null;
+  var liensSheetJSLoading = null;
+  var excelReadVersion = 0;
   var excelRows = [];
   var excelAuthors = [];
   var excelAuthorById = new Map();
@@ -417,7 +419,7 @@
       importToolbar.className = 'glossary-import-toolbar';
       right.insertBefore(importToolbar, right.firstChild);
     }
-    importToolbar.innerHTML =
+    if (!importToolbar.querySelector('#btnExcelExampleLiens')) importToolbar.innerHTML =
       '<button type="button" id="btnExcelExampleLiens" class="btn btn-default">' +
         getLiensXWikiIcon('eye') + ' Voir un exemple Excel' +
       '</button>' +
@@ -438,7 +440,10 @@
       return Promise.resolve(liensSheetJSLibrary);
     }
 
-    return new Promise(function (resolve, reject) {
+    // Les sélections successives partagent le même chargement, sans retirer
+    // le script en cours ni perdre la restauration de RequireJS.
+    if (liensSheetJSLoading) return liensSheetJSLoading;
+    liensSheetJSLoading = new Promise(function (resolve, reject) {
       var previousXLSX = window.XLSX;
       var previousDefine = window.define;
       var previousDefineWasAMD = !!(previousDefine && previousDefine.amd);
@@ -456,8 +461,17 @@
       script.src = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
       script.type = 'text/javascript';
 
+      var timeout = window.setTimeout(function () { fail(new Error('Le chargement de SheetJS a expiré. Réessayez.')); }, 15000);
       function restoreRequireJS() {
+        window.clearTimeout(timeout);
         if (previousDefineWasAMD) window.define = previousDefine;
+      }
+      function fail(error) {
+        restoreRequireJS();
+        script.onload = script.onerror = null;
+        script.remove();
+        window.XLSX = previousXLSX;
+        reject(error);
       }
 
       script.onload = function () {
@@ -467,18 +481,16 @@
           resolve(liensSheetJSLibrary);
           return;
         }
-        window.XLSX = previousXLSX;
-        reject(new Error('SheetJS est chargé mais read() / utils.sheet_to_json() ne sont pas disponibles.'));
+        fail(new Error('SheetJS est chargé mais read() / utils.sheet_to_json() ne sont pas disponibles.'));
       };
 
       script.onerror = function () {
-        restoreRequireJS();
-        window.XLSX = previousXLSX;
-        reject(new Error('Impossible de charger SheetJS depuis cdn.sheetjs.com.'));
+        fail(new Error('Impossible de charger SheetJS depuis cdn.sheetjs.com. Réessayez.'));
       };
 
       document.head.appendChild(script);
-    });
+    }).finally(function () { liensSheetJSLoading = null; });
+    return liensSheetJSLoading;
   }
 
   function normalizeHeader(value) {
@@ -489,8 +501,8 @@
 
   function headerType(value) {
     var h = normalizeHeader(value);
-    if (['acronyme', 'acronym', 'sigle', 'nom', 'nomlien'].indexOf(h) >= 0) return 'acronym';
-    if (['libelle', 'label', 'lien', 'libellecomplet'].indexOf(h) >= 0) return 'label';
+    if (['liens', 'acronyme', 'acronym', 'sigle', 'nom', 'nomlien'].indexOf(h) >= 0) return 'acronym';
+    if (['domaine', 'domaines', 'domain', 'libelle', 'label', 'lien', 'libellecomplet'].indexOf(h) >= 0) return 'label';
     if (['definition', 'def', 'description'].indexOf(h) >= 0) return 'definition';
     if (['type', 'visibilite', 'onglet'].indexOf(h) >= 0) return 'type';
     if (['auteur', 'author', 'proprietaire', 'createur'].indexOf(h) >= 0) return 'author';
@@ -713,7 +725,7 @@
     var inferred = (excelHeaderInfo && excelHeaderInfo.inferred) || [];
     var description = excelHeaderInfo && excelHeaderInfo.detected
       ? 'Entête détectée. Les colonnes manquantes ont été déduites par élimination.'
-      : 'Aucun entête reconnu : colonnes 1 à 5 utilisées dans l’ordre Acronyme, Libellé, Définition, Type, Auteur.';
+      : 'Aucun entête reconnu : colonnes 1 à 5 utilisées dans l’ordre Liens, Domaine, Définition, Type, Auteur.';
     if (!inferred.length && excelHeaderInfo && excelHeaderInfo.detected) description = 'Entête détectée.';
     info.textContent = excelFileName + ' — feuille « ' + excelSheetName + ' » — ' + description;
     if (liensState.canWriteCommon && !excelAuthors.length) info.textContent += ' Liste des comptes indisponible : les auteurs Excel restent affichés en rouge.';
@@ -736,10 +748,10 @@
         duplicateCount++;
         var duplicate = document.createElement('tr');
         var reasons = [];
-        if (row.duplicateAcronymExisting) reasons.push('Acronyme : liens existants');
-        if (row.duplicateAcronymFile) reasons.push('Acronyme : fichier Excel');
-        if (row.duplicateLabelExisting) reasons.push('Libellé : liens existants');
-        if (row.duplicateLabelFile) reasons.push('Libellé : fichier Excel');
+        if (row.duplicateAcronymExisting) reasons.push('Liens : liens existants');
+        if (row.duplicateAcronymFile) reasons.push('Liens : fichier Excel');
+        if (row.duplicateLabelExisting) reasons.push('Domaine : liens existants');
+        if (row.duplicateLabelFile) reasons.push('Domaine : fichier Excel');
         duplicate.innerHTML = '<td></td><td></td><td></td><td></td>';
         duplicate.children[0].textContent = row.sourceLine;
         duplicate.children[1].textContent = row.acronym;
@@ -762,18 +774,22 @@
   }
 
   async function readExcelFile(file) {
+    var version = ++excelReadVersion;
     var xlsxLibrary;
     try {
       xlsxLibrary = await ensureLiensSheetJSLoaded();
     } catch (error) {
+      if (version !== excelReadVersion) return;
       console.error(error);
       alert('La bibliothèque Excel n\'a pas pu être chargée correctement : ' + error.message);
       return;
     }
 
     try {
+      if (version !== excelReadVersion) return;
       await loadExcelAuthors();
       var buffer = await file.arrayBuffer();
+      if (version !== excelReadVersion) return;
       if (!isLiensSheetJSLibrary(xlsxLibrary)) throw new Error('La bibliothèque SheetJS chargée ne possède pas read()');
       var workbook = xlsxLibrary.read(buffer, { type: 'array' });
       if (!workbook.SheetNames || !workbook.SheetNames.length) {
@@ -814,8 +830,9 @@
       }
       excelFileName = file.name;
       renderExcelPreview();
-      jQuery('#excelLiensModal').modal('show');
+      await showExcelModal('excelLiensModal');
     } catch (error) {
+      if (version !== excelReadVersion) return;
       console.error(error);
       alert('Impossible de lire ce fichier Excel : ' + error.message);
     }
@@ -871,65 +888,96 @@
   }
 
   function createExcelUi() {
-    if (document.getElementById('excelLiensModal')) return;
+    if (!document.getElementById('excelExampleLiensModal')) {
+      var exampleModal = document.createElement('div');
+      exampleModal.innerHTML =
+        '<div class="modal fade" id="excelExampleLiensModal" tabindex="-1" role="dialog" aria-hidden="true">' +
+          '<div class="modal-dialog modal-lg" role="document"><div class="modal-content">' +
+            '<div class="modal-header"><button type="button" class="close" data-dismiss="modal" aria-label="Fermer" title="Fermer">' + getLiensXWikiIcon('cross') + '</button><h4 class="modal-title">Exemple de fichier Excel</h4></div>' +
+            '<div class="modal-body"><p>Format conseillé : une première ligne d’entête, puis une ligne par lien.</p>' +
+              '<div class="table-responsive"><table class="table table-striped table-bordered">' +
+                '<thead><tr><th>Liens</th><th>Domaine</th><th>Définition</th><th>Type</th><th>Auteur</th></tr></thead>' +
+                '<tbody><tr><td>Portail XWiki</td><td>Informatique</td><td>Documentation et collaboration</td><td>personnel</td><td>' + (liensState.userId || 'DOE') + '</td></tr>' +
+                '<tr><td>Support interne</td><td>Assistance</td><td>Demandes et incidents</td><td>commun</td><td>' + (liensState.userId || 'DOE') + '</td></tr></tbody>' +
+              '</table></div>' +
+              '<p class="text-muted">Auteur est facultatif : s’il est vide, l’utilisateur qui importe est utilisé. Les identifiants et les noms sont comparés aux membres des groupes autorisés à écrire dans Commun, sous-groupes inclus. Une correspondance proche est sélectionnée ; sinon la valeur Excel reste affichée en rouge pour être corrigée dans la liste. Sans droit d’écriture dans Commun, l’import utilise Personnel et l’utilisateur connecté comme auteur.</p>' +
+            '</div><div class="modal-footer"><button type="button" class="btn btn-default" data-dismiss="modal">Fermer</button></div>' +
+          '</div></div></div>';
+      document.body.appendChild(exampleModal.firstChild);
+    }
 
-    var exampleModal = document.createElement('div');
-    exampleModal.innerHTML =
-      '<div class="modal fade" id="excelExampleLiensModal" tabindex="-1" role="dialog" aria-hidden="true">' +
-        '<div class="modal-dialog modal-lg" role="document"><div class="modal-content">' +
-          '<div class="modal-header"><button type="button" class="close" data-dismiss="modal" aria-label="Fermer" title="Fermer">' + getLiensXWikiIcon('cross') + '</button><h4 class="modal-title">Exemple de fichier Excel</h4></div>' +
-          '<div class="modal-body"><p>Format conseillé : une première ligne d’entête, puis une ligne par lien.</p>' +
-            '<div class="table-responsive"><table class="table table-striped table-bordered">' +
-              '<thead><tr><th>Acronyme</th><th>Libellé</th><th>Définition</th><th>Type</th><th>Auteur</th></tr></thead>' +
-              '<tbody><tr><td>API</td><td>Application Programming Interface</td><td>Interface de programmation</td><td>personnel</td><td>' + (liensState.userId || 'DOE') + '</td></tr>' +
-              '<tr><td>VPN</td><td>Virtual Private Network</td><td>Réseau privé virtuel</td><td>commun</td><td>' + (liensState.userId || 'DOE') + '</td></tr></tbody>' +
-            '</table></div>' +
-            '<p class="text-muted">Auteur est facultatif : s’il est vide, l’utilisateur qui importe est utilisé. Les identifiants et les noms sont comparés aux membres des groupes autorisés à écrire dans Commun, sous-groupes inclus. Une correspondance proche est sélectionnée ; sinon la valeur Excel reste affichée en rouge pour être corrigée dans la liste. Sans droit d’écriture dans Commun, l’import utilise Personnel et l’utilisateur connecté comme auteur.</p>' +
-          '</div><div class="modal-footer"><button type="button" class="btn btn-default" data-dismiss="modal">Fermer</button></div>' +
-        '</div></div></div>';
-    document.body.appendChild(exampleModal.firstChild);
-
-    var modal = document.createElement('div');
-    modal.innerHTML =
-      '<div class="modal fade" id="excelLiensModal" tabindex="-1" role="dialog" aria-hidden="true">' +
-        '<div class="modal-dialog modal-lg excel-import-dialog" role="document"><div class="modal-content">' +
-          '<div class="modal-header"><button type="button" class="close" data-dismiss="modal" aria-label="Fermer" title="Fermer">' + getLiensXWikiIcon('cross') + '</button><h4 class="modal-title">Import Excel des liens</h4></div>' +
-          '<div class="modal-body">' +
-            '<div id="excelLiensInfo" class="text-muted excel-import-info"></div>' +
-            '<p class="text-muted">Les auteurs doivent appartenir à un groupe autorisé à écrire dans Commun. Pour chaque auteur en rouge, choisissez un membre dans la liste avant d’ajouter les liens.</p>' +
-            '<div class="row">' +
-              '<div class="col-md-8"><h5><strong>Données récupérées</strong></h5><div class="excel-import-table-wrap excel-import-preview-wrap">' +
-                '<table class="table table-striped table-bordered table-condensed excel-import-table"><thead><tr>' +
-                  '<th class="excel-line-col">Ligne</th><th>Acronyme</th><th>Libellé</th><th>Définition</th><th>Type</th><th>Auteur</th><th class="excel-action-col">Action</th>' +
-                '</tr></thead><tbody id="excelLiensPreviewBody"></tbody></table></div></div>' +
-              '<div class="col-md-4"><h5><strong>Doublons détectés</strong></h5>' +
-                '<p class="text-muted">Rouge = champ en doublon. Le motif indique s’il existe déjà dans les liens visibles ou dans le fichier Excel.</p>' +
-                '<div class="excel-import-table-wrap excel-import-duplicates-wrap"><table class="table table-bordered table-condensed excel-import-table">' +
-                  '<thead><tr><th>Ligne</th><th>Acronyme</th><th>Libellé</th><th>Motif</th></tr></thead><tbody id="excelLiensDuplicatesBody"></tbody>' +
-                '</table></div>' +
-                '<div class="excel-import-options">' +
-                  '<label><input type="checkbox" id="excelLiensAcceptDuplicateAcronyms"> Accepter les acronymes en double</label>' +
-                  '<label><input type="checkbox" id="excelLiensAcceptDuplicateLabels"> Accepter les libellés en double</label>' +
-                '</div><div id="excelLiensSelectionSummary" class="text-muted excel-import-summary"></div>' +
+    if (!document.getElementById('excelLiensModal')) {
+      var modal = document.createElement('div');
+      modal.innerHTML =
+        '<div class="modal fade" id="excelLiensModal" tabindex="-1" role="dialog" aria-hidden="true">' +
+          '<div class="modal-dialog modal-lg excel-import-dialog" role="document"><div class="modal-content">' +
+            '<div class="modal-header"><button type="button" class="close" data-dismiss="modal" aria-label="Fermer" title="Fermer">' + getLiensXWikiIcon('cross') + '</button><h4 class="modal-title">Import Excel des liens</h4></div>' +
+            '<div class="modal-body">' +
+              '<div id="excelLiensInfo" class="text-muted excel-import-info"></div>' +
+              '<p class="text-muted">Les auteurs doivent appartenir à un groupe autorisé à écrire dans Commun. Pour chaque auteur en rouge, choisissez un membre dans la liste avant d’ajouter les liens.</p>' +
+              '<div class="row">' +
+                '<div class="col-md-8"><h5><strong>Données récupérées</strong></h5><div class="excel-import-table-wrap excel-import-preview-wrap">' +
+                  '<table class="table table-striped table-bordered table-condensed excel-import-table"><thead><tr>' +
+                    '<th class="excel-line-col">Ligne</th><th>Liens</th><th>Domaine</th><th>Définition</th><th>Type</th><th>Auteur</th><th class="excel-action-col">Action</th>' +
+                  '</tr></thead><tbody id="excelLiensPreviewBody"></tbody></table></div></div>' +
+                '<div class="col-md-4"><h5><strong>Doublons détectés</strong></h5>' +
+                  '<p class="text-muted">Rouge = champ en doublon. Le motif indique s’il existe déjà dans les liens visibles ou dans le fichier Excel.</p>' +
+                  '<div class="excel-import-table-wrap excel-import-duplicates-wrap"><table class="table table-bordered table-condensed excel-import-table">' +
+                    '<thead><tr><th>Ligne</th><th>Liens</th><th>Domaine</th><th>Motif</th></tr></thead><tbody id="excelLiensDuplicatesBody"></tbody>' +
+                  '</table></div>' +
+                  '<div class="excel-import-options">' +
+                    '<label><input type="checkbox" id="excelLiensAcceptDuplicateAcronyms"> Accepter les liens en double</label>' +
+                    '<label><input type="checkbox" id="excelLiensAcceptDuplicateLabels"> Accepter les domaines en double</label>' +
+                  '</div><div id="excelLiensSelectionSummary" class="text-muted excel-import-summary"></div>' +
+                '</div>' +
               '</div>' +
             '</div>' +
-          '</div>' +
-          '<div class="modal-footer"><button type="button" class="btn btn-default" data-dismiss="modal">Annuler</button><button type="button" id="btnConfirmExcelLiensImport" class="btn btn-primary">Ajouter les éléments</button></div>' +
-        '</div></div></div>';
-    document.body.appendChild(modal.firstChild);
-    jQuery('#excelLiensModal').on('shown.bs.modal.liensAuthors', enhanceExcelAuthors);
+            '<div class="modal-footer"><button type="button" class="btn btn-default" data-dismiss="modal">Annuler</button><button type="button" id="btnConfirmExcelLiensImport" class="btn btn-primary">Ajouter les éléments</button></div>' +
+          '</div></div></div>';
+      document.body.appendChild(modal.firstChild);
+    }
+    bindExcelUi();
+  }
 
-    document.getElementById('btnExcelExampleLiens').addEventListener('click', function () {
-      jQuery('#excelExampleLiensModal').modal('show');
-    });
-    document.getElementById('btnImportExcelLiens').addEventListener('click', function () {
-      document.getElementById('excelLiensFileInput').click();
-    });
-    document.getElementById('excelLiensFileInput').addEventListener('change', function () {
-      if (this.files && this.files[0]) readExcelFile(this.files[0]);
-      this.value = '';
-    });
-    document.getElementById('btnConfirmExcelLiensImport').addEventListener('click', importExcelRows);
+  async function showExcelModal(id) {
+    // Les extensions XWiki peuvent arriver avant jQuery / Bootstrap.
+    // Attendre leur disponibilité au clic, sans laisser l'interface inerte.
+    var started = Date.now();
+    while (!window.jQuery || !window.jQuery.fn || typeof window.jQuery.fn.modal !== 'function') {
+      if (Date.now() - started >= 10000) throw new Error('La fenêtre Excel n’est pas encore disponible. Réessayez.');
+      await new Promise(function (resolve) { window.setTimeout(resolve, 50); });
+    }
+    var modal = window.jQuery('#' + id);
+    if (id === 'excelLiensModal') modal.off('shown.bs.modal.liensAuthors').on('shown.bs.modal.liensAuthors', enhanceExcelAuthors);
+    modal.modal('show');
+  }
+
+  function bindExcelUi() {
+    // Délégation : les boutons restent utilisables quand XWiki remplace la barre.
+    // Réinstaller les extensions ne cumule pas les gestionnaires.
+    if (window.liensExcelEvents) window.liensExcelEvents.abort();
+    var events = new AbortController();
+    window.liensExcelEvents = events;
+    document.addEventListener('click', function (event) {
+      var button = event.target.closest('#btnExcelExampleLiens, #btnImportExcelLiens, #btnConfirmExcelLiensImport');
+      if (!button) return;
+      event.preventDefault();
+      readPermissionsFromPage();
+      if (!liensState.canWritePersonal && !liensState.canWriteCommon) return;
+      if (button.id === 'btnExcelExampleLiens') {
+        showExcelModal('excelExampleLiensModal').catch(function (error) { alert(error.message); });
+      } else if (button.id === 'btnImportExcelLiens') {
+        var input = document.getElementById('excelLiensFileInput');
+        if (input) input.click();
+      } else importExcelRows();
+    }, { signal: events.signal });
+    document.addEventListener('change', function (event) {
+      var input = event.target;
+      if (input.id !== 'excelLiensFileInput') return;
+      var file = input.files && input.files[0];
+      input.value = '';
+      if (file) readExcelFile(file);
+    }, { signal: events.signal });
   }
 
   function installTabWatcher() {

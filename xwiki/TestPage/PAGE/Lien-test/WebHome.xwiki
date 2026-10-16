@@ -252,12 +252,12 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
 
   #if($status == 'success')
     <div class="alert alert-success" style="margin-bottom: 20px;">
-      <strong>Succès !</strong> Le terme <strong>$escapetool.xml($!msg)</strong> a été ajouté à la base de données.
+      <strong>Succès !</strong> Le lien <strong>$escapetool.xml($!msg)</strong> a été ajouté à la base de données.
       <a href="$escapetool.xml($!url)" target="_blank" class="btn btn-xs btn-default" style="margin-left: 10px;">Ouvrir la fiche</a>
     </div>
   #elseif($status == 'warning')
     <div class="alert alert-warning" style="margin-bottom: 20px;">
-      <strong>Information :</strong> L'acronyme <strong>$escapetool.xml($!msg)</strong> existait déjà. Une nouvelle fiche distincte a tout de même été créée avec succès.
+      <strong>Information :</strong> Le lien <strong>$escapetool.xml($!msg)</strong> existait déjà. Une nouvelle fiche distincte a tout de même été créée avec succès.
       <a href="$escapetool.xml($!url)" target="_blank" class="btn btn-xs btn-default" style="margin-left: 10px;">Ouvrir la nouvelle fiche</a>
     </div>
   #end
@@ -295,7 +295,7 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
 <div id="liensToolbar" class="row glossary-toolbar" style="margin-bottom:15px;">
   <div id="liensToolbarLeft" class="col-md-6 glossary-toolbar-left">
     #if($canWritePersonal || $canWriteCommon)
-    <button type="button" class="btn btn-success" data-toggle="modal" data-target="#glossaryModal">$services.icon.renderHTML('add') Ajouter un acronyme</button>
+    <button type="button" class="btn btn-success" data-toggle="modal" data-target="#glossaryModal">$services.icon.renderHTML('add') Ajouter un lien</button>
     #end
   </div>
   <div id="liensToolbarRight" class="col-md-6 glossary-toolbar-right">
@@ -369,8 +369,8 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
            data-icon-refresh="$escapetool.xml($services.icon.renderHTML('refresh'))">
       <thead>
         <tr>
-          <th style="width: 15%;">Acronyme</th>
-          <th style="width: 25%;">Libellé complet</th>
+          <th style="width: 15%;">Liens</th>
+          <th style="width: 25%;">Domaine</th>
           <th style="width: 25%;">Définition</th>
           <!-- La colonne Type a désormais sa propre classe pour être masquée -->
           <th class="col-type" style="width: 10%;">Type</th>
@@ -510,8 +510,8 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
            data-icon-refresh="$escapetool.xml($services.icon.renderHTML('refresh'))">
       <thead>
         <tr>
-          <th style="width: 15%;">Acronyme</th>
-          <th style="width: 25%;">Libellé complet</th>
+          <th style="width: 15%;">Liens</th>
+          <th style="width: 25%;">Domaine</th>
           <th style="width: 25%;">Définition</th>
           <th style="width: 10%;">Créateur</th>
           <th class="col-type" style="width: 10%;">Type</th>
@@ -690,8 +690,8 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
         <table class="table table-bordered table-condensed" style="background: #f9f9f9;">
           <thead>
             <tr>
-              <th>Acronyme</th>
-              <th>Libellé complet</th>
+              <th>Liens</th>
+              <th>Domaine</th>
             </tr>
           </thead>
           <tbody>
@@ -723,8 +723,8 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
         <table class="table table-bordered table-condensed" style="background: #f9f9f9;">
           <thead>
             <tr>
-              <th>Acronyme</th>
-              <th>Libellé complet</th>
+              <th>Liens</th>
+              <th>Domaine</th>
             </tr>
           </thead>
           <tbody>
@@ -750,7 +750,7 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
     <div class="modal-content">
       <div class="modal-header">
         <button type="button" class="close" data-dismiss="modal" aria-label="Fermer" title="Fermer">$services.icon.renderHTML('cross')</button>
-        <h4 class="modal-title" id="glossaryModalLabel">Ajouter un acronyme</h4>
+        <h4 class="modal-title" id="glossaryModalLabel">Ajouter un lien</h4>
       </div>
 
       <form method="post" action="">
@@ -761,18 +761,18 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
           <div class="row">
             ## PARTIE GAUCHE : Formulaire de saisie
             <div class="col-md-5 modal-left-column">
-              <h5 class="column-title">Informations du terme</h5>
+              <h5 class="column-title">Informations du lien</h5>
               <div class="form-group">
-                <label>Acronyme / Sigle (ex: API) :</label>
+                <label>Liens :</label>
                 <input type="text" id="liensNomInputField" name="acronyme" class="form-control" autocomplete="off" required placeholder="Ex: XWiki" oninput="triggerGlobalFilter();">
               </div>
               <div class="form-group">
-                <label>Libellé complet :</label>
-                <input type="text" id="liensInputField" name="libelle" class="form-control" autocomplete="off" required placeholder="Ex: Wiki d'entreprise open source" oninput="triggerGlobalFilter();">
+                <label>Domaine :</label>
+                <input type="text" id="liensInputField" name="libelle" class="form-control" autocomplete="off" required placeholder="Ex: Informatique" oninput="triggerGlobalFilter();">
               </div>
               <div class="form-group">
                 <label for="definitionInputField">Définition :</label>
-                <input type="text" id="definitionInputField" name="definition" class="form-control" autocomplete="off" required placeholder="Ex: Wiki d'entreprise open source">
+                <input type="text" id="definitionInputField" name="definition" class="form-control" autocomplete="off" required placeholder="Ex: Documentation et collaboration">
               </div>
 
               <div class="form-group">
@@ -791,14 +791,14 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
             ## PARTIE DROITE : Tableau HTML natif filtré de vérification
             <div class="col-md-7 modal-right-column">
               <h5 class="column-title warning-title">Vérification des existants</h5>
-              <p class="text-muted help-text">Ce tableau affiche les lignes dont l'acronyme ou le libellé correspond à votre saisie.</p>
+              <p class="text-muted help-text">Ce tableau affiche les lignes dont le lien ou le domaine correspond à votre saisie.</p>
 
               <div class="table-scroll-container">
                 <table class="table table-striped table-hover" id="popupCheckTable">
                   <thead>
                     <tr>
-                      <th style="width: 30%;">Acronyme</th>
-                      <th>Libellé complet</th>
+                      <th style="width: 30%;">Liens</th>
+                      <th>Domaine</th>
                     </tr>
                   </thead>
                   <tbody>

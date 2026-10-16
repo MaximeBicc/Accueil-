@@ -40,7 +40,7 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
 (async () => {
   const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium', headless: true, args: ['--no-sandbox'] });
   try {
-    async function setup(late = false, manager = true) {
+    async function setup(late = false, manager = true, dependenciesLate = false) {
       const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
       const errors = [];
       const alerts = [];
@@ -74,7 +74,7 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
           let body = html;
           if (!manager) body = body.replace(/<option value="commun" name="type">Commun<\/option>/g, '<option value="commun" disabled>Commun</option>').replace('data-can-write-common="true"', 'data-can-write-common="false"');
           const prefix = '<!doctype html><html><head><meta charset="utf-8"><style>' + readAsset('bootstrap.css') + css + '</style>' +
-            '<script>' + readAsset('jquery.js') + '</script><script>' + readAsset('bootstrap.js') + '</script>';
+            (dependenciesLate ? '' : '<script>' + readAsset('jquery.js') + '</script><script>' + readAsset('bootstrap.js') + '</script>');
           const source = scripts.map(name => '<script>' + fs.readFileSync(path.join(root, name), 'utf8') + '</script>').join('');
           return route.fulfill({ contentType: 'text/html', body: prefix + (late ? '' : source) + '</head><body><div id="xwikicontent" style="position:relative;isolation:isolate;z-index:0">' + body + '</div></body></html>' });
         }
@@ -89,6 +89,12 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
     }
     const state = await setup();
     const { page } = state;
+    for (const id of ['mainGlossaryTable', 'secondaryGlossaryTable', 'popupCheckTable']) {
+      const headers = await page.locator('#' + id + ' thead tr').first().locator('th').allTextContents();
+      check(headers.map(text => text.trim()).filter(Boolean).slice(0, 2), ['Liens', 'Domaine'], 'intitulés des colonnes ' + id);
+    }
+    check(await page.locator('#excelExampleLiensModal th').allTextContents(), ['Liens', 'Domaine', 'Définition', 'Type', 'Auteur'], 'nouveaux intitulés dans l’exemple Excel');
+    check(await page.locator('#excelLiensModal th').allTextContents(), ['Ligne', 'Liens', 'Domaine', 'Définition', 'Type', 'Auteur', 'Action', 'Ligne', 'Liens', 'Domaine', 'Motif'], 'nouveaux intitulés dans l’aperçu et les doublons Excel');
     const visible = id => page.locator(`#${id} tbody > tr`).evaluateAll(rows => rows.filter(row => row.style.display !== 'none').length);
     // Conteneur XWiki isolé : vérifier l'ordre réel des couches pour chaque popup.
     for (const id of ['actionFeedbackModal', 'deleteConfirmModal', 'deleteConfirmModal2', 'glossaryModal', 'excelExampleLiensModal', 'excelLiensModal']) {
@@ -424,6 +430,97 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
     check(await unavailable.page.locator('#excelLiensPreviewBody select.excel-author-select').nth(10).inputValue(), 'Login42', 'ancien template reconnu aussi pour nom prénom');
     check(unavailable.errors, [], 'aucune exception avec catalogue absent ou ancien format');
     await unavailable.page.close();
+    // XWiki peut remplacer la barre tout en conservant les modales sous body.
+    const rebuilt = await setup();
+    await rebuilt.page.evaluate(() => {
+      document.getElementById('liensImportToolbar').replaceChildren();
+      delete document.querySelector('.liens-page').dataset.adaptationReady;
+    });
+    await rebuilt.page.addScriptTag({ content: fs.readFileSync(path.join(root, '06-glossaire-adaptation.js'), 'utf8') });
+    await rebuilt.page.click('#btnExcelExampleLiens');
+    await rebuilt.page.waitForSelector('#excelExampleLiensModal.in', { timeout: 1500 });
+    check(await rebuilt.page.locator('#excelExampleLiensModal').count(), 1, 'une seule fenêtre exemple après reconstruction de la barre');
+    await rebuilt.page.click('#excelExampleLiensModal button[data-dismiss="modal"]');
+    await rebuilt.page.waitForSelector('#excelExampleLiensModal.in', { state: 'hidden' });
+    const chooser = rebuilt.page.waitForEvent('filechooser');
+    await rebuilt.page.click('#btnImportExcelLiens');
+    await (await chooser).setFiles({ name: 'auteurs.xlsx', buffer: Buffer.from(authorBytes) });
+    await rebuilt.page.waitForSelector('#excelLiensModal.in');
+    check(await rebuilt.page.locator('#excelLiensPreviewBody tr').count(), 12, 'import utilisable après reconstruction sans actualisation');
+    await rebuilt.page.click('#excelLiensModal button[data-dismiss="modal"]');
+    await rebuilt.page.waitForSelector('#excelLiensModal.in', { state: 'hidden' });
+    // Les nouveaux en-têtes doivent aussi être reconnus hors de leur ordre habituel.
+    const newHeaderBytes = await rebuilt.page.evaluate(() => {
+      const sheet = XLSX.utils.aoa_to_sheet([['Auteur', 'Domaine', 'Type', 'Définition', 'Liens'], ['Test', 'DOMAINE-NEUF', 'personnel', 'Description', 'LIEN-NEUF']]);
+      const book = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(book, sheet, 'Liens');
+      return Array.from(new Uint8Array(XLSX.write(book, { type: 'array', bookType: 'xlsx' })));
+    });
+    // Remplacer seulement les nœuds de la barre, sans réexécuter les extensions.
+    await rebuilt.page.evaluate(() => {
+      const toolbar = document.getElementById('liensImportToolbar');
+      toolbar.replaceWith(toolbar.cloneNode(true));
+    });
+    const newChooser = rebuilt.page.waitForEvent('filechooser');
+    await rebuilt.page.click('#btnImportExcelLiens');
+    await (await newChooser).setFiles({ name: 'nouveaux-intitules.xlsx', buffer: Buffer.from(newHeaderBytes) });
+    await rebuilt.page.waitForFunction(() => document.querySelector('#excelLiensInfo').textContent.includes('nouveaux-intitules.xlsx'));
+    check(await rebuilt.page.locator('#excelLiensPreviewBody tr td').nth(1).locator('input').inputValue(), 'LIEN-NEUF', 'colonne Liens reconnue même déplacée dans Excel');
+    check(await rebuilt.page.locator('#excelLiensPreviewBody tr td').nth(2).locator('input').inputValue(), 'DOMAINE-NEUF', 'colonne Domaine reconnue même déplacée dans Excel');
+    await Promise.all([rebuilt.page.waitForEvent('load'), rebuilt.page.click('#btnConfirmExcelLiensImport')]);
+    const newImport = rebuilt.requests.filter(request => request.action === 'create');
+    check(newImport.length, 1, 'réinitialisation ne cumule pas les imports');
+    check([newImport[0].acronym, newImport[0].label], ['LIEN-NEUF', 'DOMAINE-NEUF'], 'nouveaux en-têtes transmis dans les bons champs');
+    check(rebuilt.errors, [], 'aucune exception après reconstruction');
+    await rebuilt.page.close();
+    const delayed = await setup(false, true, true);
+    await delayed.page.click('#btnExcelExampleLiens');
+    await delayed.page.addScriptTag({ content: readAsset('jquery.js') });
+    await delayed.page.addScriptTag({ content: readAsset('bootstrap.js') });
+    await delayed.page.waitForSelector('#excelExampleLiensModal.in');
+    check(await delayed.page.locator('#excelExampleLiensModal.in').isVisible(), true, 'clic avant jQuery et Bootstrap : exemple ouvert dès leur disponibilité');
+    check(delayed.errors, [], 'chargement tardif des dépendances sans exception');
+    await delayed.page.close();
+
+    const retry = await setup();
+    await retry.page.evaluate(() => {
+      window.testLiensDefine = function () {}; window.testLiensDefine.amd = {};
+      window.define = window.testLiensDefine;
+      window.XLSX = { invalid: true };
+    });
+    let libraryRequests = 0;
+    await retry.page.route('https://cdn.sheetjs.com/**', route => {
+      libraryRequests++;
+      return libraryRequests === 1 ? route.abort() : route.fulfill({ contentType: 'application/javascript', body: readAsset('sheetjs.js') });
+    });
+    await retry.page.locator('#excelLiensFileInput').setInputFiles({ name: 'erreur.xlsx', buffer: Buffer.from(authorBytes) });
+    await retry.page.waitForFunction(() => document.querySelector('#sheetJsLiensLibrary') === null && window.define === window.testLiensDefine);
+    check(retry.alerts.length, 1, 'échec de chargement Excel signalé');
+    check(await retry.page.evaluate(() => window.define === window.testLiensDefine && window.XLSX.invalid === true), true, 'RequireJS et ancien XLSX restaurés après échec');
+    await retry.page.locator('#excelLiensFileInput').setInputFiles({ name: 'reprise.xlsx', buffer: Buffer.from(authorBytes) });
+    await retry.page.waitForSelector('#excelLiensModal.in');
+    check(libraryRequests, 2, 'chargement réessayé sans actualiser la page');
+    check(await retry.page.locator('#excelLiensPreviewBody tr').count(), 12, 'import possible après échec réseau');
+    check(await retry.page.evaluate(() => window.define === window.testLiensDefine), true, 'RequireJS restauré aussi après succès');
+    check(retry.errors, [], 'aucune exception pendant la reprise');
+    await retry.page.close();
+
+    const simultaneous = await setup();
+    let downloads = 0, releaseDownload, signalDownload;
+    const downloadGate = new Promise(resolve => { releaseDownload = resolve; });
+    const downloadStarted = new Promise(resolve => { signalDownload = resolve; });
+    await simultaneous.page.route('https://cdn.sheetjs.com/**', async route => {
+      downloads++; signalDownload(); await downloadGate;
+      return route.fulfill({ contentType: 'application/javascript', body: readAsset('sheetjs.js') });
+    });
+    await simultaneous.page.locator('#excelLiensFileInput').setInputFiles({ name: 'premier.xlsx', buffer: Buffer.from(authorBytes) });
+    await downloadStarted;
+    await simultaneous.page.locator('#excelLiensFileInput').setInputFiles({ name: 'dernier.xlsx', buffer: Buffer.from(authorBytes) });
+    releaseDownload();
+    await simultaneous.page.waitForSelector('#excelLiensModal.in');
+    check(downloads, 1, 'sélections rapprochées : un seul chargement SheetJS');
+    check((await simultaneous.page.locator('#excelLiensInfo').textContent()).startsWith('dernier.xlsx'), true, 'la dernière sélection conserve la priorité');
+    check(simultaneous.errors, [], 'aucune exception pendant les sélections rapprochées');
+    await simultaneous.page.close();
     const late = await setup(true);
     check(await late.page.locator('#mainGlossaryTable .main-term-row:visible').count(), 10, 'extensions chargées après DOMContentLoaded');
     await late.page.fill('#filterAcronym', 'A00');
