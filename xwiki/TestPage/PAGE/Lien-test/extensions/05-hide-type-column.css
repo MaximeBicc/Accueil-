@@ -128,6 +128,13 @@
   justify-content: flex-end;
 }
 
+.liens-page .glossary-import-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .glossary-toolbar-button {
   margin-left: 0;
 }
@@ -276,6 +283,13 @@
 
 .excel-import-table {
   margin-bottom: 0;
+}
+
+.excel-import-table .excel-author-select,
+.excel-import-table .selectize-control,
+.excel-import-table .ts-wrapper {
+  min-width: 180px;
+  width: 100%;
 }
 
 .excel-line-col {

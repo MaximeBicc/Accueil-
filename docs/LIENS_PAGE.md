@@ -19,10 +19,13 @@ Le paramétrage des droits Personnel et Commun est décrit dans [LIENS_DROITS.md
 
 La réponse DATA est désormais du texte brut avec des champs encodés par `escapetool.url`. Installer le serveur et les extensions JavaScript ensemble, puis recharger le navigateur sans cache.
 
+Pour la position de Paramètres et les auteurs Excel, mettre à jour les deux pages `WebHome.xwiki` (affichage et DATA), les JavaScript `01-actions-personnelles.js` et `06-glossaire-adaptation.js`, ainsi que le CSS `05-hide-type-column.css`. Aucune nouvelle classe XWiki n'est requise. Le sélecteur utilise la ressource native `uicomponents/suggest/xwiki.selectize.js` et reste utilisable en liste native si l'enrichissement n'est pas disponible.
+
 ## Corrections
 
 - La barre de l'en-tête couvre le titre et le sous-titre : 3 px, extrémités arrondies, bleu `#173f98` sur 78 % puis rouge `#ef233c`, comme l'accueil. Un élément HTML explicite assure sa présence ; le rendu HTML utilise `clean="false"` et les valeurs dynamiques sont échappées.
 - Les onglets, filtres et paginations sont initialisés quand le DOM est disponible, y compris si les extensions arrivent après `DOMContentLoaded`. Les filtres et commandes de pagination sont aussi raccordés par JavaScript.
+- Paramètres est le dernier bouton à droite, comme dans le Glossaire. Les boutons Excel ont leur propre conteneur et ne remplacent pas Paramètres ; celui-ci reste présent pour un administrateur sans droit d'écriture.
 - Les filtres lisent uniquement les textes affichés. Ils se combinent par ET dans chaque tableau. Le filtre Acronyme / Libellé de la fenêtre de création conserve sa logique OU.
 - « Tout afficher » respecte les filtres. Le changement de taille revient à la première page, les flèches respectent les limites et une suppression recalcule le nombre de pages. Tri, modification et pagination réappliquent les filtres actifs.
 - Les boutons A → Z utilisent les mêmes classes Bootstrap et la même icône XWiki `right` que le Glossaire. Le libellé avec son icône est rempli avant insertion et le bouton ne se comprime pas dans la cellule, sans modifier sa taille native. Le tri est disponible sur Acronyme, Libellé, Définition et, pour les communs, Créateur ; aucun bouton de tri n’est ajouté dans Type.
@@ -31,11 +34,12 @@ La réponse DATA est désormais du texte brut avec des champs encodés par `esca
 - Les déplacements utilisent une seule requête XWiki de renommage vers la référence finale, sans redirection. Un succès exige que la destination et son objet existent et que l'ancienne page ait disparu. La suppression ne retire la ligne qu'après confirmation que la page a été supprimée.
 - La création manuelle vérifie POST, CSRF, champs, type, droit d’écriture sur l’onglet, droits natifs et disponibilité du nom. Le serveur protège également les actions DATA. Les accès se règlent par groupe dans Paramètres ; les anciens groupes gestionnaires restent utilisés uniquement avant le premier enregistrement.
 - La suppression multiple et l'import gèrent les erreurs réseau et les doubles clics. Les mots `constructor` et `toString` ne sont plus considérés comme des doublons Excel. Le recalcul des largeurs n'observe plus ses propres écritures de styles.
+- Avec Écriture dans Commun, Auteur utilise le même catalogue de comptes existants pour l'édition et l'import. Un auteur Excel est rapproché de son identifiant ou de son prénom/nom, accents et casse ignorés, puis reste modifiable dans une liste. Le texte Excel d'origine est affiché lorsqu'il diffère de l'identifiant retenu. Le serveur vérifie encore l'existence du profil à la création et lors d'un changement d'auteur.
 - Les modales sont déplacées directement sous `document.body`, comme celles du Glossaire, pour sortir du contexte d’empilement du contenu XWiki et rester au-dessus du fond Bootstrap. Leurs couches suivent le thème Bootstrap, sans forcer une autre valeur de z-index. Les identifiants dupliqués ont été retirés. Sur mobile, le défilement horizontal des tableaux conserve des champs de filtre utilisables.
 
 ## Tests
 
-Prérequis : Java 17 ou supérieur, Velocity Engine 2.3, Commons Lang 3.17.0, SLF4J API 1.7.36, Node.js et Playwright avec Chromium. Le test navigateur utilise jQuery 3.7.1, Bootstrap 3.4.1 et SheetJS 0.20.3 réels, placés dans un répertoire d'assets : `liens-jquery.js`, `liens-bootstrap.js`, `liens-bootstrap.css`, `liens-sheetjs.js`.
+Prérequis : Java 17 ou supérieur, Velocity Engine 2.3, Commons Lang 3.17.0, SLF4J API 1.7.36, Node.js et Playwright avec Chromium. Le test navigateur utilise jQuery 3.7.1, Bootstrap 3.4.1, SheetJS 0.20.3 et Tom Select 2.4.3 réels, placés dans un répertoire d'assets : `liens-jquery.js`, `liens-bootstrap.js`, `liens-bootstrap.css`, `liens-sheetjs.js`, `liens-tomselect.js` (distribution `tom-select.complete.min.js`), `liens-tomselect.css` (distribution `tom-select.default.min.css`). Le test du widget passe par un adaptateur jQuery exposant la même API que XWiki ; il ne charge pas le wiki complet.
 
 ```sh
 java -cp '/chemin/vers/jars/*' tests/LiensVelocityTest.java /tmp/liens-rendered.html
@@ -45,14 +49,14 @@ node tests/Liens.permissions.browser.test.js /tmp/liens-rendered.html /chemin/ve
 
 Le navigateur utilise `/usr/bin/chromium` par défaut ; `CHROMIUM_PATH` permet de choisir un autre exécutable. Playwright doit être accessible à Node.js.
 
-Résultat : **222 vérifications Velocity et 218 vérifications Chromium réussies**, avec vérification de syntaxe des sept extensions JavaScript. Le test serveur exécute les templates réels avec une API XWiki simulée. Le navigateur utilise le HTML produit, les extensions du dépôt et un endpoint DATA simulé. Il vérifie aussi le rendu du tri par rapport au bouton du Glossaire et la présence des six fenêtres au-dessus du fond noir dans un conteneur XWiki isolé. Il couvre les deux paginations, filtres, tri, affichage ordinateur/mobile, éditions, erreurs HTTP, suppressions, chargement tardif, lecture/import d'un vrai fichier XLSX et neuf combinaisons de droits Personnel/Commun et paramètres administrateur. Le test d'enregistrement reproduit l'URL invalide due au champ `action`, puis contrôle l'adresse exacte de DATA utilisée par le bouton corrigé.
+Résultat : **231 vérifications Velocity et 251 vérifications Chromium réussies**, avec vérification de syntaxe des sept extensions JavaScript. Le test serveur exécute les templates réels avec une API XWiki simulée. Le navigateur utilise le HTML produit, les extensions du dépôt et un endpoint DATA simulé. Il vérifie aussi le rendu du tri par rapport au bouton du Glossaire et la présence des six fenêtres au-dessus du fond noir dans un conteneur XWiki isolé. Il couvre les deux paginations, filtres, tri, affichage ordinateur/mobile, éditions, erreurs HTTP, suppressions, chargement tardif, lecture/import d'un vrai fichier XLSX et neuf combinaisons de droits Personnel/Commun et paramètres administrateur. Le test d'enregistrement reproduit l'URL invalide due au champ `action`, puis contrôle l'adresse exacte de DATA utilisée par le bouton corrigé. Les cas d'auteurs couvrent identifiant, faute, accents, référence XWiki, nom inversé, valeur vide, modification manuelle, menu natif et widget Tom Select, ainsi que les refus serveur des auteurs inexistants ou supprimés après aperçu. Paramètres est vérifié avec et sans écriture, y compris sur mobile.
 
 ## Vérifier après installation dans XWiki
 
 1. Dans chaque onglet, filtrer plusieurs colonnes, changer la taille de page et choisir « Tout afficher ». Vérifier les résultats et les flèches.
 2. Modifier une ligne avec un filtre actif, annuler une modification de créateur, puis changer le type avec un compte autorisé à écrire dans Commun.
 3. Créer un lien, renommer son acronyme et changer son auteur. Vérifier la destination dans LIENDATA, puis supprimer le lien et contrôler l'arborescence.
-4. Essayer l'import Excel et la suppression multiple avec un compte en écriture puis un compte en lecture seule.
+4. Essayer l'import Excel et la suppression multiple avec un compte en écriture puis un compte en lecture seule. Dans l'aperçu Excel, vérifier un auteur valide, un nom mal orthographié et une valeur vide ; modifier la sélection et contrôler l'identifiant enregistré.
 5. Vérifier les fenêtres modales et la barre de l'en-tête sur ordinateur et mobile.
 
 Aucun accès à l'instance XWiki n'a été utilisé pour cette validation. L'essai sur le wiki reste à effectuer, notamment pour ses droits, le service de refactoring et les extensions installées.

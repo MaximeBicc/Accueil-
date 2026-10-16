@@ -18,7 +18,15 @@ Sans lecture, le bouton de l'onglet, son tableau et ses données ne sont pas ren
 
 **Personnel reste limité aux liens de l'utilisateur connecté.** Le droit d'écrire dans Commun ne permet pas de consulter les personnels des autres utilisateurs. Les auteurs et les types déjà gérés par l'éditeur des liens communs restent disponibles aux personnes autorisées à écrire dans Commun.
 
-L'administrateur peut ouvrir Paramètres même sans accès aux deux onglets. L'administration n'accorde pas automatiquement de droit fonctionnel ; attribuer aussi les droits à un groupe auquel appartient le compte si nécessaire.
+L'administrateur peut ouvrir Paramètres même sans accès aux deux onglets. Le bouton reste à droite de la barre d'actions, après les commandes Excel, comme dans le Glossaire. L'administration n'accorde pas automatiquement de droit fonctionnel ; attribuer aussi les droits à un groupe auquel appartient le compte si nécessaire.
+
+## Auteurs lors de l'import Excel
+
+Avec **Écriture dans Commun**, la liste Auteur de l'import et de l'édition propose les profils `XWiki.XWikiUsers` existants et consultables dans l'espace XWiki du wiki courant. Le nom affiché et l'identifiant permettent de distinguer les homonymes. Sans prénom/nom renseigné, l'identifiant est affiché.
+
+L'import conserve d'abord un identifiant exact. Il reconnaît aussi les références `XWiki.Identifiant`, `xwiki:XWiki.Identifiant`, le prénom/nom et le nom/prénom. Sinon, il sélectionne le compte dont l'identifiant ou le nom demande le moins de modifications de caractères (distance de Levenshtein), en ignorant casse, accents, espaces et ponctuation. À distance égale, l'ordre alphabétique des identifiants départage les comptes. La valeur Excel d'origine reste visible à côté de la sélection lorsqu'elle diffère ; on peut choisir un autre compte avant de confirmer.
+
+Un auteur vide utilise le compte connecté. Avec l'écriture personnelle seule, toutes les lignes restent personnelles, l'auteur est le compte connecté et sa liste est désactivée. À l'enregistrement, DATA refuse un auteur absent ou une page sans objet utilisateur, y compris si le compte a été supprimé après l'ouverture de l'aperçu. Les erreurs d'import précisent les lignes concernées.
 
 ## Installation dans XWiki
 
@@ -72,9 +80,9 @@ Dans l'onglet Réseau du navigateur, le POST doit cibler l'URL de `TestPage.PAGE
 
 ## Validation
 
-- 222 contrôles des vrais templates avec une API XWiki simulée, exécutés avec Velocity 1.7 et 2.3.
-- 66 contrôles Chromium de régression : filtres, pagination, édition, suppression, import XLSX, boutons du Glossaire et fenêtres modales.
-- 152 contrôles Chromium des droits : neuf combinaisons Personnel/Commun, onglet Commun seul, lecture seule, chargement tardif, administration sans accès fonctionnel et enregistrement des paramètres. Les tests reproduisent le masquage de `form.action` et le rejet de son URL, vérifient que le bouton appelle exactement DATA, l'enregistrement de plus de 50 champs et les diagnostics HTTP, HTML, JSON et CSRF.
+- 231 contrôles des vrais templates avec une API XWiki simulée, exécutés avec Velocity 1.7 et 2.3, dont les profils auteurs et les refus d'un auteur inexistant ou supprimé après aperçu.
+- 91 contrôles Chromium de régression : filtres, pagination, édition, suppression, import XLSX, boutons du Glossaire et fenêtres modales. Les auteurs sont vérifiés avec fautes, accents, noms inversés et références, puis modifiés en liste native et avec un vrai widget Tom Select.
+- 160 contrôles Chromium des droits : neuf combinaisons Personnel/Commun, onglet Commun seul, lecture seule, chargement tardif, administration sans accès fonctionnel et enregistrement des paramètres. Les tests reproduisent le masquage de `form.action` et le rejet de son URL, vérifient que le bouton appelle exactement DATA, l'enregistrement de plus de 50 champs et les diagnostics HTTP, HTML, JSON et CSRF. Ils vérifient également Paramètres à droite avec et sans écriture, ainsi que sa présence sur mobile.
 
 ```sh
 java -cp '/chemin/vers/jars/*' tests/LiensVelocityTest.java /tmp/liens-rendered.html

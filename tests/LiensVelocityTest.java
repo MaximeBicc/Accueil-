@@ -54,7 +54,7 @@ public class LiensVelocityTest {
   public static class Doc {
     final Wiki wiki; final Ref ref; Obj obj; String objClass = "", title = ""; int saves;
     Doc(Wiki wiki, Ref ref) { this.wiki = wiki; this.ref = ref; }
-    public boolean isNew() { return !wiki.docs.containsKey(ref); }
+    public boolean isNew() { return !wiki.docs.containsKey(ref) && !wiki.profiles.containsKey(ref); }
     public Obj getObject(String type) { return objClass.equals(type) || (objClass.equals("") && type.endsWith("lienClass.WebHome")) ? obj : null; }
     public Obj newObject(String type) { obj = new Obj(); objClass = type; obj.missingField = wiki.missingField; return obj; }
     public String getFullName() { return ref.toString(); }
@@ -63,12 +63,15 @@ public class LiensVelocityTest {
     public String getURL() { return "/liens"; }
     public String getURL(String name) { return "/liens"; }
     public void setTitle(String value) { title = value; }
-    public void save(String message, boolean minor) { if (!wiki.refuseSave) { saves++; wiki.docs.put(ref, this); } }
+    public void save(String message, boolean minor) {
+      if (!wiki.refuseSave) { saves++; (objClass.equals("XWiki.XWikiUsers") ? wiki.profiles : wiki.docs).put(ref, this); }
+    }
     public String getVersion() { return "1." + (saves + 1); }
   }
   public static class Extension { public void use(String ignored) {} }
   public static class Wiki {
     final Map<Ref, Doc> docs = new LinkedHashMap<>();
+    final Map<Ref, Doc> profiles = new LinkedHashMap<>();
     boolean allowed = true, admin, configurationReadable = true, refuseSave; String missingField = "";
     public boolean hasWikiAdminRights() { return admin; }
     public Doc getDocumentAsAuthor(Object ref) { return configurationReadable ? getDocument(ref) : null; }
@@ -79,7 +82,7 @@ public class LiensVelocityTest {
     public Extension getSsx() { return new Extension(); }
     public Doc getDocument(Object ref) {
       Ref reference = ref instanceof Ref r ? r : new Model().resolveDocument(String.valueOf(ref));
-      return docs.getOrDefault(reference, new Doc(this, reference));
+      return docs.getOrDefault(reference, profiles.getOrDefault(reference, new Doc(this, reference)));
     }
     public boolean hasAccessLevel(String right, String user, String reference) { return allowed; }
     public List<String> getSpaceDocsName(String space) {
@@ -90,6 +93,10 @@ public class LiensVelocityTest {
       d.obj.set("nom_lien", acronym); d.obj.set("lien", "Libellé " + acronym);
       d.obj.set("type", "personnel"); d.obj.set("proprietaire", "Test"); d.obj.set("definition", "Définition");
       d.save("", false); return d;
+    }
+    Doc profile(String id, String first, String last) {
+      Doc d = getDocument(new Ref("XWiki", id)); d.newObject("XWiki.XWikiUsers");
+      d.obj.set("first_name", first); d.obj.set("last_name", last); d.save("", false); return d;
     }
   }
   public static class Session {
@@ -176,7 +183,10 @@ public class LiensVelocityTest {
   public static class Fixture {
     final Wiki wiki = new Wiki(); final Request request = new Request(); final Refactoring refactoring = new Refactoring(wiki);
     final Groups groups = new Groups(); final Context userContext = new Context();
-    Fixture() { request.params.put("form_token", "test-token"); }
+    Fixture() {
+      request.params.put("form_token", "test-token");
+      wiki.profile("Test", "Test", ""); wiki.profile("Autre", "Autre", "auteur");
+    }
     String render(String filename, String action, String... pairs) throws Exception {
       request.params.put("action", action);
       for (int i = 0; i < pairs.length; i += 2) request.params.put(pairs[i], pairs[i + 1]);
@@ -213,7 +223,10 @@ public class LiensVelocityTest {
     final Wiki wiki; Queries(Wiki wiki) { this.wiki = wiki; }
     String query;
     public Queries xwql(String query) { this.query = query; return this; }
-    public List<String> execute() { return wiki.docs.values().stream().filter(d -> query.contains("XWiki.XWikiGroups") ? d.objClass.equals("XWiki.XWikiGroups") : d.getObject("TestPage.PAGE.Liens.CODE.lienClass.WebHome") != null).map(Doc::getFullName).toList(); }
+    public List<String> execute() {
+      if (query.contains("XWiki.XWikiUsers")) return wiki.profiles.values().stream().map(Doc::getFullName).sorted().toList();
+      return wiki.docs.values().stream().filter(d -> query.contains("XWiki.XWikiGroups") ? d.objClass.equals("XWiki.XWikiGroups") : d.getObject("TestPage.PAGE.Liens.CODE.lienClass.WebHome") != null).map(Doc::getFullName).toList();
+    }
   }
   static final String CONFIG_CLASS = "TestPage.PAGE.Liens.CODE.liensConfigurationClass.WebHome";
   static final String CONFIG_REF = "TestPage.PAGE.Liens.CODE.Configuration.WebHome";
@@ -283,6 +296,8 @@ public class LiensVelocityTest {
     String html = f.render("WebHome.xwiki", "");
     check(html.contains("id=\"btnLiensSettings\"") && !html.contains("id=\"Tab1\"") && !html.contains("id=\"Tab2\""), "administration sans droit fonctionnel implicite");
     if (outputPath != null) Files.writeString(Path.of(outputPath + ".admin.html"), html);
+    f = new Fixture(); configure(f, 2, 2); f.wiki.admin = true;
+    if (outputPath != null) Files.writeString(Path.of(outputPath + ".admin-writer.html"), f.render("WebHome.xwiki", ""));
     f = new Fixture(); configure(f, 0, 0);
     check(settings(f, "XWiki.XWikiAllGroup", "2", "2").startsWith("LIENS_ERROR|"), "paramètres réservés à admin");
     f.wiki.admin = true;
@@ -338,6 +353,33 @@ public class LiensVelocityTest {
   }
 
   static void check(boolean condition, String label) { if (!condition) throw new AssertionError(label); checks++; }
+  static void authorTests() throws Exception {
+    Fixture f = new Fixture(); f.groups.manager = true;
+    String result = f.render("DATA/WebHome.xwiki", "create", "acronym", "IMPORT", "label", "Libellé", "definition", "Définition", "type", "commun", "proprietaire", "Inconnu");
+    check(result.equals("ERREUR_AUTEUR") && f.wiki.docs.isEmpty(), "import refuse un auteur inexistant sans créer de fiche");
+    Doc notUser = f.wiki.getDocument("XWiki.PageOrdinaire"); notUser.save("", false);
+    result = f.render("DATA/WebHome.xwiki", "create", "proprietaire", "PageOrdinaire");
+    check(result.equals("ERREUR_AUTEUR") && f.wiki.docs.size() == 1, "une page existante sans XWikiUsers n'est pas un auteur");
+    f.wiki.profile("AdeleMartin", "Adèle", "Martin");
+    result = f.render("DATA/WebHome.xwiki", "create", "proprietaire", "AdeleMartin");
+    check(result.startsWith("GLOSSAIRE_OK|") && f.wiki.getDocument("TestPage.PAGE.Liens.DATA.LIENDATA.AdeleMartin.IMPORT").obj.getValue("proprietaire").equals("AdeleMartin"), "un compte existant hors des groupes gestionnaires peut être auteur");
+    f = new Fixture(); f.groups.manager = true; Doc source = common(f);
+    result = f.render("DATA/WebHome.xwiki", "save", "targetRef", source.getFullName(), "acronym", "COMMUN", "label", "Libellé", "definition", "Définition", "type", "commun", "proprietaire", "Inconnu");
+    check(result.equals("ERREUR_AUTEUR") && f.refactoring.calls == 0 && source.obj.getValue("proprietaire").equals("Test"), "édition refuse de changer vers un auteur inexistant");
+    f.wiki.profile("AdeleMartin", "Adèle", "Martin");
+    f.wiki.profile("SansNom", "", "");
+    f.wiki.profile("Echappe", "<img src=x onerror=alert(1)>", "& Co");
+    f.wiki.getDocument("XWiki.PageOrdinaire").save("", false);
+    String html = f.render("WebHome.xwiki", "");
+    check(html.contains("id=\"liensAuthorOptions\"") && html.contains("value=\"AdeleMartin\"") && html.contains("Adèle Martin (AdeleMartin)"), "catalogue des comptes et noms accessible sans dépendre des auteurs présents");
+    check(html.contains("data-label=\"SansNom\"") && html.contains("&lt;img src=x onerror=alert(1)&gt;"), "auteurs sans nom et noms échappés");
+    check(!html.contains("value=\"PageOrdinaire\""), "catalogue réservé aux profils utilisateurs");
+    f.wiki.profiles.remove(new Ref("XWiki", "AdeleMartin"));
+    result = f.render("DATA/WebHome.xwiki", "create", "acronym", "SUPPRIME", "proprietaire", "AdeleMartin");
+    check(result.equals("ERREUR_AUTEUR"), "auteur supprimé après aperçu refusé à l'enregistrement");
+    f = new Fixture();
+    check(!f.render("WebHome.xwiki", "").contains("id=\"liensAuthorOptions\""), "pas de catalogue des auteurs sans écriture commune");
+  }
   public static void main(String[] args) throws Exception {
     ENGINE.init();
     Fixture f = new Fixture(); Doc source = f.wiki.add("API", "API");
@@ -401,6 +443,7 @@ public class LiensVelocityTest {
     result = f.render("DATA/WebHome.xwiki", "listVisible");
     check(result.contains("%3Cimg") && !result.contains("PRIVE") && result.contains("LIEN_LIST_OK|Test|false"), "liste encodée et privée");
     f = new Fixture(); f.groups.manager = true;
+    f.wiki.profile("AdeleMartin", "Adèle", "Martin"); f.wiki.profile("ZoeDurand", "Zoé", "Durand");
     for (int i = 0; i < 27; i++) {
       Doc row = f.wiki.add(String.format("A%02d", i), String.format("A%02d", i));
       row.obj.set("lien", i % 2 == 0 ? "Groupe pair" : "Groupe impair"); row.obj.set("definition", "Définition " + i);
@@ -408,6 +451,7 @@ public class LiensVelocityTest {
     for (int i = 0; i < 17; i++) { Doc row = f.wiki.add(String.format("C%02d", i), String.format("C%02d", i)); row.obj.set("type", "commun"); }
     if (args.length > 0) Files.writeString(Path.of(args[0]), f.render("WebHome.xwiki", ""));
     permissionsTests(args.length > 0 ? args[0] : null);
+    authorTests();
     System.out.println(checks + " vérifications Velocity réussies.");
   }
 }

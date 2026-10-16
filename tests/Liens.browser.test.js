@@ -230,6 +230,51 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
     await page.waitForSelector('#glossaryModal.in', { state: 'hidden' });
     // Lecture et import d'un vrai fichier XLSX.
     await page.addScriptTag({ content: readAsset('sheetjs.js') });
+    const authorBytes = await page.evaluate(() => {
+      const authors = ['AdeleMartin', 'AdeleMartni', 'ADÈLE MARTIN', 'Martin Adele', 'XWiki.AdeleMartin', 'xwiki:XWiki.AdeleMartin', 'Zoe Duran', '', 'Personne introuvable', '<img src=x onerror=alert(1)>'];
+      const data = [['Acronyme', 'Libellé', 'Définition', 'Type', 'Auteur'], ...authors.map((author, i) => ['IMPORT' + i, 'Auteur ' + i, 'Définition', 'commun', author])];
+      const book = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(data), 'Auteurs');
+      return Array.from(new Uint8Array(XLSX.write(book, { type: 'array', bookType: 'xlsx' })));
+    });
+    await page.locator('#excelLiensFileInput').setInputFiles({ name: 'auteurs.xlsx', buffer: Buffer.from(authorBytes) });
+    await page.waitForSelector('#excelLiensModal.in');
+    const authors = page.locator('#excelLiensPreviewBody select.excel-author-select');
+    check(await authors.count(), 10, 'une liste déroulante par auteur Excel');
+    for (let i = 0; i < 6; i++) check(await authors.nth(i).inputValue(), 'AdeleMartin', 'identifiant, faute, accent, nom inversé et référence ' + i);
+    check(await authors.nth(6).inputValue(), 'ZoeDurand', 'auteur le plus proche du prénom/nom');
+    check(await authors.nth(7).inputValue(), 'Test', 'auteur vide utilise le compte connecté');
+    check(await authors.evaluateAll(selects => selects.every(select => Array.from(select.options).some(option => option.value === select.value))), true, 'chaque auteur retenu appartient aux comptes existants');
+    check(await authors.first().locator('option').allTextContents(), ['Adèle Martin (AdeleMartin)', 'Autre auteur (Autre)', 'Test (Test)', 'Zoé Durand (ZoeDurand)'], 'même catalogue que pour changer un auteur en édition');
+    check(await page.locator('#secondaryGlossaryTable .secondary-proprietaire-value').first().locator('option[value="AdeleMartin"]').count(), 1, 'auteur hors des groupes gestionnaires proposé aussi en édition');
+    check(await page.locator('#excelLiensPreviewBody .excel-author-correction').filter({ hasText: 'AdeleMartni' }).count(), 1, 'correction visible avant import');
+    check(await page.locator('#excelLiensPreviewBody img').count(), 0, 'auteur Excel traité comme texte');
+    await authors.nth(1).selectOption('Autre');
+    check(await page.locator('#excelLiensPreviewBody .excel-author-select').nth(1).inputValue(), 'Autre', 'choix manuel remplace la suggestion');
+    await page.locator('#excelLiensPreviewBody tr').first().locator('input').first().fill('IMPORT-MODIFIE');
+    await page.locator('#excelLiensPreviewBody tr').first().locator('input').first().dispatchEvent('change');
+    check(await page.locator('#excelLiensPreviewBody .excel-author-select').nth(1).inputValue(), 'Autre', 'choix manuel conservé au recalcul du tableau');
+    // Widget réel Tom Select derrière la même API jQuery que XWiki.
+    await page.addScriptTag({ content: readAsset('tomselect.js') });
+    await page.addStyleTag({ content: readAsset('tomselect.css') + '.ts-dropdown { z-index: 10051; }' });
+    await page.evaluate(() => {
+      jQuery.fn.xwikiSelectize = function(settings) {
+        return this.not('.tomselected, .ts-wrapper').each(function() { if (!this.tomselect) new TomSelect(this, { dropdownParent: 'body', ...settings }); });
+      };
+      jQuery('#excelLiensModal').trigger('shown.bs.modal');
+    });
+    check(await authors.first().evaluate(select => select.tomselect.settings.create), false, 'sélecteur enrichi interdit les auteurs libres');
+    await page.locator('#excelLiensPreviewBody .ts-control input').first().fill('Zoé');
+    await page.locator('.ts-dropdown .option[data-value="ZoeDurand"]').click();
+    await page.waitForFunction(() => document.querySelector('#excelLiensPreviewBody .excel-author-select').value === 'ZoeDurand' && !!document.querySelector('#excelLiensPreviewBody .excel-author-select').tomselect);
+    check(await authors.first().inputValue(), 'ZoeDurand', 'recherche et choix avec le vrai sélecteur enrichi');
+    check(await page.locator('.ts-wrapper').count(), 10, 'un seul widget par ligne après changement d’auteur');
+    check(await page.locator('.ts-dropdown').count(), 10, 'un seul menu enrichi par ligne');
+    await page.locator('#excelLiensPreviewBody tr').first().locator('input.excel-import-input').first().fill('IMPORT-ENRICHI');
+    await page.locator('#excelLiensPreviewBody tr').first().locator('input.excel-import-input').first().dispatchEvent('change');
+    check(await authors.first().inputValue(), 'ZoeDurand', 'auteur conservé après recalcul avec le sélecteur enrichi');
+    check(await page.locator('.ts-dropdown').count(), 10, 'anciens menus enrichis détruits au recalcul');
+    await page.click('#excelLiensModal button[data-dismiss="modal"]');
+    await page.waitForSelector('#excelLiensModal.in', { state: 'hidden' });
     const bytes = await page.evaluate(() => {
       const sheet = XLSX.utils.aoa_to_sheet([['Acronyme', 'Libellé', 'Définition', 'Type', 'Auteur'], ['constructor', 'toString', 'Test', 'personnel', 'Test'], ['A00', 'Groupe pair', 'Test', 'commun', 'Test']]);
       const book = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(book, sheet, 'Liens');
@@ -239,11 +284,13 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
     await page.waitForSelector('#excelLiensModal.in');
     check(await page.locator('#excelLiensPreviewBody tr').count(), 2, 'lecture XLSX réelle');
     check(await page.locator('#excelLiensDuplicatesBody tr').count(), 1, 'constructor et toString ne sont pas des faux doublons');
+    await page.locator('#excelLiensPreviewBody select.excel-author-select').first().selectOption('AdeleMartin', { force: true });
     state.setMode('refuse');
     await page.locator('#btnConfirmExcelLiensImport').evaluate(button => { button.click(); button.click(); });
     await page.waitForSelector('#excelLiensModal.in', { state: 'hidden' });
     check(state.requests.filter(req => req.action === 'create').length, 1, 'import ignore le doublon et bloque le double clic');
     check(state.requests.find(req => req.action === 'create').acronym, 'constructor', 'import transmet le bon acronyme');
+    check(state.requests.find(req => req.action === 'create').proprietaire, 'AdeleMartin', 'import envoie l’identifiant du compte choisi');
     state.setMode('');
     await page.locator('#excelLiensFileInput').setInputFiles({ name: 'liens.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: Buffer.from(bytes) });
     await page.waitForSelector('#excelLiensModal.in');
@@ -272,6 +319,11 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
     await nonManager.page.locator('#btnBulkDeleteModeLiens').waitFor({ state: 'hidden' });
     check(await nonManager.page.locator('#btnBulkDeleteModeLiens').isVisible(), false, 'suppression commune masquée pour non-manager');
     check(await nonManager.page.locator('#secondaryGlossaryTable .view-buttons button:visible').count(), 0, 'actions communes masquées pour non-manager');
+    await nonManager.page.addScriptTag({ content: readAsset('sheetjs.js') });
+    await nonManager.page.locator('#excelLiensFileInput').setInputFiles({ name: 'auteurs.xlsx', buffer: Buffer.from(authorBytes) });
+    await nonManager.page.waitForSelector('#excelLiensModal.in');
+    check(await nonManager.page.locator('#excelLiensPreviewBody .excel-author-select').evaluateAll(selects => selects.every(select => select.disabled && select.value === 'Test')), true, 'écriture personnelle seule conserve son auteur');
+    check(await nonManager.page.locator('#excelLiensPreviewBody select:not(.excel-author-select)').evaluateAll(selects => selects.every(select => select.value === 'personnel')), true, 'écriture personnelle seule force le type Personnel');
     check(nonManager.errors, [], 'aucune exception non-manager');
     await nonManager.page.close();
     console.log(`${checks} vérifications Chromium réussies.`);

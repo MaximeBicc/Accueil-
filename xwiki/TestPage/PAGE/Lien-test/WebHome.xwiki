@@ -7,7 +7,7 @@
 $xwiki.jsx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
 $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
 
-#set($discard = $xwiki.jsx.use('uicomponents/suggest/xwiki-selectize.js'))
+#set($discard = $xwiki.jsx.use('uicomponents/suggest/xwiki.selectize.js'))
 
 #set($user = $xcontext.user)
 #set($userDoc = $xwiki.getDocument($user))
@@ -77,11 +77,20 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
 #set($canReadCommon = $permissions.get('commonReadGroups') || $canWriteCommon)
 ## END LIENS PERMISSIONS
 
-#set($managers = [])
+#set($linkAuthors = [])
 #if($canWriteCommon)
-  #foreach($groupName in $configuredGroups.get('commonWriteGroups'))
-    #foreach($authorRef in $services.user.group.getMembers($groupName, true))
-      #if(!$managers.contains($authorRef)) #set($discard = $managers.add($authorRef)) #end
+  #foreach($authorRef in $services.query.xwql("select distinct doc.fullName from Document doc, doc.object(XWiki.XWikiUsers) usr where doc.space = 'XWiki' order by doc.fullName").execute())
+    #set($authorDoc = false)
+    #set($authorDoc = $xwiki.getDocument($authorRef))
+    #set($authorObject = false)
+    #set($authorObject = $authorDoc.getObject('XWiki.XWikiUsers'))
+    #if($authorDoc && !$authorDoc.isNew() && $authorObject && $xwiki.hasAccessLevel('view', $user, $authorDoc.fullName))
+      #set($authorFirst = "$!authorObject.getValue('first_name')")
+      #set($authorLast = "$!authorObject.getValue('last_name')")
+      #set($authorLabel = "$authorFirst $authorLast")
+      #set($authorLabel = $authorLabel.trim())
+      #if($authorLabel == '') #set($authorLabel = $authorDoc.name) #end
+      #set($discard = $linkAuthors.add({'id':$authorDoc.name, 'label':$authorLabel, 'reverseLabel':"$authorLast $authorFirst", 'reference':$services.model.serialize($authorDoc.documentReference)}))
     #end
   #end
 #end
@@ -199,11 +208,22 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
     #if($canWritePersonal || $canWriteCommon)
     <button type="button" class="btn btn-success" data-toggle="modal" data-target="#glossaryModal">$services.icon.renderHTML('add') Ajouter un acronyme</button>
     #end
+  </div>
+  <div id="liensToolbarRight" class="col-md-6 glossary-toolbar-right">
+    <div id="liensImportToolbar" class="glossary-import-toolbar"></div>
     #if($canConfigure)
     <button type="button" id="btnLiensSettings" class="btn btn-default" data-toggle="modal" data-target="#liensSettingsModal">Paramètres</button>
     #end
   </div>
 </div>
+
+#if($canWriteCommon)
+<template id="liensAuthorOptions">
+  #foreach($linkAuthor in $linkAuthors)
+  <option value="$escapetool.xml($linkAuthor.id)" data-label="$escapetool.xml($linkAuthor.label)" data-reverse-label="$escapetool.xml($linkAuthor.reverseLabel)" data-reference="$escapetool.xml($linkAuthor.reference)">$escapetool.html($linkAuthor.label) ($escapetool.html($linkAuthor.id))</option>
+  #end
+</template>
+#end
 
 #set($documentRefs = [])
 #if($canReadPersonal || $canReadCommon)
@@ -468,19 +488,9 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
                   <div class="edit-mode edit-proprietaire" name="monChoix" style="display:none">
                     <select class="xwiki-selectize secondary-proprietaire-value">
                       <option value="$escapetool.xml($!proprietaireValue)">$escapetool.html($!displayProprietaire)</option>
-                      #foreach($managerRef in $managers)
-                        #set($managerDoc = $xwiki.getDocument($managerRef))
-                        #set($managerId = $managerDoc.name)
-                        #set($managerObj = $managerDoc.getObject('XWiki.XWikiUsers'))
-                        #if($managerObj && $proprietaireValue != $managerId)
-                          #set($managerFirstName = $managerObj.getValue('first_name'))
-                          #set($managerLastName = $managerObj.getValue('last_name'))
-                          #set($displayManager = "${managerFirstName} ${managerLastName}")
-                        #else
-                          #set($displayManager = $managerId)
-                        #end
-                        #if ($proprietaireValue != $managerId)
-                          <option value="$escapetool.xml($!managerId)">$escapetool.html($!displayManager)</option>
+                      #foreach($linkAuthor in $linkAuthors)
+                        #if($proprietaireValue != $linkAuthor.id)
+                          <option value="$escapetool.xml($linkAuthor.id)">$escapetool.html($linkAuthor.label) ($escapetool.html($linkAuthor.id))</option>
                         #end
                       #end
                     </select>

@@ -89,8 +89,20 @@ function check(value, expected, message) { assert.deepEqual(value, expected, mes
     check(await late.page.locator('#Tab2').isVisible(), true, 'Commun seul après chargement tardif');
     check(late.errors, [], 'aucune exception chargement tardif');
     await late.page.close();
+    const adminWriter = await open('.admin-writer.html');
+    check(await adminWriter.page.locator('#liensToolbarRight #btnLiensSettings').count(), 1, 'Paramètres conservé lors de la création des boutons Excel');
+    check(await adminWriter.page.locator('#liensToolbarRight #btnImportExcelLiens').count(), 1, 'import à droite avec Paramètres');
+    check(await adminWriter.page.locator('#liensToolbarRight').evaluate(el => el.lastElementChild.id), 'btnLiensSettings', 'Paramètres dernier bouton à droite');
+    for (const width of [1440, 390]) {
+      await adminWriter.page.setViewportSize({ width, height: 1000 });
+      check(await adminWriter.page.locator('#btnLiensSettings').isVisible(), true, 'Paramètres visible à ' + width + 'px');
+    }
+    check(adminWriter.errors, [], 'aucune exception avec paramètres et import');
+    await adminWriter.page.close();
     const admin = await open('.admin.html');
     check(await admin.page.locator('.tablinks').count(), 0, 'admin sans droit de lecture');
+    check(await admin.page.locator('#liensToolbarRight #btnLiensSettings').count(), 1, 'Paramètres à droite même sans écriture');
+    check(await admin.page.locator('#liensToolbarRight').evaluate(el => getComputedStyle(el).justifyContent), 'flex-end', 'alignement à droite comme le Glossaire');
     await admin.page.click('#btnLiensSettings');
     await admin.page.waitForSelector('#liensSettingsModal.in');
     check(await admin.page.locator('#liensSettingsModal').evaluate(el => el.parentNode === document.body), true, 'Paramètres au-dessus du contenu XWiki');

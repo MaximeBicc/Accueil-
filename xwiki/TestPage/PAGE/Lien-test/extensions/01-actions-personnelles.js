@@ -4,6 +4,7 @@ function liensErrorMessage(result, status) {
   var known = {
     ERREUR_CSRF: 'Le jeton de sécurité est invalide ou la session a expiré. Rechargez la page puis réessayez.',
     ERREUR_DROITS: 'Votre compte ne dispose pas des droits nécessaires pour cette action.',
+    ERREUR_AUTEUR: 'Cet auteur n’existe plus. Choisissez un compte XWiki existant puis réessayez.',
     ERREUR_METHOD: 'Le serveur attend une requête POST.',
     ERREUR_ACTION_INCONNUE: 'La page DATA ne reconnaît pas cette action. Vérifiez que les sources de la page et des extensions ont été mises à jour ensemble.'
   };

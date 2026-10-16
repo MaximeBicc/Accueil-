@@ -269,6 +269,17 @@
       #set($error = 'ERREUR_DROITS')
     #end
 
+    #if($error == '' && ($action == 'create' || $requestedOwner != $oldOwner))
+      ## Le compte peut avoir été supprimé depuis l'ouverture de l'aperçu Excel.
+      #set($ownerReference = $services.model.createDocumentReference('', ['XWiki'], $requestedOwner))
+      #if($requestedOwner == $currentUserId) #set($ownerReference = $currentUserReference) #end
+      #set($ownerDoc = false)
+      #set($ownerDoc = $xwiki.getDocument($ownerReference))
+      #if(!$ownerDoc || $ownerDoc.isNew() || !$ownerDoc.getObject('XWiki.XWikiUsers'))
+        #set($error = 'ERREUR_AUTEUR')
+      #end
+    #end
+
     #if($error == '')
       ## Références construites par l'API, sans cleanName ni interpolation de chemins.
       #set($destinationSpaces = ['TestPage', 'PAGE', 'Liens', 'DATA', 'LIENDATA', $requestedOwner])
