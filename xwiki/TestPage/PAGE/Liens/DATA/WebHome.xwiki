@@ -1,10 +1,28 @@
 {{velocity output="false"}}
-#set($className = 'TestPage.PAGE.Liens.CODE.lienClass.WebHome')
+## BEGIN LIENS LOCATION
+## Seule valeur à adapter, identique dans l'affichage et DATA (racine dans ce wiki).
+#set($liensRoot = 'TestPage.PAGE.Liens')
+#set($classPath = $liensRoot.concat('.CODE.lienClass.WebHome'))
+#set($configurationClass = $liensRoot.concat('.CODE.liensConfigurationClass.WebHome'))
+#set($configurationRef = $liensRoot.concat('.CODE.Configuration.WebHome'))
+#set($liensExtensionRef = $liensRoot.concat('.CODE.GlossaireExtension'))
+#set($liensDataRef = $liensRoot.concat('.DATA.WebHome'))
+#set($dataSpace = $liensRoot.concat('.DATA.LIENDATA'))
+#set($liensHomeRef = $liensRoot.concat('.WebHome'))
+## Utiliser les références XWiki pour construire aussi les listes d'espaces.
+#set($liensRootReference = $services.model.resolveDocument($liensHomeRef))
+#set($liensWiki = $liensRootReference.wikiReference.name)
+#set($liensDataSpaces = [])
+#foreach($rootSpace in $liensRootReference.spaceReferences)
+  #set($discard = $liensDataSpaces.add($rootSpace.name))
+#end
+#set($discard = $liensDataSpaces.add('DATA'))
+#set($discard = $liensDataSpaces.add('LIENDATA'))
+## END LIENS LOCATION
+#set($className = $classPath)
 #set($currentUser = $xcontext.user)
 #set($currentUserId = $xwiki.getDocument($currentUser).name)
 ## BEGIN LIENS PERMISSIONS — bloc identique dans l'affichage et DATA.
-#set($configurationClass = 'TestPage.PAGE.Liens.CODE.liensConfigurationClass.WebHome')
-#set($configurationRef = 'TestPage.PAGE.Liens.CODE.Configuration.WebHome')
 #set($currentUserReference = $xcontext.userReference)
 #set($isAuthenticated = $currentUserReference && $currentUserReference.name != 'XWikiGuest')
 #set($canConfigure = $xwiki.hasWikiAdminRights())
@@ -124,7 +142,7 @@
 #macro(liensFindDestination $destinationSpaces $sourcePage)
   #set($candidateReference = false)
   #set($candidateDoc = false)
-  #set($destinationRoot = $services.model.createDocumentReference('', $destinationSpaces, 'WebHome'))
+  #set($destinationRoot = $services.model.createDocumentReference($liensWiki, $destinationSpaces, 'WebHome'))
   #set($destinationSpace = $services.model.serialize($destinationRoot.parent))
   #set($hasStableAddress = false)
   #if($sourcePage && $sourcePage.name.matches('[A-Za-z0-9]{16}'))
@@ -138,7 +156,7 @@
       #set($candidateName = $xwiki.getUniquePageName($destinationSpace))
     #end
     #if($candidateName.matches('[A-Za-z0-9]{16}'))
-      #set($candidate = $services.model.createDocumentReference('', $destinationSpaces, $candidateName))
+      #set($candidate = $services.model.createDocumentReference($liensWiki, $destinationSpaces, $candidateName))
       #set($candidateDoc = $xwiki.getDocument($candidate))
       #if($sourcePage && $candidate.equals($sourcePage.documentReference))
         #set($candidateReference = $candidate)
@@ -148,7 +166,7 @@
       #set($nestedSpaces = [])
       #set($discard = $nestedSpaces.addAll($destinationSpaces))
       #set($discard = $nestedSpaces.add($candidateName))
-      #set($nestedReference = $services.model.createDocumentReference('', $nestedSpaces, 'WebHome'))
+      #set($nestedReference = $services.model.createDocumentReference($liensWiki, $nestedSpaces, 'WebHome'))
       #if($candidateDoc.isNew() && $xwiki.getDocument($nestedReference).isNew())
         #set($candidateReference = $candidate)
         #break
@@ -298,7 +316,7 @@
     #set($resultLine = 'LIENS_AUTHORS_OK')
   #end
 #elseif($action == 'listVisible')
-  #set($query = $services.query.xwql("select distinct doc.fullName from Document doc, doc.object($className) obj"))
+  #set($query = $services.query.hql('select distinct doc.fullName from XWikiDocument doc, BaseObject obj where obj.name = doc.fullName and obj.className = :className').bindValue('className', $className))
   #foreach($fullRef in $query.execute())
     #set($targetDoc = $xwiki.getDocument($fullRef))
     #set($obj = $targetDoc.getObject($className))
@@ -330,8 +348,10 @@
       #set($oldOwner = "$!obj.getValue('proprietaire')")
       #liensCheckCurrentOwner($oldOwner)
       #set($oldType = "$!obj.getValue('type')")
-      #set($ownerSpaces = ['TestPage', 'PAGE', 'Liens', 'DATA', 'LIENDATA', $oldOwner])
-      #set($ownerRoot = $services.model.createDocumentReference('', $ownerSpaces, 'WebHome'))
+      #set($ownerSpaces = [])
+      #set($discard = $ownerSpaces.addAll($liensDataSpaces))
+      #set($discard = $ownerSpaces.add($oldOwner))
+      #set($ownerRoot = $services.model.createDocumentReference($liensWiki, $ownerSpaces, 'WebHome'))
       #if(!$targetDoc.documentReference.getParent().equals($ownerRoot.getParent()))
         #set($error = 'ERREUR_REFERENCE')
       #elseif(($oldType == 'commun' && !$canWriteCommon) || ($oldType == 'personnel' && (!$canWritePersonal || !$isCurrentLinkOwner)) || ($oldType != 'commun' && $oldType != 'personnel'))
@@ -424,7 +444,9 @@
 
     #if($error == '')
       ## Références construites par l'API, sans cleanName ni interpolation de chemins.
-      #set($destinationSpaces = ['TestPage', 'PAGE', 'Liens', 'DATA', 'LIENDATA', $requestedOwner])
+      #set($destinationSpaces = [])
+      #set($discard = $destinationSpaces.addAll($liensDataSpaces))
+      #set($discard = $destinationSpaces.add($requestedOwner))
       ## Création et conversion des anciennes fiches : identifiant aléatoire de 16 caractères.
       ## Les fiches déjà converties gardent leur identifiant, même si l'acronyme change.
       #liensFindDestination($destinationSpaces $targetDoc)
@@ -477,7 +499,16 @@
 #end
 #if($action == 'settings' && "$!request.getParameter('settingsForm')" == 'true' && "$!request.getParameter('ajax')" != 'true')
   #if($resultLine == 'LIENS_SETTINGS_SAVED')
-    #set($discard = $response.sendRedirect($xwiki.getURL('TestPage.PAGE.Lien-test.WebHome', 'view')))
+    ## Le formulaire peut être affiché hors de la racine, comme l'ancien Lien-test.
+    #set($returnReference = $services.model.resolveDocument($liensHomeRef))
+    #set($requestedReturn = "$!request.getParameter('returnTo')")
+    #if($requestedReturn != '')
+      #set($requestedReturnReference = $services.model.resolveDocument($requestedReturn))
+      #if($requestedReturnReference.wikiReference.equals($liensRootReference.wikiReference))
+        #set($returnReference = $requestedReturnReference)
+      #end
+    #end
+    #set($discard = $response.sendRedirect($xwiki.getURL($services.model.serialize($returnReference), 'view')))
   #else
     #set($discard = $response.setContentType('text/html; charset=UTF-8'))
     #set($discard = $response.writer.print('<p>Les paramètres n’ont pas été enregistrés.</p><p>'))

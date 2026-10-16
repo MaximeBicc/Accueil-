@@ -1,11 +1,29 @@
 {{velocity}}
 {{html clean="false"}}
-#set($classPath = 'TestPage.PAGE.Liens.CODE.lienClass.WebHome')
-#set($dataSpace = 'TestPage.PAGE.Liens.DATA.LIENDATA')
+## BEGIN LIENS LOCATION
+## Seule valeur à adapter, identique dans l'affichage et DATA (racine dans ce wiki).
+#set($liensRoot = 'TestPage.PAGE.Liens')
+#set($classPath = $liensRoot.concat('.CODE.lienClass.WebHome'))
+#set($configurationClass = $liensRoot.concat('.CODE.liensConfigurationClass.WebHome'))
+#set($configurationRef = $liensRoot.concat('.CODE.Configuration.WebHome'))
+#set($liensExtensionRef = $liensRoot.concat('.CODE.GlossaireExtension'))
+#set($liensDataRef = $liensRoot.concat('.DATA.WebHome'))
+#set($dataSpace = $liensRoot.concat('.DATA.LIENDATA'))
+#set($liensHomeRef = $liensRoot.concat('.WebHome'))
+## Utiliser les références XWiki pour construire aussi les listes d'espaces.
+#set($liensRootReference = $services.model.resolveDocument($liensHomeRef))
+#set($liensWiki = $liensRootReference.wikiReference.name)
+#set($liensDataSpaces = [])
+#foreach($rootSpace in $liensRootReference.spaceReferences)
+  #set($discard = $liensDataSpaces.add($rootSpace.name))
+#end
+#set($discard = $liensDataSpaces.add('DATA'))
+#set($discard = $liensDataSpaces.add('LIENDATA'))
+## END LIENS LOCATION
 
 ## Appel des extensions de peau (Skin Extensions) JavaScript et CSS
-$xwiki.jsx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
-$xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
+$xwiki.jsx.use($liensExtensionRef)
+$xwiki.ssx.use($liensExtensionRef)
 
 #set($discard = $xwiki.jsx.use('uicomponents/suggest/xwiki.selectize.js'))
 
@@ -14,8 +32,6 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
 #set($userId = $userDoc.name)
 
 ## BEGIN LIENS PERMISSIONS — bloc identique dans l'affichage et DATA.
-#set($configurationClass = 'TestPage.PAGE.Liens.CODE.liensConfigurationClass.WebHome')
-#set($configurationRef = 'TestPage.PAGE.Liens.CODE.Configuration.WebHome')
 #set($currentUserReference = $xcontext.userReference)
 #set($isAuthenticated = $currentUserReference && $currentUserReference.name != 'XWikiGuest')
 #set($canConfigure = $xwiki.hasWikiAdminRights())
@@ -136,7 +152,7 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
 #macro(liensFindDestination $destinationSpaces $sourcePage)
   #set($candidateReference = false)
   #set($candidateDoc = false)
-  #set($destinationRoot = $services.model.createDocumentReference('', $destinationSpaces, 'WebHome'))
+  #set($destinationRoot = $services.model.createDocumentReference($liensWiki, $destinationSpaces, 'WebHome'))
   #set($destinationSpace = $services.model.serialize($destinationRoot.parent))
   #set($hasStableAddress = false)
   #if($sourcePage && $sourcePage.name.matches('[A-Za-z0-9]{16}'))
@@ -150,7 +166,7 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
       #set($candidateName = $xwiki.getUniquePageName($destinationSpace))
     #end
     #if($candidateName.matches('[A-Za-z0-9]{16}'))
-      #set($candidate = $services.model.createDocumentReference('', $destinationSpaces, $candidateName))
+      #set($candidate = $services.model.createDocumentReference($liensWiki, $destinationSpaces, $candidateName))
       #set($candidateDoc = $xwiki.getDocument($candidate))
       #if($sourcePage && $candidate.equals($sourcePage.documentReference))
         #set($candidateReference = $candidate)
@@ -160,7 +176,7 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
       #set($nestedSpaces = [])
       #set($discard = $nestedSpaces.addAll($destinationSpaces))
       #set($discard = $nestedSpaces.add($candidateName))
-      #set($nestedReference = $services.model.createDocumentReference('', $nestedSpaces, 'WebHome'))
+      #set($nestedReference = $services.model.createDocumentReference($liensWiki, $nestedSpaces, 'WebHome'))
       #if($candidateDoc.isNew() && $xwiki.getDocument($nestedReference).isNew())
         #set($candidateReference = $candidate)
         #break
@@ -181,7 +197,7 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
 #end
 ## END LIENS ADDRESSES
 #liensLoadAuthors()
-#set($urlLiensData = $xwiki.getURL('TestPage.PAGE.Liens.DATA.WebHome', 'view'))
+#set($urlLiensData = $xwiki.getURL($liensDataRef, 'view'))
 #if("$!request.getParameter('action')" == 'checkAndCreate')
   #set($createError = '')
   #set($acronymeInput = "$!request.getParameter('acronyme')")
@@ -201,12 +217,14 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
   #elseif(($typeInput == 'commun' && !$canWriteCommon) || ($typeInput == 'personnel' && !$canWritePersonal))
     #set($createError = 'Vous ne disposez pas du droit d’écriture pour cet onglet.')
   #else
-    #set($ownerSpaces = ['TestPage', 'PAGE', 'Liens', 'DATA', 'LIENDATA', $userId])
+    #set($ownerSpaces = [])
+    #set($discard = $ownerSpaces.addAll($liensDataSpaces))
+    #set($discard = $ownerSpaces.add($userId))
     #set($alreadyExists = false)
-    #set($ownerRoot = $services.model.createDocumentReference('', $ownerSpaces, 'WebHome'))
+    #set($ownerRoot = $services.model.createDocumentReference($liensWiki, $ownerSpaces, 'WebHome'))
     #set($ownerSpace = $services.model.serialize($ownerRoot.parent))
     #foreach($existingName in $xwiki.getSpaceDocsName($ownerSpace))
-      #set($existingReference = $services.model.createDocumentReference('', $ownerSpaces, $existingName))
+      #set($existingReference = $services.model.createDocumentReference($liensWiki, $ownerSpaces, $existingName))
       #set($existingObject = false)
       #set($existingObject = $xwiki.getDocument($existingReference).getObject($classPath))
       #if($existingObject && "$!existingObject.getValue('nom_lien')" == $acronymeInput)
@@ -316,8 +334,8 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
 
 #set($documentRefs = [])
 #if($canReadPersonal || $canReadCommon)
-  #set($statement = "select distinct doc.fullName from Document doc, doc.object($classPath) obj")
-  #set($documentRefs = $services.query.xwql($statement).execute())
+  #set($statement = 'select distinct doc.fullName from XWikiDocument doc, BaseObject obj where obj.name = doc.fullName and obj.className = :className')
+  #set($documentRefs = $services.query.hql($statement).bindValue('className', $classPath).execute())
 #end
 
 ## ----- TAB1 ----- ##
@@ -802,10 +820,8 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
                     </tr>
                   </thead>
                   <tbody>
-                    ## 2. On cherche TOUS les documents qui possèdent cette classe spécifique
-                    #set ($statement = "select distinct doc.fullName from Document doc, doc.object($classPath) obj")
-                    #set ($query = $services.query.xwql($statement))
-                    #set ($documentNames = $query.execute())
+                    ## Réutiliser la liste liée à la classe de cette racine.
+                    #set($documentNames = $documentRefs)
                     ## 3. On boucle sur chaque document trouvé
                     #foreach ($docName in $documentNames)
 
@@ -847,7 +863,6 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
 
 #end
 
-#set($urlLiensData = $xwiki.getURL("TestPage.PAGE.Liens.DATA.WebHome", "view"))
 
 <script type="text/javascript">
   // Variable globale accessible par votre extension JS
@@ -886,6 +901,7 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
         <input type="hidden" name="expectedVersion" value="$escapetool.xml($!configuration.version)">
         <input type="hidden" name="groupCount" value="$settingsGroups.size()">
         <input type="hidden" name="settingsForm" value="true">
+        <input type="hidden" name="returnTo" value="$escapetool.xml($doc.fullName)">
         <div class="modal-body">
           <p>Les droits des groupes se cumulent. L’écriture inclut la lecture. Écrire dans Commun permet aussi d’écrire dans Personnel. Sans lecture, l’onglet n’apparaît pas.</p>
           <p>Personnel contient uniquement les liens de l’utilisateur connecté.</p>

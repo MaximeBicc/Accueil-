@@ -18,11 +18,19 @@ public class LiensVelocityTest {
     final String parent, name;
     Ref(String parent, String name) { this.parent = parent; this.name = name; }
     public String getParent() { return parent; }
+    public List<SpaceRef> getSpaceReferences() {
+      String spaces = parent.contains(":") ? parent.substring(parent.indexOf(":") + 1) : parent;
+      return Arrays.stream(spaces.split("\\.")).map(SpaceRef::new).toList();
+    }
     public WikiRef getWikiReference() { return new WikiRef(parent.contains(":") ? parent.substring(0, parent.indexOf(":")) : "xwiki"); }
     public String getName() { return name; }
     public String toString() { return parent + "." + name.replace("\\", "\\\\").replace(".", "\\."); }
     public boolean equals(Object other) { return other instanceof Ref r && parent.equals(r.parent) && name.equals(r.name); }
     public int hashCode() { return Objects.hash(parent, name); }
+  }
+  public static class SpaceRef {
+    final String name; SpaceRef(String name) { this.name = name; }
+    public String getName() { return name; }
   }
   public static class WikiRef {
     final String name; WikiRef(String name) { this.name = name; }
@@ -58,26 +66,28 @@ public class LiensVelocityTest {
     final Wiki wiki; final Ref ref; Obj obj; String objClass = "", title = "", content = ""; int saves;
     Doc(Wiki wiki, Ref ref) { this.wiki = wiki; this.ref = ref; }
     public boolean isNew() { return !wiki.docs.containsKey(ref) && !wiki.profiles.containsKey(ref); }
-    public Obj getObject(String type) { return objClass.equals(type) || (objClass.equals("") && type.endsWith("lienClass.WebHome")) ? obj : null; }
+    public Obj getObject(String type) { return objClass.equals(type) || (objClass.equals("") && type.equals("TestPage.PAGE.Liens.CODE.lienClass.WebHome")) ? obj : null; }
     public Obj newObject(String type) { obj = new Obj(); objClass = type; obj.missingField = wiki.missingField; return obj; }
     public String getFullName() { return ref.toString(); }
     public String getName() { return ref.name; }
     public String getContent() { return content; }
     public void setContent(String value) { content = value; }
     public Ref getDocumentReference() { return ref; }
-    public String getURL() { return "/liens"; }
-    public String getURL(String name) { return "/liens"; }
+    public String getURL() { return wiki.getURL(getFullName(), "view"); }
+    public String getURL(String name) { return wiki.getURL(getFullName(), name); }
     public void setTitle(String value) { title = value; }
     public void save(String message, boolean minor) {
       if (!wiki.refuseSave) { saves++; (objClass.equals("XWiki.XWikiUsers") ? wiki.profiles : wiki.docs).put(ref, this); }
     }
     public String getVersion() { return "1." + (saves + 1); }
   }
-  public static class Extension { public void use(String ignored) {} }
+  public static class Extension { final List<String> refs = new ArrayList<>(); public void use(String reference) { refs.add(reference); } }
   public static class Wiki {
     final Map<Ref, Doc> docs = new LinkedHashMap<>();
     final Map<Ref, Doc> profiles = new LinkedHashMap<>();
     boolean allowed = true, admin, configurationReadable = true, refuseSave, emptyUserQuery; String missingField = "";
+    final Extension jsx = new Extension(), ssx = new Extension();
+    final List<String> queriedClasses = new ArrayList<>();
     final Deque<String> pageNames = new ArrayDeque<>();
     int uniqueCalls;
     public String getUniquePageName(String space) {
@@ -87,10 +97,11 @@ public class LiensVelocityTest {
     public boolean hasWikiAdminRights() { return admin; }
     public Doc getDocumentAsAuthor(Object ref) { return configurationReadable ? getDocument(ref) : null; }
     public String getURL(String ref, String action) {
-      return ref.equals("TestPage.PAGE.Liens.DATA.WebHome") ? "/bin/view/TestPage/PAGE/Liens/DATA/" : "/liens";
+      if (ref.equals("TestPage.PAGE.Lien-test.WebHome")) return "/liens";
+      return "/bin/view/" + ref.replace(".WebHome", "").replace('.', '/') + "/";
     }
-    public Extension getJsx() { return new Extension(); }
-    public Extension getSsx() { return new Extension(); }
+    public Extension getJsx() { return jsx; }
+    public Extension getSsx() { return ssx; }
     public Doc getDocument(Object ref) {
       Ref reference = ref instanceof Ref r ? r : new Model().resolveDocument(String.valueOf(ref));
       return docs.getOrDefault(reference, profiles.getOrDefault(reference, new Doc(this, reference)));
@@ -131,7 +142,8 @@ public class LiensVelocityTest {
     final StringWriter body = new StringWriter(); final PrintWriter writer = new PrintWriter(body);
     public PrintWriter getWriter() { return writer; }
     public void setContentType(String type) {}
-    public void sendRedirect(String url) {}
+    String redirect;
+    public void sendRedirect(String url) { redirect = url; }
   }
   public static class Context {
     String user = "XWiki.Test";
@@ -194,6 +206,7 @@ public class LiensVelocityTest {
   public static class Fixture {
     final Wiki wiki = new Wiki(); final Request request = new Request(); final Refactoring refactoring = new Refactoring(wiki);
     final Groups groups = new Groups(); final Context userContext = new Context();
+    String moduleRoot = "TestPage.PAGE.Liens", displayRef = "TestPage.PAGE.Lien-test.WebHome", lastRedirect;
     Fixture() {
       request.params.put("form_token", "test-token");
       wiki.profile("Test", "Test", ""); wiki.profile("Autre", "Autre", "auteur");
@@ -203,11 +216,13 @@ public class LiensVelocityTest {
       for (int i = 0; i < pairs.length; i += 2) request.params.put(pairs[i], pairs[i + 1]);
       Response response = new Response(); VelocityContext context = new VelocityContext();
       context.put("xwiki", wiki); context.put("request", request); context.put("response", response);
-      context.put("doc", wiki.getDocument(new Ref("TestPage.PAGE.Lien-test", "WebHome")));
+      context.put("doc", wiki.getDocument(filename.startsWith("DATA/") ? moduleRoot + ".DATA.WebHome" : displayRef));
       context.put("xcontext", userContext); context.put("escapetool", new Escape());
       context.put("services", Map.of("model", new Model(), "csrf", new Csrf(), "refactoring", refactoring, "icon", new Icon(), "user", new UserService(groups), "query", new Queries(wiki)));
       String template = Files.readString(ROOT.resolve(filename.equals("WebHome.xwiki") ? "Lien-test/WebHome.xwiki" : "Liens/" + filename)).replaceAll("\\{\\{[^}]*}}", "");
+      template = template.replace("#set($liensRoot = 'TestPage.PAGE.Liens')", "#set($liensRoot = '" + moduleRoot + "')");
       StringWriter output = new StringWriter(); ENGINE.evaluate(context, output, filename, template);
+      lastRedirect = response.redirect;
       return filename.startsWith("DATA/") ? response.body.toString().trim() : output.toString();
     }
     String save(String source, String acronym) throws Exception {
@@ -251,16 +266,21 @@ public class LiensVelocityTest {
   public static class Queries {
     final Wiki wiki; Queries(Wiki wiki) { this.wiki = wiki; }
     String query;
-    public Queries xwql(String query) { this.query = query; return this; }
+    final Map<String, String> bindings = new HashMap<>();
+    public Queries xwql(String query) { this.query = query; bindings.clear(); return this; }
+    public Queries hql(String query) { return xwql(query); }
+    public Queries bindValue(String name, String value) { bindings.put(name, value); return this; }
     public List<String> execute() {
       if (query.contains("XWiki.XWikiUsers")) return wiki.emptyUserQuery ? List.of() : wiki.profiles.values().stream().map(Doc::getFullName).sorted().toList();
-      return wiki.docs.values().stream().filter(d -> query.contains("XWiki.XWikiGroups") ? d.objClass.equals("XWiki.XWikiGroups") : d.getObject("TestPage.PAGE.Liens.CODE.lienClass.WebHome") != null).map(Doc::getFullName).toList();
+      String recordClass = bindings.getOrDefault("className", "TestPage.PAGE.Liens.CODE.lienClass.WebHome");
+      if (bindings.containsKey("className")) wiki.queriedClasses.add(recordClass);
+      return wiki.docs.values().stream().filter(d -> query.contains("XWiki.XWikiGroups") ? d.objClass.equals("XWiki.XWikiGroups") : d.getObject(recordClass) != null).map(Doc::getFullName).toList();
     }
   }
   static final String CONFIG_CLASS = "TestPage.PAGE.Liens.CODE.liensConfigurationClass.WebHome";
   static final String CONFIG_REF = "TestPage.PAGE.Liens.CODE.Configuration.WebHome";
   static Doc configure(Fixture f, int personal, int common) {
-    Doc configuration = f.wiki.getDocument(CONFIG_REF); Obj object = configuration.newObject(CONFIG_CLASS);
+    Doc configuration = f.wiki.getDocument(f.moduleRoot + ".CODE.Configuration.WebHome"); Obj object = configuration.newObject(f.moduleRoot + ".CODE.liensConfigurationClass.WebHome");
     object.set("schemaVersion", "1");
     object.set("personalReadGroups", personal > 0 ? "XWiki.XWikiAllGroup" : "");
     object.set("personalWriteGroups", personal == 2 ? "XWiki.XWikiAllGroup" : "");
@@ -272,7 +292,7 @@ public class LiensVelocityTest {
     Doc d = f.wiki.add("COMMUN", "COMMUN"); d.obj.set("type", "commun"); return d;
   }
   static String settings(Fixture f, String group, String personal, String common) throws Exception {
-    return f.render("DATA/WebHome.xwiki", "settings", "expectedVersion", f.wiki.getDocument(CONFIG_REF).getVersion(), "groupCount", "1", "group_0", group, "personal_0", personal, "common_0", common);
+    return f.render("DATA/WebHome.xwiki", "settings", "expectedVersion", f.wiki.getDocument(f.moduleRoot + ".CODE.Configuration.WebHome").getVersion(), "groupCount", "1", "group_0", group, "personal_0", personal, "common_0", common);
   }
   static void permissionsTests(String outputPath) throws Exception {
     String homeSource = Files.readString(ROOT.resolve("Lien-test/WebHome.xwiki"));
@@ -565,6 +585,56 @@ public class LiensVelocityTest {
     result = f.render("DATA/WebHome.xwiki", "save", "targetRef", first.getFullName(), "acronym", "SITE", "proprietaire", "Autre");
     check(result.equals("ERREUR_NOM_INDISPONIBLE") && !first.isNew() && conflict.saves == 1 && f.refactoring.calls == 0, "déplacement stable refusé en cas de collision sans écraser ni modifier l'identifiant");
   }
+  static void relocationTests(String outputPath) throws Exception {
+    String home = Files.readString(ROOT.resolve("Lien-test/WebHome.xwiki"));
+    String data = Files.readString(ROOT.resolve("Liens/DATA/WebHome.xwiki"));
+    String begin = "## BEGIN LIENS LOCATION", end = "## END LIENS LOCATION";
+    check(home.substring(home.indexOf(begin), home.indexOf(end)).equals(data.substring(data.indexOf(begin), data.indexOf(end))), "même définition de racine et références dans les deux templates");
+    for (String template : List.of(home, data)) {
+      check(template.split("TestPage", -1).length == 2 && !template.contains("['TestPage'"), "un seul emplacement à adapter par template, sans liste de stockage fixe");
+    }
+    for (String root : List.of("MonEspace.Liens", "Mon espace.Documentation utile.Liens")) {
+      Fixture f = new Fixture(); f.moduleRoot = root; f.displayRef = root.equals("MonEspace.Liens") ? root + ".Portail.WebHome" : "Tableau de bord.Liens.WebHome"; f.wiki.admin = true;
+      configure(f, 2, 2);
+      Doc former = f.wiki.add("ANCIEN_MODULE", "ANCIEN_MODULE");
+      String result = f.render("DATA/WebHome.xwiki", "create", "acronym", "NOUVEAU_MODULE", "label", "Informatique", "definition", "Description", "type", "commun", "proprietaire", "Test");
+      check(result.startsWith("GLOSSAIRE_OK|"), "import sous la nouvelle racine " + root + " : " + result);
+      Doc created = savedDoc(f, result);
+      check(created.ref.parent.equals(root + ".DATA.LIENDATA.Test") && created.objClass.equals(root + ".CODE.lienClass.WebHome"), "emplacement et classe dérivés de la même racine " + root);
+      String html = f.render("WebHome.xwiki", "");
+      check(html.contains(">NOUVEAU_MODULE<") && !html.contains(">ANCIEN_MODULE<"), "affichage lié à la classe de la nouvelle installation " + root);
+      check(html.contains("data-endpoint-url=\"" + f.wiki.getURL(root + ".DATA.WebHome", "view") + "\"") && html.contains("var urlLienData = \"" + f.wiki.getURL(root + ".DATA.WebHome", "view")), "HTML et JavaScript partagent l'adresse DATA déplacée " + root);
+      check(f.wiki.jsx.refs.contains(root + ".CODE.GlossaireExtension") && f.wiki.ssx.refs.contains(root + ".CODE.GlossaireExtension"), "extensions JavaScript et CSS chargées sous la nouvelle racine " + root);
+      check(html.contains("name=\"returnTo\" value=\"" + f.displayRef + "\""), "formulaire mémorise l'adresse réelle de l'affichage " + root);
+      result = f.render("DATA/WebHome.xwiki", "listVisible");
+      check(result.contains("|NOUVEAU_MODULE|") && !result.contains("ANCIEN_MODULE") && f.wiki.queriedClasses.stream().allMatch(value -> value.equals(root + ".CODE.lienClass.WebHome")), "liste DATA et requêtes paramétrées utilisent la nouvelle classe " + root);
+      result = f.save(created.getFullName(), "MODIFIÉ");
+      check(result.startsWith("GLOSSAIRE_OK|") && savedDoc(f, result).ref.equals(created.ref), "édition stable après déplacement du module " + root);
+      f.render("WebHome.xwiki", "checkAndCreate", "acronyme", "MANUEL_DÉPLACÉ", "libelle", "Informatique", "definition", "Description", "type", "personnel");
+      Doc manual = f.wiki.docs.values().stream().filter(d -> d.obj != null && d.obj.getValue("nom_lien").equals("MANUEL_DÉPLACÉ")).findFirst().orElseThrow();
+      check(manual.ref.parent.equals(root + ".DATA.LIENDATA.Test") && manual.objClass.equals(root + ".CODE.lienClass.WebHome"), "création manuelle sous la même racine " + root);
+      result = f.render("DATA/WebHome.xwiki", "save", "targetRef", created.getFullName(), "acronym", "COMMUN_DÉPLACÉ", "type", "commun", "proprietaire", "Autre");
+      Doc transferred = savedDoc(f, result);
+      check(transferred.ref.parent.equals(root + ".DATA.LIENDATA.Autre") && transferred.ref.name.equals(created.ref.name), "changement d'auteur dans la nouvelle installation " + root);
+      check(f.delete(transferred.getFullName()).equals("GLOSSAIRE_OK") && transferred.isNew() && !former.isNew(), "suppression dans la nouvelle installation sans toucher à l'ancienne " + root);
+      // Un objet resté attaché à l'ancienne classe explique des tableaux vides.
+      manual.objClass = "TestPage.PAGE.Liens.CODE.lienClass.WebHome";
+      check(!f.render("WebHome.xwiki", "").contains("data-full-ref=\"" + manual.getFullName() + "\""), "une fiche avec une ancienne classe ne correspond pas au nouveau module");
+      manual.objClass = root + ".CODE.lienClass.WebHome";
+      check(f.render("WebHome.xwiki", "").contains("data-full-ref=\"" + manual.getFullName() + "\""), "référence de classe corrigée : fiche affichée");
+      f.request.params.put("settingsForm", "true"); f.request.params.put("returnTo", f.displayRef);
+      result = settings(f, "XWiki.XWikiAllGroup", "2", "2");
+      check(f.lastRedirect.equals(f.wiki.getURL(f.displayRef, "view")), "retour sans JavaScript vers la page réelle après paramètres " + root);
+      f.request.params.put("returnTo", "autre:XWiki.WebHome");
+      settings(f, "XWiki.XWikiAllGroup", "2", "2");
+      check(f.lastRedirect.equals(f.wiki.getURL(root + ".WebHome", "view")), "retour limité au wiki de l'installation " + root);
+      if (outputPath != null && root.equals("MonEspace.Liens")) {
+        f.request.params.clear(); f.request.params.put("form_token", "test-token");
+        Files.writeString(Path.of(outputPath + ".relocated.html"), f.render("WebHome.xwiki", ""));
+        Files.writeString(Path.of(outputPath + ".relocated-authors.txt"), f.render("DATA/WebHome.xwiki", "listAuthors"));
+      }
+    }
+  }
   public static void main(String[] args) throws Exception {
     ENGINE.init();
     Fixture f = new Fixture(); Doc source = f.wiki.add("API", "API");
@@ -645,6 +715,7 @@ public class LiensVelocityTest {
     authorTests();
     ownerIdTests();
     stableAddressTests();
+    relocationTests(args.length > 0 ? args[0] : null);
     System.out.println(checks + " vérifications Velocity réussies.");
   }
 }

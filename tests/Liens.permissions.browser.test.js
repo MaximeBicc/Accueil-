@@ -23,12 +23,13 @@ function check(value, expected, message) { assert.deepEqual(value, expected, mes
       let settingsType = 'text/plain';
       let settingsResult = 'LIENS_ERROR|' + encodeURIComponent('Erreur de configuration test');
       const html = fs.readFileSync(generated + suffix, 'utf8');
+      const endpointPath = suffix === '.relocated.html' ? '/bin/view/MonEspace/Liens/DATA/' : '/bin/view/TestPage/PAGE/Liens/DATA/';
       const flags = ['read-personal', 'write-personal', 'read-common', 'write-common'].map(key => html.includes(`data-can-${key}="true"`));
       page.on('pageerror', error => errors.push(error.message));
       await page.route('https://wiki.test/**', async route => {
         if (route.request().method() === 'POST') {
           // XWiki rejette les URL invalides avant d'exécuter le template DATA.
-          if (new URL(route.request().url()).pathname !== '/bin/view/TestPage/PAGE/Liens/DATA/') {
+          if (new URL(route.request().url()).pathname !== endpointPath) {
             return route.fulfill({ status: 400, contentType: 'text/html', body: '<p class="errormessage">Requête invalide</p>' });
           }
           const contentType = route.request().headers()['content-type'] || '';
@@ -38,7 +39,14 @@ function check(value, expected, message) { assert.deepEqual(value, expected, mes
             : Object.fromEntries(Array.from(bodyText.matchAll(/name="([^"]+)"\r\n\r\n([\s\S]*?)\r\n--/g), match => [match[1], match[2]]));
           transports.push(contentType);
           posts.push(values);
-          const body = values.action === 'settings' ? settingsResult : 'LIEN_LIST_OK|Test|' + flags[3] + '|' + flags.join('|');
+          let body = values.action === 'settings' ? settingsResult : 'LIEN_LIST_OK|Test|' + flags[3] + '|' + flags.join('|');
+          if (suffix === '.relocated.html') {
+            if (values.action === 'listAuthors') body = fs.readFileSync(generated + '.relocated-authors.txt', 'utf8');
+            if (values.action === 'save' || values.action === 'create') {
+              const reference = values.targetRef || 'MonEspace.Liens.DATA.LIENDATA.Test.abcdefghijklmnop';
+              body = 'GLOSSAIRE_OK|' + encodeURIComponent(reference) + '|' + encodeURIComponent(reference.split('.').at(-1));
+            }
+          }
           return route.fulfill({ status: values.action === 'settings' ? settingsStatus : 200, contentType: values.action === 'settings' ? settingsType : 'text/plain', body });
         }
         const before = '<!doctype html><html><head><meta charset="utf-8"><style>' + asset('bootstrap.css') + css + '</style><script>' + asset('jquery.js') + '</script><script>' + asset('bootstrap.js') + '</script>';
@@ -171,6 +179,40 @@ function check(value, expected, message) { assert.deepEqual(value, expected, mes
     check(admin.posts.at(-1).groupCount, '42', 'tous les groupes sont envoyés');
     check(admin.errors, [], 'aucune exception paramètres');
     await admin.page.close();
+    const moved = await open('.relocated.html');
+    check(await moved.page.locator('.liens-page').getAttribute('data-endpoint-url'), '/bin/view/MonEspace/Liens/DATA/', 'racine déplacée : adresse DATA du HTML');
+    check(await moved.page.evaluate(() => urlLienData), '/bin/view/MonEspace/Liens/DATA/', 'racine déplacée : adresse DATA des extensions');
+    check(await moved.page.locator('#mainGlossaryTable').getAttribute('data-class-path'), 'MonEspace.Liens.CODE.lienClass.WebHome', 'racine déplacée : classe transmise à l’éditeur');
+    const movedRow = moved.page.locator('#mainGlossaryTable .main-term-row').first();
+    check(await movedRow.isVisible(), true, 'racine déplacée : fiche visible');
+    await movedRow.locator('.view-buttons button').first().click();
+    await movedRow.locator('.edit-definition').fill('Description après déplacement');
+    const [editResponse] = await Promise.all([
+      moved.page.waitForResponse(response => response.request().method() === 'POST'),
+      movedRow.locator('.edit-buttons button').first().click()
+    ]);
+    check(new URL(editResponse.url()).pathname, '/bin/view/MonEspace/Liens/DATA/', 'racine déplacée : édition vers le nouvel endpoint uniquement');
+    await moved.page.waitForFunction(() => document.querySelector('#mainGlossaryTable .main-definition .view-mode').textContent === 'Description après déplacement');
+    check(moved.posts.find(post => post.action === 'save').className, 'MonEspace.Liens.CODE.lienClass.WebHome', 'racine déplacée : édition avec la nouvelle classe');
+    check(moved.posts.find(post => post.action === 'save').targetRef.startsWith('MonEspace.Liens.DATA.LIENDATA.Test.'), true, 'racine déplacée : édition de la bonne fiche');
+    await moved.page.addScriptTag({ content: asset('sheetjs.js') });
+    const movedBytes = await moved.page.evaluate(() => {
+      const sheet = XLSX.utils.aoa_to_sheet([['Liens', 'Domaine', 'Définition', 'Type', 'Auteur'], ['Partage équipe', 'Informatique', 'Dossier partagé', 'personnel', 'Test']]);
+      const book = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(book, sheet, 'Liens');
+      return Array.from(new Uint8Array(XLSX.write(book, { type: 'array', bookType: 'xlsx' })));
+    });
+    await moved.page.locator('#excelLiensFileInput').setInputFiles({ name: 'deplacement.xlsx', buffer: Buffer.from(movedBytes) });
+    await moved.page.waitForSelector('#excelLiensModal.in');
+    check(await moved.page.locator('#excelLiensPreviewBody tr').count(), 1, 'racine déplacée : aperçu Excel utilisable');
+    await Promise.all([moved.page.waitForEvent('load'), moved.page.click('#btnConfirmExcelLiensImport')]);
+    check(moved.posts.filter(post => post.action === 'create').length, 1, 'racine déplacée : import transmis à DATA');
+    await moved.page.click('#btnLiensSettings');
+    await moved.page.waitForSelector('#liensSettingsModal.in');
+    await moved.page.locator('#liensSettingsForm button[type="submit"]').click();
+    await moved.page.waitForFunction(() => document.querySelector('.liens-settings-feedback').textContent.includes('Erreur de configuration test'));
+    check(moved.posts.find(post => post.action === 'settings').returnTo, 'MonEspace.Liens.Portail.WebHome', 'racine déplacée : retour vers l’emplacement réel de l’affichage');
+    check(moved.errors, [], 'racine déplacée : aucune exception JavaScript');
+    await moved.page.close();
     console.log(`${checks} vérifications des droits dans Chromium réussies.`);
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });
