@@ -18,14 +18,20 @@ public class LiensVelocityTest {
     final String parent, name;
     Ref(String parent, String name) { this.parent = parent; this.name = name; }
     public String getParent() { return parent; }
+    public WikiRef getWikiReference() { return new WikiRef(parent.contains(":") ? parent.substring(0, parent.indexOf(":")) : "xwiki"); }
     public String getName() { return name; }
     public String toString() { return parent + "." + name.replace("\\", "\\\\").replace(".", "\\."); }
     public boolean equals(Object other) { return other instanceof Ref r && parent.equals(r.parent) && name.equals(r.name); }
     public int hashCode() { return Objects.hash(parent, name); }
   }
+  public static class WikiRef {
+    final String name; WikiRef(String name) { this.name = name; }
+    public String getName() { return name; }
+  }
   public static class Model {
     public Ref createDocumentReference(String wiki, List<String> spaces, String name) { return new Ref(String.join(".", spaces), name); }
     public Ref resolveDocument(String text) {
+      if (text.startsWith("xwiki:")) text = text.substring(6);
       int cut = -1;
       boolean escaped = false;
       for (int i = 0; i < text.length(); i++) {
@@ -41,27 +47,32 @@ public class LiensVelocityTest {
   }
   public static class Obj {
     final Map<String, String> values = new HashMap<>();
+    String missingField = "";
     public String getValue(String key) { return values.getOrDefault(key, ""); }
-    public void set(String key, String value) { values.put(key, value); }
+    public void set(String key, String value) { if (!key.equals(missingField)) values.put(key, value); }
   }
   public static class Doc {
-    final Wiki wiki; final Ref ref; Obj obj; String title = "";
+    final Wiki wiki; final Ref ref; Obj obj; String objClass = "", title = ""; int saves;
     Doc(Wiki wiki, Ref ref) { this.wiki = wiki; this.ref = ref; }
     public boolean isNew() { return !wiki.docs.containsKey(ref); }
-    public Obj getObject(String ignored) { return obj; }
-    public Obj newObject(String ignored) { obj = new Obj(); return obj; }
+    public Obj getObject(String type) { return objClass.equals(type) || (objClass.equals("") && type.endsWith("lienClass.WebHome")) ? obj : null; }
+    public Obj newObject(String type) { obj = new Obj(); objClass = type; obj.missingField = wiki.missingField; return obj; }
     public String getFullName() { return ref.toString(); }
     public String getName() { return ref.name; }
     public Ref getDocumentReference() { return ref; }
     public String getURL() { return "/liens"; }
     public String getURL(String name) { return "/liens"; }
     public void setTitle(String value) { title = value; }
-    public void save(String message, boolean minor) { wiki.docs.put(ref, this); }
+    public void save(String message, boolean minor) { if (!wiki.refuseSave) { saves++; wiki.docs.put(ref, this); } }
+    public String getVersion() { return "1." + (saves + 1); }
   }
   public static class Extension { public void use(String ignored) {} }
   public static class Wiki {
     final Map<Ref, Doc> docs = new LinkedHashMap<>();
-    boolean allowed = true;
+    boolean allowed = true, admin, configurationReadable = true, refuseSave; String missingField = "";
+    public boolean hasWikiAdminRights() { return admin; }
+    public Doc getDocumentAsAuthor(Object ref) { return configurationReadable ? getDocument(ref) : null; }
+    public String getURL(String ref, String action) { return "/liens"; }
     public Extension getJsx() { return new Extension(); }
     public Extension getSsx() { return new Extension(); }
     public Doc getDocument(Object ref) {
@@ -103,7 +114,9 @@ public class LiensVelocityTest {
     public void sendRedirect(String url) {}
   }
   public static class Context {
-    public String getUser() { return "XWiki.Test"; }
+    String user = "XWiki.Test";
+    public String getUser() { return user; }
+    public Ref getUserReference() { return new Model().resolveDocument(user); }
     public void setFinished(boolean value) {}
   }
   public static class Escape {
@@ -148,7 +161,7 @@ public class LiensVelocityTest {
       return new Job(() -> {
         if (failure.equals("noop")) return;
         Doc source = wiki.getDocument(r.source), dest = wiki.getDocument(r.target);
-        dest.obj = source.obj; dest.save("", false);
+        dest.obj = source.obj; dest.objClass = source.objClass; dest.save("", false);
         if (!r.autoRedirect && !failure.equals("retain")) wiki.docs.remove(r.source);
       });
     }
@@ -160,15 +173,15 @@ public class LiensVelocityTest {
   }
   public static class Fixture {
     final Wiki wiki = new Wiki(); final Request request = new Request(); final Refactoring refactoring = new Refactoring(wiki);
-    final Groups groups = new Groups();
+    final Groups groups = new Groups(); final Context userContext = new Context();
     Fixture() { request.params.put("form_token", "test-token"); }
     String render(String filename, String action, String... pairs) throws Exception {
       request.params.put("action", action);
       for (int i = 0; i < pairs.length; i += 2) request.params.put(pairs[i], pairs[i + 1]);
       Response response = new Response(); VelocityContext context = new VelocityContext();
       context.put("xwiki", wiki); context.put("request", request); context.put("response", response);
-      context.put("doc", wiki.getDocument(new Ref("TestPage.PAGE.Glossaire", "WebHome")));
-      context.put("xcontext", new Context()); context.put("escapetool", new Escape());
+      context.put("doc", wiki.getDocument(new Ref("TestPage.PAGE.Lien-test", "WebHome")));
+      context.put("xcontext", userContext); context.put("escapetool", new Escape());
       context.put("services", Map.of("model", new Model(), "csrf", new Csrf(), "refactoring", refactoring, "icon", new Icon(), "user", new UserService(groups), "query", new Queries(wiki)));
       String template = Files.readString(ROOT.resolve(filename.equals("WebHome.xwiki") ? "Lien-test/WebHome.xwiki" : "Liens/" + filename)).replaceAll("\\{\\{[^}]*}}", "");
       StringWriter output = new StringWriter(); ENGINE.evaluate(context, output, filename, template);
@@ -181,6 +194,13 @@ public class LiensVelocityTest {
   }
   public static class Groups {
     boolean manager;
+    final Set<Ref> memberships = new LinkedHashSet<>();
+    public List<Ref> getGroups(Ref user, WikiRef wiki, boolean recursive) {
+      List<Ref> result = new ArrayList<>();
+      if (manager) for (String name : List.of("XWiki.IVQ_Gestionnaires", "XWiki.IVQ_Gestionnaire")) result.add(new Model().resolveDocument(name));
+      for (Ref group : memberships) if (group.getWikiReference().name.equals(wiki.name)) result.add(group);
+      return result;
+    }
     public List<String> getMembers(String name, boolean recursive) { return manager ? List.of("XWiki.Test") : List.of(); }
   }
   public static class UserService {
@@ -189,9 +209,132 @@ public class LiensVelocityTest {
   }
   public static class Queries {
     final Wiki wiki; Queries(Wiki wiki) { this.wiki = wiki; }
-    public Queries xwql(String query) { return this; }
-    public List<String> execute() { return wiki.docs.keySet().stream().map(Ref::toString).toList(); }
+    String query;
+    public Queries xwql(String query) { this.query = query; return this; }
+    public List<String> execute() { return wiki.docs.values().stream().filter(d -> query.contains("XWiki.XWikiGroups") ? d.objClass.equals("XWiki.XWikiGroups") : d.getObject("TestPage.PAGE.Liens.CODE.lienClass.WebHome") != null).map(Doc::getFullName).toList(); }
   }
+  static final String CONFIG_CLASS = "TestPage.PAGE.Liens.CODE.liensConfigurationClass.WebHome";
+  static final String CONFIG_REF = "TestPage.PAGE.Liens.CODE.Configuration.WebHome";
+  static Doc configure(Fixture f, int personal, int common) {
+    Doc configuration = f.wiki.getDocument(CONFIG_REF); Obj object = configuration.newObject(CONFIG_CLASS);
+    object.set("schemaVersion", "1");
+    object.set("personalReadGroups", personal > 0 ? "XWiki.XWikiAllGroup" : "");
+    object.set("personalWriteGroups", personal == 2 ? "XWiki.XWikiAllGroup" : "");
+    object.set("commonReadGroups", common > 0 ? "XWiki.XWikiAllGroup" : "");
+    object.set("commonWriteGroups", common == 2 ? "XWiki.XWikiAllGroup" : "");
+    configuration.save("", false); return configuration;
+  }
+  static Doc common(Fixture f) {
+    Doc d = f.wiki.add("COMMUN", "COMMUN"); d.obj.set("type", "commun"); return d;
+  }
+  static String settings(Fixture f, String group, String personal, String common) throws Exception {
+    return f.render("DATA/WebHome.xwiki", "settings", "expectedVersion", f.wiki.getDocument(CONFIG_REF).getVersion(), "groupCount", "1", "group_0", group, "personal_0", personal, "common_0", common);
+  }
+  static void permissionsTests(String outputPath) throws Exception {
+    String homeSource = Files.readString(ROOT.resolve("Lien-test/WebHome.xwiki"));
+    String dataSource = Files.readString(ROOT.resolve("Liens/DATA/WebHome.xwiki"));
+    String marker = "## BEGIN LIENS PERMISSIONS", end = "## END LIENS PERMISSIONS";
+    check(homeSource.substring(homeSource.indexOf(marker), homeSource.indexOf(end)).equals(dataSource.substring(dataSource.indexOf(marker), dataSource.indexOf(end))), "même calcul des droits dans affichage et DATA");
+    for (int personal = 0; personal <= 2; personal++) for (int common = 0; common <= 2; common++) {
+      boolean readPersonal = personal > 0 || common == 2, writePersonal = personal == 2 || common == 2;
+      boolean readCommon = common > 0, writeCommon = common == 2;
+      Fixture f = new Fixture(); configure(f, personal, common); f.wiki.add("PRIVE", "PRIVE"); common(f);
+      String html = f.render("WebHome.xwiki", "");
+      check(html.contains("data-liens-tab=\"Tab1\"") == readPersonal && html.contains("id=\"Tab1\"") == readPersonal, "onglet Personnel " + personal + "/" + common);
+      check(html.contains("data-liens-tab=\"Tab2\"") == readCommon && html.contains("id=\"Tab2\"") == readCommon, "onglet Commun " + personal + "/" + common);
+      check(html.contains("toggleEditMode(this, true)") == writePersonal, "actions Personnel " + personal + "/" + common);
+      check(html.contains("toggleEditMode2(this, true)") == writeCommon, "actions Commun " + personal + "/" + common);
+      check(html.contains(">PRIVE<") == readPersonal && html.contains(">COMMUN<") == readCommon, "aucun texte interdit dans HTML " + personal + "/" + common);
+      String list = f.render("DATA/WebHome.xwiki", "listVisible");
+      check(list.contains("LIEN_ROW|") == (readPersonal || readCommon), "liste visible " + personal + "/" + common);
+      check(list.contains("|PRIVE|") == readPersonal && list.contains("|COMMUN|") == readCommon, "liste filtrée " + personal + "/" + common);
+      for (String kind : List.of("personnel", "commun")) for (String action : List.of("create", "save", "delete")) {
+        f = new Fixture(); configure(f, personal, common);
+        Doc source = kind.equals("personnel") ? f.wiki.add("PRIVE", "PRIVE") : common(f);
+        String result;
+        if (action.equals("delete")) result = f.delete(source.getFullName());
+        else result = f.render("DATA/WebHome.xwiki", action, "targetRef", source.getFullName(), "acronym", "NOUVEAU", "label", "Libellé", "definition", "Définition", "type", kind, "proprietaire", "Test");
+        boolean allowed = kind.equals("personnel") ? writePersonal : writeCommon;
+        check(result.startsWith("GLOSSAIRE_OK") == allowed, action + " " + kind + " " + personal + "/" + common + " : " + result);
+        if (!allowed) check(!source.isNew() && source.obj.getValue("nom_lien").equals(kind.equals("personnel") ? "PRIVE" : "COMMUN"), "refus sans mutation");
+      }
+      for (String kind : List.of("personnel", "commun")) {
+        f = new Fixture(); configure(f, personal, common);
+        int before = f.wiki.docs.size();
+        f.render("WebHome.xwiki", "checkAndCreate", "acronyme", "MANUEL", "libelle", "Manuel", "definition", "Définition", "type", kind);
+        boolean allowed = kind.equals("personnel") ? writePersonal : writeCommon;
+        check(f.wiki.docs.size() == before + (allowed ? 1 : 0), "création manuelle " + kind + " " + personal + "/" + common);
+      }
+      if (writePersonal && !writeCommon) {
+        f = new Fixture(); configure(f, personal, common); Doc source = f.wiki.add("PRIVE", "PRIVE");
+        String result = f.render("DATA/WebHome.xwiki", "save", "targetRef", source.getFullName(), "acronym", "NOUVEAU", "label", "Libellé", "definition", "Définition", "type", "commun");
+        check(!result.startsWith("GLOSSAIRE_OK") && !source.isNew() && source.obj.getValue("type").equals("personnel"), "changement vers Commun refusé sans son écriture");
+      }
+      if (outputPath != null) {
+        f = new Fixture(); configure(f, personal, common); f.wiki.add("PRIVE", "PRIVE"); common(f);
+        Files.writeString(Path.of(outputPath + ".p" + personal + "c" + common + ".html"), f.render("WebHome.xwiki", ""));
+      }
+    }
+    Fixture f = new Fixture(); configure(f, 0, 0); f.groups.manager = true; f.wiki.add("PRIVE", "PRIVE");
+    check(!f.render("DATA/WebHome.xwiki", "listVisible").contains("LIEN_ROW|"), "une configuration vide ne réactive pas les anciens gestionnaires");
+    f.wiki.admin = true;
+    String html = f.render("WebHome.xwiki", "");
+    check(html.contains("id=\"btnLiensSettings\"") && !html.contains("id=\"Tab1\"") && !html.contains("id=\"Tab2\""), "administration sans droit fonctionnel implicite");
+    if (outputPath != null) Files.writeString(Path.of(outputPath + ".admin.html"), html);
+    f = new Fixture(); configure(f, 0, 0);
+    check(settings(f, "XWiki.XWikiAllGroup", "2", "2").startsWith("LIENS_ERROR|"), "paramètres réservés à admin");
+    f.wiki.admin = true;
+    String result = settings(f, "XWiki.XWikiAllGroup", "0", "2");
+    check(result.equals("LIENS_SETTINGS_SAVED"), "enregistrement des paramètres : " + result);
+    Obj config = f.wiki.getDocument(CONFIG_REF).getObject(CONFIG_CLASS);
+    check(config.getValue("personalWriteGroups").equals("XWiki.XWikiAllGroup"), "Commun écriture implique Personnel écriture en stockage");
+    f = new Fixture(); f.wiki.admin = true;
+    check(settings(f, "XWiki.XWikiAllGroup", "1", "1").equals("LIENS_SETTINGS_SAVED") && !f.wiki.getDocument(CONFIG_REF).isNew(), "premier enregistrement crée la configuration");
+    for (String invalid : List.of("3", "proposition", "-1")) {
+      f = new Fixture(); f.wiki.admin = true;
+      check(settings(f, "XWiki.XWikiAllGroup", invalid, "0").startsWith("LIENS_ERROR|"), "niveau invalide " + invalid);
+    }
+    f = new Fixture(); f.wiki.admin = true;
+    check(settings(f, "XWiki.GroupeAbsent", "1", "0").startsWith("LIENS_ERROR|"), "groupe absent refusé");
+    check(settings(f, "XWiki.GroupeAbsent", "0", "0").equals("LIENS_SETTINGS_SAVED"), "ancien groupe absent retirable");
+    f = new Fixture(); f.wiki.admin = true;
+    check(settings(f, "XWiki.XWikiGuest", "0", "2").startsWith("LIENS_ERROR|"), "visiteurs sans écriture");
+    check(settings(f, "XWiki.XWikiGuest", "0", "1").equals("LIENS_SETTINGS_SAVED"), "lecture commune pour visiteurs");
+    f.userContext.user = "XWiki.XWikiGuest"; common(f);
+    check(f.render("DATA/WebHome.xwiki", "listVisible").contains("|COMMUN|"), "visiteur lit Commun explicitement autorisé");
+    check(!f.render("WebHome.xwiki", "").contains("id=\"Tab1\""), "aucun Personnel visiteur");
+    f = new Fixture(); f.wiki.admin = true; f.wiki.configurationReadable = false;
+    check(settings(f, "XWiki.XWikiAllGroup", "2", "2").startsWith("LIENS_ERROR|"), "configuration illisible refusée");
+    f.wiki.add("PRIVE", "PRIVE");
+    check(!f.render("WebHome.xwiki", "").contains("id=\"Tab1\""), "pas de repli permissif si configuration illisible");
+    f = new Fixture(); f.wiki.admin = true; f.wiki.missingField = "commonWriteGroups";
+    check(settings(f, "XWiki.XWikiAllGroup", "0", "2").startsWith("LIENS_ERROR|"), "classe incomplète refusée");
+    f = new Fixture(); f.wiki.admin = true; f.wiki.refuseSave = true;
+    check(settings(f, "XWiki.XWikiAllGroup", "2", "2").startsWith("LIENS_ERROR|"), "sauvegarde silencieusement annulée refusée");
+    f = new Fixture(); f.wiki.admin = true;
+    check(f.render("DATA/WebHome.xwiki", "settings", "expectedVersion", "obsolète").startsWith("LIENS_ERROR|"), "version périmée refusée");
+    f = new Fixture(); f.wiki.admin = true; f.request.method = "GET";
+    check(settings(f, "XWiki.XWikiAllGroup", "2", "2").equals("ERREUR_METHOD"), "paramètres GET refusés");
+    f.request.method = "POST"; f.request.params.put("form_token", "bad");
+    check(settings(f, "XWiki.XWikiAllGroup", "2", "2").equals("ERREUR_CSRF"), "paramètres CSRF refusés");
+    f = new Fixture(); f.wiki.admin = true;
+    check(f.render("DATA/WebHome.xwiki", "settings", "expectedVersion", "1.1", "groupCount", "2", "group_0", "XWiki.XWikiAllGroup", "personal_0", "0", "common_0", "1", "group_1", "XWiki.XWikiAllGroup", "personal_1", "2", "common_1", "2").startsWith("LIENS_ERROR|"), "doublon de groupe refusé");
+    f = new Fixture(); configure(f, 0, 0);
+    check(!f.render("DATA/WebHome.xwiki", "create", "acronym", "FORGE", "label", "Libellé", "definition", "Définition", "type", "commun", "canWriteCommon", "true").startsWith("GLOSSAIRE_OK"), "droit transmis par le navigateur ignoré");
+    f = new Fixture(); f.wiki.admin = true;
+    check(f.render("DATA/WebHome.xwiki", "settings", "expectedVersion", "1.1", "groupCount", "2", "group_0", "XWiki.XWikiAllGroup", "personal_0", "0", "common_0", "1").startsWith("LIENS_ERROR|"), "formulaire incomplet refusé");
+    f = new Fixture(); Doc configDoc = configure(f, 0, 0);
+    configDoc.obj.set("personalReadGroups", "XWiki.Lecteurs");
+    configDoc.obj.set("commonWriteGroups", "autre:XWiki.Contributeurs");
+    f.groups.memberships.add(new Model().resolveDocument("XWiki.Lecteurs"));
+    f.groups.memberships.add(new Model().resolveDocument("autre:XWiki.Contributeurs"));
+    f.wiki.add("PRIVE", "PRIVE"); common(f);
+    html = f.render("WebHome.xwiki", "");
+    check(html.contains("data-can-write-personal=\"true\"") && html.contains("data-can-write-common=\"true\""), "union des groupes et groupe autre wiki");
+    configDoc.obj.set("schemaVersion", "inconnue");
+    check(!f.render("WebHome.xwiki", "").contains("id=\"Tab1\""), "version de configuration inconnue fermée");
+  }
+
   static void check(boolean condition, String label) { if (!condition) throw new AssertionError(label); checks++; }
   public static void main(String[] args) throws Exception {
     ENGINE.init();
@@ -236,7 +379,7 @@ public class LiensVelocityTest {
     f = new Fixture();
     for (int i = 0; i < 100; i++) f.wiki.add(i == 0 ? "API" : "API_" + i, "API");
     result = f.render("DATA/WebHome.xwiki", "create", "acronym", "API", "label", "Interface", "definition", "Définition");
-    check(result.equals("ERREUR_NOM_INDISPONIBLE") && f.wiki.docs.size() == 100, "épuisement des noms");
+    check(result.equals("ERREUR_NOM_INDISPONIBLE") && f.wiki.docs.size() == 100, "épuisement des noms : " + result);
     f = new Fixture();
     String html = f.render("WebHome.xwiki", "checkAndCreate", "acronyme", "API", "libelle", "Interface", "definition", "Définition", "type", "personnel");
     check(f.wiki.docs.size() == 1, "création manuelle valide");
@@ -262,6 +405,7 @@ public class LiensVelocityTest {
     }
     for (int i = 0; i < 17; i++) { Doc row = f.wiki.add(String.format("C%02d", i), String.format("C%02d", i)); row.obj.set("type", "commun"); }
     if (args.length > 0) Files.writeString(Path.of(args[0]), f.render("WebHome.xwiki", ""));
+    permissionsTests(args.length > 0 ? args[0] : null);
     System.out.println(checks + " vérifications Velocity réussies.");
   }
 }

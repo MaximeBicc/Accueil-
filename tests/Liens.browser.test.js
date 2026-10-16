@@ -29,7 +29,7 @@ const encode = value => encodeURIComponent(value);
 const row = values => 'LIEN_ROW|' + values.map(encode).join('|');
 const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe pair', 'Définition 0', 'personnel', 'Test']) +
   row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.C00', 'C00', 'Libellé C00', 'Définition', 'commun', 'Test']) +
-  row(['TestPage.PAGE.Liens.DATA.LIENDATA.Autre.Secret', 'Secret', 'Masqué', '', 'personnel', 'Autre']) + 'LIEN_LIST_OK|Test|true';
+  row(['TestPage.PAGE.Liens.DATA.LIENDATA.Autre.Secret', 'Secret', 'Masqué', '', 'personnel', 'Autre']) + 'LIEN_LIST_OK|Test|true|true|true|true|true';
 
 (async () => {
   const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium', headless: true, args: ['--no-sandbox'] });
@@ -51,7 +51,7 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
           if (mode === 'network') return route.abort();
           if (mode === 'delay') await new Promise(resolve => setTimeout(resolve, 100));
           let body;
-          if (data.action === 'listVisible') body = manager ? list : list.replace('LIEN_LIST_OK|Test|true', 'LIEN_LIST_OK|Test|false');
+          if (data.action === 'listVisible') body = manager ? list : list.replace('LIEN_LIST_OK|Test|true|true|true|true|true', 'LIEN_LIST_OK|Test|false|true|true|true|false');
           else if (mode === 'refuse') body = 'ERREUR_SUPPRESSION';
           else if (data.action === 'save') body = 'GLOSSAIRE_OK|' + encode('TestPage.PAGE.Liens.DATA.LIENDATA.Test.' + data.acronym) + '|' + encode(data.acronym);
           else body = 'GLOSSAIRE_OK';
@@ -59,7 +59,7 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
         }
         if (request.url().endsWith('/liens')) {
           let body = html;
-          if (!manager) body = body.replace(/<option value="commun" name="type">Commun<\/option>/g, '<option value="commun" disabled>Commun</option>');
+          if (!manager) body = body.replace(/<option value="commun" name="type">Commun<\/option>/g, '<option value="commun" disabled>Commun</option>').replace('data-can-write-common="true"', 'data-can-write-common="false"');
           const prefix = '<!doctype html><html><head><meta charset="utf-8"><style>' + readAsset('bootstrap.css') + css + '</style>' +
             '<script>' + readAsset('jquery.js') + '</script><script>' + readAsset('bootstrap.js') + '</script>';
           const source = scripts.map(name => '<script>' + fs.readFileSync(path.join(root, name), 'utf8') + '</script>').join('');

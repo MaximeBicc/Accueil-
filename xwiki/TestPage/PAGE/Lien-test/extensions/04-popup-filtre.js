@@ -54,12 +54,12 @@ function parseLiensVisibleResponse(text) {
     var fields = chunks[index + 1].trim().split('|').map(function (field) {
       return decodeURIComponent(field.replace(/\+/g, ' '));
     });
-    if (marker === 'LIEN_LIST_OK|') state = { userId: fields[0], isManager: fields[1] === 'true' };
+    if (marker === 'LIEN_LIST_OK|' && fields.length >= 6) state = { userId: fields[0], canReadPersonal: fields[2] === 'true', canWritePersonal: fields[3] === 'true', canReadCommon: fields[4] === 'true', canWriteCommon: fields[5] === 'true' };
     else if (fields.length >= 6) rows.push({ ref: fields[0], acronym: fields[1], label: fields[2], definition: fields[3], type: fields[4], owner: fields[5] });
   });
   if (!state) throw new Error('Réponse listVisible invalide');
   return { state: state, rows: rows.filter(function (row) {
-    return row.type === 'commun' || (row.type === 'personnel' && row.owner === state.userId);
+    return (state.canReadCommon && row.type === 'commun') || (state.canReadPersonal && row.type === 'personnel' && row.owner === state.userId);
   }) };
 }
 (function () {

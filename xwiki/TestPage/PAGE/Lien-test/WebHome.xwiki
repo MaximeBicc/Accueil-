@@ -13,17 +13,79 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
 #set($userDoc = $xwiki.getDocument($user))
 #set($userId = $userDoc.name)
 
-## Le groupe manager pilote les mêmes fonctions dans la page et dans DATA.
-#set($managers = [])
-#set($currentUserIsManager = false)
-#foreach($group in ['XWiki.IVQ_Gestionnaires', 'XWiki.IVQ_Gestionnaire'])
-  #foreach($managerReference in $services.user.group.getMembers($group, true))
-    #set($managerDoc = $xwiki.getDocument($managerReference))
-    #if(!$managers.contains($managerReference)) #set($discard = $managers.add($managerReference)) #end
-    #if("$managerDoc.name" == "$userId") #set($currentUserIsManager = true) #end
+## BEGIN LIENS PERMISSIONS — bloc identique dans l'affichage et DATA.
+#set($configurationClass = 'TestPage.PAGE.Liens.CODE.liensConfigurationClass.WebHome')
+#set($configurationRef = 'TestPage.PAGE.Liens.CODE.Configuration.WebHome')
+#set($currentUserReference = $xcontext.userReference)
+#set($isAuthenticated = $currentUserReference && $currentUserReference.name != 'XWikiGuest')
+#set($canConfigure = $xwiki.hasWikiAdminRights())
+#set($configuration = false)
+#set($configuration = $xwiki.getDocumentAsAuthor($configurationRef))
+#set($configurationObject = false)
+#if($configuration) #set($configurationObject = $configuration.getObject($configurationClass)) #end
+#set($permissionFields = ['personalReadGroups', 'personalWriteGroups', 'commonReadGroups', 'commonWriteGroups'])
+#set($configuredGroups = {'personalReadGroups':[], 'personalWriteGroups':[], 'commonReadGroups':[], 'commonWriteGroups':[]})
+#set($permissions = {'personalReadGroups':false, 'personalWriteGroups':false, 'commonReadGroups':false, 'commonWriteGroups':false})
+#set($guestReference = $services.model.resolveDocument('XWiki.XWikiGuest'))
+#set($allGroupReference = $services.model.resolveDocument('XWiki.XWikiAllGroup'))
+#set($membershipByWiki = {})
+#if($configuration && $configurationObject && "$!configurationObject.getValue('schemaVersion')" == '1')
+  #foreach($permissionField in $permissionFields)
+    #set($groupLines = "$!configurationObject.getValue($permissionField)")
+    #foreach($groupLine in $groupLines.split('[\r\n]+'))
+      #set($groupLine = $groupLine.replaceAll('^\s+|\s+$', ''))
+      #if($groupLine != '')
+        #set($groupReference = $services.model.resolveDocument($groupLine))
+        #set($canonicalGroup = $services.model.serialize($groupReference))
+        #set($discard = $configuredGroups.get($permissionField).add($canonicalGroup))
+        #set($hasGroup = false)
+        #if(!$isAuthenticated && $groupReference.equals($guestReference) && $permissionField == 'commonReadGroups')
+          #set($hasGroup = true)
+        #elseif($isAuthenticated && !$groupReference.equals($guestReference))
+          #set($membershipWiki = $groupReference.wikiReference.name)
+          #if(!$membershipByWiki.containsKey($membershipWiki))
+            #set($discard = $membershipByWiki.put($membershipWiki, $services.user.group.getGroups($currentUserReference, $groupReference.wikiReference, true)))
+          #end
+          #set($hasGroup = $membershipByWiki.get($membershipWiki).contains($groupReference))
+          #if($groupReference.equals($allGroupReference)) #set($hasGroup = true) #end
+        #end
+        #if($hasGroup) #set($discard = $permissions.put($permissionField, true)) #end
+      #end
+    #end
+  #end
+#elseif($configuration && !$configurationObject)
+  ## Avant le premier enregistrement uniquement : comportement historique.
+  #set($allGroup = $services.model.serialize($allGroupReference))
+  #set($discard = $configuredGroups.get('personalWriteGroups').add($allGroup))
+  #set($discard = $configuredGroups.get('commonReadGroups').add($allGroup))
+  #if($isAuthenticated)
+    #set($discard = $permissions.put('personalWriteGroups', true))
+    #set($discard = $permissions.put('commonReadGroups', true))
+  #end
+  #foreach($legacyGroup in ['XWiki.IVQ_Gestionnaires', 'XWiki.IVQ_Gestionnaire'])
+    #set($legacyReference = $services.model.resolveDocument($legacyGroup))
+    #set($discard = $configuredGroups.get('commonWriteGroups').add($services.model.serialize($legacyReference)))
+    #if($isAuthenticated && $services.user.group.getGroups($currentUserReference, $legacyReference.wikiReference, true).contains($legacyReference))
+      #set($discard = $permissions.put('commonWriteGroups', true))
+    #end
   #end
 #end
+## Une configuration illisible ou d'une version inconnue n'ouvre aucun accès.
+#set($canWriteCommon = $isAuthenticated && $permissions.get('commonWriteGroups'))
+#set($canWritePersonal = $isAuthenticated && ($permissions.get('personalWriteGroups') || $canWriteCommon))
+#set($canReadPersonal = $isAuthenticated && ($permissions.get('personalReadGroups') || $canWritePersonal))
+#set($canReadCommon = $permissions.get('commonReadGroups') || $canWriteCommon)
+## END LIENS PERMISSIONS
 
+#set($managers = [])
+#if($canWriteCommon)
+  #foreach($groupName in $configuredGroups.get('commonWriteGroups'))
+    #foreach($authorRef in $services.user.group.getMembers($groupName, true))
+      #if(!$managers.contains($authorRef)) #set($discard = $managers.add($authorRef)) #end
+    #end
+  #end
+#end
+#set($urlLiensData = $xwiki.getURL('TestPage.PAGE.Liens.DATA.WebHome', 'view'))
 #if("$!request.getParameter('action')" == 'checkAndCreate')
   #set($createError = '')
   #set($acronymeInput = "$!request.getParameter('acronyme')")
@@ -40,8 +102,8 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
     #set($createError = 'Nom technique invalide.')
   #elseif($typeInput != 'personnel' && $typeInput != 'commun')
     #set($createError = 'Type invalide.')
-  #elseif($typeInput == 'commun' && !$currentUserIsManager)
-    #set($createError = 'Les liens communs sont réservés aux gestionnaires.')
+  #elseif(($typeInput == 'commun' && !$canWriteCommon) || ($typeInput == 'personnel' && !$canWritePersonal))
+    #set($createError = 'Vous ne disposez pas du droit d’écriture pour cet onglet.')
   #else
     #set($ownerSpaces = ['TestPage', 'PAGE', 'Liens', 'DATA', 'LIENDATA', $userId])
     #set($candidateName = $acronymeInput)
@@ -108,7 +170,13 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
 #end
 
 
-<div class="liens-page">
+<div class="liens-page"
+     data-user-id="$escapetool.xml($userId)"
+     data-csrf="$escapetool.xml($services.csrf.getToken())"
+     data-endpoint-url="$escapetool.xml($urlLiensData)"
+     data-can-read-personal="$canReadPersonal" data-can-write-personal="$canWritePersonal"
+     data-can-read-common="$canReadCommon" data-can-write-common="$canWriteCommon"
+     data-can-configure="$canConfigure">
   <div class="li-shell">
     <header class="li-header">
       <span class="li-header-accent" aria-hidden="true"></span>
@@ -116,20 +184,35 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
       <p class="li-subtitle">Retrouvez ici vos liens personnels et les liens communs du wiki.</p>
     </header>
 
-<button class="tablinks btn-primary" onclick="openTab(event, 'Tab1')">Mes Liens</button>
-<button class="tablinks btn-primary" onclick="openTab(event, 'Tab2')">Liens Communs</button>
+#if($canReadPersonal)
+<button type="button" class="tablinks btn-primary" data-liens-tab="Tab1" onclick="openTab(event, 'Tab1')">Mes Liens</button>
+#end
+#if($canReadCommon)
+<button type="button" class="tablinks btn-primary" data-liens-tab="Tab2" onclick="openTab(event, 'Tab2')">Liens Communs</button>
+#end
+#if(!$canReadPersonal && !$canReadCommon)
+<p class="alert alert-info liens-no-access">Vous ne disposez d’aucun droit de lecture sur les liens.</p>
+#end
 
-## --- 3. BOUTON D'AJOUT ---
-<div class="row" style="margin-bottom: 15px;">
-  <div class="col-md-6">
-    <button type="button" class="btn btn-success" data-toggle="modal" data-target="#glossaryModal">
-      $services.icon.renderHTML('add') Ajouter un acronyme
-    </button>
+<div id="liensToolbar" class="row glossary-toolbar" style="margin-bottom:15px;">
+  <div id="liensToolbarLeft" class="col-md-6 glossary-toolbar-left">
+    #if($canWritePersonal || $canWriteCommon)
+    <button type="button" class="btn btn-success" data-toggle="modal" data-target="#glossaryModal">$services.icon.renderHTML('add') Ajouter un acronyme</button>
+    #end
+    #if($canConfigure)
+    <button type="button" id="btnLiensSettings" class="btn btn-default" data-toggle="modal" data-target="#liensSettingsModal">Paramètres</button>
+    #end
   </div>
 </div>
 
+#set($documentRefs = [])
+#if($canReadPersonal || $canReadCommon)
+  #set($statement = "select distinct doc.fullName from Document doc, doc.object($classPath) obj")
+  #set($documentRefs = $services.query.xwql($statement).execute())
+#end
 
 ## ----- TAB1 ----- ##
+#if($canReadPersonal)
 <div id="Tab1" class="tabcontent">
   <div id="debug1"></div>
 
@@ -182,7 +265,7 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
           <th style="width: 25%;">Définition</th>
           <!-- La colonne Type a désormais sa propre classe pour être masquée -->
           <th class="col-type" style="width: 10%;">Type</th>
-          <th style="width: 15%;">Actions</th>
+          #if($canWritePersonal)<th class="liens-actions" style="width:15%;">Actions</th>#end
         </tr>
         <tr class="filter-row">
           <th><input type="text" id="filterAcronym" placeholder="Filtrer..." oninput="filterMainTableColumns();"></th>
@@ -190,13 +273,10 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
           <th><input type="text" id="filterDefinition" placeholder="Filtrer..." oninput="filterMainTableColumns();"></th>
           <!-- Case vide pour le filtre de la colonne Type lorsqu'elle apparaît -->
           <th class="col-type" style="background-color: #f9f9f9;"></th>
-          <th style="background-color: #f9f9f9;"></th>
+          #if($canWritePersonal)<th class="liens-actions" style="background-color:#f9f9f9;"></th>#end
         </tr>
       </thead>
       <tbody>
-        #set ($statement = "select distinct doc.fullName from Document doc, doc.object($classPath) obj")
-        #set ($query = $services.query.xwql($statement))
-        #set ($documentRefs = $query.execute())
         ## 3. On boucle sur chaque document trouvé
         #foreach ($fullRef in $documentRefs)
           ## On charge la page
@@ -232,15 +312,16 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
 
                   <select class="form-control edit-mode edit-type-input" style="display:none;" required>
                     <option value="personnel" selected>Personnel</option>
-                    #if ($currentUserIsManager)
+                    #if ($canWriteCommon)
                       <option value="commun" name="type">Commun</option>
                     #else
-                      <option value="commun" name="type" disabled>Commun (Réservé aux RIVQ)</option>
+                      <option value="commun" name="type" disabled>Commun (écriture non autorisée)</option>
                     #end
                   </select>
                 </td>
 
-                <td>
+                #if($canWritePersonal)
+                <td class="liens-actions">
                   <div class="view-buttons">
                     <button type="button" class="btn btn-xs btn-primary custom-action-btn" onclick="toggleEditMode(this, true);">
                       $services.icon.renderHTML('pencil')
@@ -258,6 +339,7 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
                     </button>
                   </div>
                 </td>
+                #end
               </tr>
             #end
           #end
@@ -268,7 +350,10 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
 </div>
 
 
+#end
+
 ## ----- TAB2 ----- ##
+#if($canReadCommon)
 <div id="Tab2" class="tabcontent">
   <div id="debug2"></div>
 
@@ -320,7 +405,7 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
           <th style="width: 25%;">Définition</th>
           <th style="width: 10%;">Créateur</th>
           <th class="col-type" style="width: 10%;">Type</th>
-          <th style="width: 15%;">Actions</th>
+          #if($canWriteCommon)<th class="liens-actions" style="width:15%;">Actions</th>#end
         </tr>
         <tr class="filter-row">
           <th><input type="text" id="filterAcronym2" placeholder="Filtrer..." oninput="filterSecondaryTableColumns();"></th>
@@ -328,7 +413,7 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
           <th><input type="text" id="filterDefinition2" placeholder="Filtrer..." oninput="filterSecondaryTableColumns();"></th>
           <th><input type="text" id="filterProprietaire2" placeholder="Filtrer..." oninput="filterSecondaryTableColumns();"></th>
           <th class="col-type" style="background-color: #f9f9f9;"></th>
-          <th style="background-color: #f9f9f9;"></th>
+          #if($canWriteCommon)<th class="liens-actions" style="background-color:#f9f9f9;"></th>#end
         </tr>
       </thead>
       <tbody>
@@ -412,15 +497,16 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
                       #set($typeValue = "personnel")
                     #end
 
-                    #if ($currentUserIsManager)
+                    #if ($canWriteCommon)
                       <option value="$typeValue" name="type">$typeValue</option>
                     #else
-                      <option value="$typeValue" name="type" disabled>$typeValue (Réservé aux RIVQ)</option>
+                      <option value="$typeValue" name="type" disabled>$typeValue (écriture non autorisée)</option>
                     #end
                   </select>
                 </td>
 
-                <td>
+                #if($canWriteCommon)
+                <td class="liens-actions">
                   <div class="view-buttons">
                     <button type="button" class="btn btn-xs btn-primary custom-action-btn" onclick="toggleEditMode2(this, true);">
                       $services.icon.renderHTML('pencil')
@@ -438,6 +524,7 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
                     </button>
                   </div>
                 </td>
+                #end
               </tr>
             #end
           #end
@@ -447,9 +534,11 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
   </div>
 </div>
 
+#end
   </div>
 </div>
 
+#if($canWritePersonal || $canWriteCommon)
 ## --- 4. POPUP UNIQUE POUR LES ACTIONS PERSONNALISÉES (MODALE) ---
 <div id="actionFeedbackModal" class="modal fade" tabindex="-1" role="dialog" aria-hidden="true">
   <div class="modal-dialog" role="document">
@@ -467,14 +556,6 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
     </div>
   </div>
 </div>
-
-#set($urlLiensData = $xwiki.getURL("TestPage.PAGE.Liens.DATA.WebHome", "view"))
-
-<script type="text/javascript">
-  // Variable globale accessible par votre extension JS
-  var urlLienData = "$escapetool.javascript($urlLiensData)";
-</script>
-
 
 ## --- MODALE DE CONFIRMATION DE SUPPRESSION ---
 <div class="modal fade" id="deleteConfirmModal" tabindex="-1" role="dialog" aria-hidden="true">
@@ -578,10 +659,10 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
                 <label for="typeVisibilite">Type :</label>
                 <select id="typeVisibilite" name="type" class="form-control" required>
                   <option value="personnel" selected>Personnel</option>
-                  #if ($currentUserIsManager)
+                  #if ($canWriteCommon)
                     <option value="commun" name="type">Commun</option>
                   #else
-                    <option value="commun" name="type" disabled>Commun (Réservé aux RIVQ)</option>
+                    <option value="commun" name="type" disabled>Commun (écriture non autorisée)</option>
                   #end
                 </select>
               </div>
@@ -619,7 +700,7 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
                         #set ($libelle = $targetObject.getValue('lien'))
                         #set ($type = $targetObject.getValue('type'))
                         #set($popupOwner = "$!targetObject.getValue('proprietaire')")
-                        #if($type == 'commun' || ($type == 'personnel' && $popupOwner == $userId))
+                        #if(($canReadCommon && $type == 'commun') || ($canReadPersonal && $type == 'personnel' && $popupOwner == $userId))
                         <tr class="term-row" data-full-ref="$escapetool.xml($docName)">
                           <td class="term-acronym">$escapetool.xml($!acronyme)</td>
                           <td class="term-label">$escapetool.xml($!libelle)</td>
@@ -642,6 +723,109 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
     </div>
   </div>
 </div>
+
+#end
+
+#set($urlLiensData = $xwiki.getURL("TestPage.PAGE.Liens.DATA.WebHome", "view"))
+
+<script type="text/javascript">
+  // Variable globale accessible par votre extension JS
+  var urlLienData = "$escapetool.javascript($urlLiensData)";
+</script>
+
+
+#if($canConfigure)
+#set($settingsGroups = ['XWiki.XWikiGuest'])
+#set($allGroup = $services.model.serialize($allGroupReference))
+#if(!$settingsGroups.contains($allGroup)) #set($discard = $settingsGroups.add($allGroup)) #end
+#foreach($groupName in $services.query.xwql('select distinct doc.fullName from Document doc, doc.object(XWiki.XWikiGroups) as grp order by doc.fullName').execute())
+  #set($groupReference = $services.model.resolveDocument($groupName))
+  #set($canonicalGroup = $services.model.serialize($groupReference))
+  #if(!$settingsGroups.contains($canonicalGroup) && $xwiki.hasAccessLevel('view', $user, $canonicalGroup))
+    #set($discard = $settingsGroups.add($canonicalGroup))
+  #end
+#end
+#foreach($field in $permissionFields)
+  #foreach($groupRef in $configuredGroups.get($field))
+    #if(!$settingsGroups.contains($groupRef)) #set($discard = $settingsGroups.add($groupRef)) #end
+  #end
+#end
+#set($levelLabels = ['Aucun accès', 'Lecture', 'Écriture'])
+<div class="modal fade" id="liensSettingsModal" tabindex="-1" role="dialog" aria-labelledby="liensSettingsTitle" aria-hidden="true">
+  <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close" data-dismiss="modal" aria-label="Fermer">$services.icon.renderHTML('cross')</button>
+        <h4 class="modal-title" id="liensSettingsTitle">Paramètres des liens</h4>
+      </div>
+      <form id="liensSettingsForm" method="post" action="$escapetool.xml($urlLiensData)">
+        <input type="hidden" name="action" value="settings">
+        <input type="hidden" name="xpage" value="plain">
+        <input type="hidden" name="form_token" value="$escapetool.xml($services.csrf.getToken())">
+        <input type="hidden" name="expectedVersion" value="$escapetool.xml($!configuration.version)">
+        <input type="hidden" name="groupCount" value="$settingsGroups.size()">
+        <input type="hidden" name="settingsForm" value="true">
+        <div class="modal-body">
+          <p>Les droits des groupes se cumulent. L’écriture inclut la lecture. Écrire dans Commun permet aussi d’écrire dans Personnel. Sans lecture, l’onglet n’apparaît pas.</p>
+          <p>Personnel contient uniquement les liens de l’utilisateur connecté.</p>
+          #if(!$configurationObject)
+          <p class="alert alert-info">La configuration sera créée au premier enregistrement. Les droits existants sont conservés jusque-là.</p>
+          #end
+          <div class="table-responsive">
+            <table class="table table-striped table-bordered liens-permissions-table">
+              <thead><tr><th>Groupe XWiki</th><th>Personnel</th><th>Commun</th></tr></thead>
+              <tbody>
+              #foreach($settingGroup in $settingsGroups)
+                #set($settingIndex = $foreach.index)
+                #set($personalLevel = 0)
+                #set($commonLevel = 0)
+                #if($configuredGroups.get('personalReadGroups').contains($settingGroup)) #set($personalLevel = 1) #end
+                #if($configuredGroups.get('personalWriteGroups').contains($settingGroup)) #set($personalLevel = 2) #end
+                #if($configuredGroups.get('commonReadGroups').contains($settingGroup)) #set($commonLevel = 1) #end
+                #if($configuredGroups.get('commonWriteGroups').contains($settingGroup)) #set($commonLevel = 2) #set($personalLevel = 2) #end
+                #set($settingReference = $services.model.resolveDocument($settingGroup))
+                #set($settingMissing = false)
+                #if(!$settingReference.equals($guestReference) && !$settingReference.equals($allGroupReference))
+                  #set($settingDoc = $xwiki.getDocument($settingReference))
+                  #if(!$settingDoc || $settingDoc.isNew() || !$settingDoc.getObject('XWiki.XWikiGroups'))
+                    #set($settingMissing = true) #set($personalLevel = 0) #set($commonLevel = 0)
+                  #end
+                #end
+                <tr class="liens-permission-row">
+                  <th scope="row">$escapetool.xml($settingGroup)
+                    <input type="hidden" name="group_$settingIndex" value="$escapetool.xml($settingGroup)">
+                    #if($settingMissing)<span class="text-warning"> (groupe introuvable)</span>#end
+                  </th>
+                  #foreach($kind in ['personal', 'common'])
+                    #set($selectedLevel = $personalLevel)
+                    #set($kindLabel = 'Personnel')
+                    #if($kind == 'common') #set($selectedLevel = $commonLevel) #set($kindLabel = 'Commun') #end
+                    <td><select class="form-control liens-permission-level" name="${kind}_$settingIndex" data-kind="$kind" aria-label="$kindLabel : $escapetool.xml($settingGroup)">
+                    #foreach($level in [0..2])
+                      #if(!$settingReference.equals($guestReference) || ($kind == 'common' && $level < 2) || $level == 0)
+                        #set($selectedAttr = '')
+                        #if($level == $selectedLevel) #set($selectedAttr = ' selected') #end
+                        <option value="$level"$selectedAttr>$levelLabels.get($level)</option>
+                      #end
+                    #end
+                    </select></td>
+                  #end
+                </tr>
+              #end
+              </tbody>
+            </table>
+          </div>
+          <p class="liens-settings-feedback text-danger" role="alert" aria-live="polite"></p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-default" data-dismiss="modal">Annuler</button>
+          <button type="submit" class="btn btn-primary">Enregistrer les autorisations</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+#end
 
 {{/html}}
 {{/velocity}}

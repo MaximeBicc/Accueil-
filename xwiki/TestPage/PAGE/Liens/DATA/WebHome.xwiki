@@ -2,24 +2,188 @@
 #set($className = 'TestPage.PAGE.Liens.CODE.lienClass.WebHome')
 #set($currentUser = $xcontext.user)
 #set($currentUserId = $xwiki.getDocument($currentUser).name)
-#set($currentUserIsManager = false)
-#foreach($group in ['XWiki.IVQ_Gestionnaires', 'XWiki.IVQ_Gestionnaire'])
-  #foreach($managerRef in $services.user.group.getMembers($group, true))
-    #if("$xwiki.getDocument($managerRef).name" == "$currentUserId")
-      #set($currentUserIsManager = true)
+## BEGIN LIENS PERMISSIONS — bloc identique dans l'affichage et DATA.
+#set($configurationClass = 'TestPage.PAGE.Liens.CODE.liensConfigurationClass.WebHome')
+#set($configurationRef = 'TestPage.PAGE.Liens.CODE.Configuration.WebHome')
+#set($currentUserReference = $xcontext.userReference)
+#set($isAuthenticated = $currentUserReference && $currentUserReference.name != 'XWikiGuest')
+#set($canConfigure = $xwiki.hasWikiAdminRights())
+#set($configuration = false)
+#set($configuration = $xwiki.getDocumentAsAuthor($configurationRef))
+#set($configurationObject = false)
+#if($configuration) #set($configurationObject = $configuration.getObject($configurationClass)) #end
+#set($permissionFields = ['personalReadGroups', 'personalWriteGroups', 'commonReadGroups', 'commonWriteGroups'])
+#set($configuredGroups = {'personalReadGroups':[], 'personalWriteGroups':[], 'commonReadGroups':[], 'commonWriteGroups':[]})
+#set($permissions = {'personalReadGroups':false, 'personalWriteGroups':false, 'commonReadGroups':false, 'commonWriteGroups':false})
+#set($guestReference = $services.model.resolveDocument('XWiki.XWikiGuest'))
+#set($allGroupReference = $services.model.resolveDocument('XWiki.XWikiAllGroup'))
+#set($membershipByWiki = {})
+#if($configuration && $configurationObject && "$!configurationObject.getValue('schemaVersion')" == '1')
+  #foreach($permissionField in $permissionFields)
+    #set($groupLines = "$!configurationObject.getValue($permissionField)")
+    #foreach($groupLine in $groupLines.split('[\r\n]+'))
+      #set($groupLine = $groupLine.replaceAll('^\s+|\s+$', ''))
+      #if($groupLine != '')
+        #set($groupReference = $services.model.resolveDocument($groupLine))
+        #set($canonicalGroup = $services.model.serialize($groupReference))
+        #set($discard = $configuredGroups.get($permissionField).add($canonicalGroup))
+        #set($hasGroup = false)
+        #if(!$isAuthenticated && $groupReference.equals($guestReference) && $permissionField == 'commonReadGroups')
+          #set($hasGroup = true)
+        #elseif($isAuthenticated && !$groupReference.equals($guestReference))
+          #set($membershipWiki = $groupReference.wikiReference.name)
+          #if(!$membershipByWiki.containsKey($membershipWiki))
+            #set($discard = $membershipByWiki.put($membershipWiki, $services.user.group.getGroups($currentUserReference, $groupReference.wikiReference, true)))
+          #end
+          #set($hasGroup = $membershipByWiki.get($membershipWiki).contains($groupReference))
+          #if($groupReference.equals($allGroupReference)) #set($hasGroup = true) #end
+        #end
+        #if($hasGroup) #set($discard = $permissions.put($permissionField, true)) #end
+      #end
+    #end
+  #end
+#elseif($configuration && !$configurationObject)
+  ## Avant le premier enregistrement uniquement : comportement historique.
+  #set($allGroup = $services.model.serialize($allGroupReference))
+  #set($discard = $configuredGroups.get('personalWriteGroups').add($allGroup))
+  #set($discard = $configuredGroups.get('commonReadGroups').add($allGroup))
+  #if($isAuthenticated)
+    #set($discard = $permissions.put('personalWriteGroups', true))
+    #set($discard = $permissions.put('commonReadGroups', true))
+  #end
+  #foreach($legacyGroup in ['XWiki.IVQ_Gestionnaires', 'XWiki.IVQ_Gestionnaire'])
+    #set($legacyReference = $services.model.resolveDocument($legacyGroup))
+    #set($discard = $configuredGroups.get('commonWriteGroups').add($services.model.serialize($legacyReference)))
+    #if($isAuthenticated && $services.user.group.getGroups($currentUserReference, $legacyReference.wikiReference, true).contains($legacyReference))
+      #set($discard = $permissions.put('commonWriteGroups', true))
     #end
   #end
 #end
+## Une configuration illisible ou d'une version inconnue n'ouvre aucun accès.
+#set($canWriteCommon = $isAuthenticated && $permissions.get('commonWriteGroups'))
+#set($canWritePersonal = $isAuthenticated && ($permissions.get('personalWriteGroups') || $canWriteCommon))
+#set($canReadPersonal = $isAuthenticated && ($permissions.get('personalReadGroups') || $canWritePersonal))
+#set($canReadCommon = $permissions.get('commonReadGroups') || $canWriteCommon)
+## END LIENS PERMISSIONS
+#macro(liensSaveSettings)
+  #set($settingsError = '')
+  #set($expectedVersion = "$!request.getParameter('expectedVersion')")
+  #if(!$canConfigure)
+    #set($settingsError = 'Seul un administrateur du wiki peut modifier ces paramètres.')
+  #elseif(!$configuration)
+    #set($settingsError = "La configuration n'est pas accessible à l'auteur du service.")
+  #elseif($expectedVersion == '' || $expectedVersion != "$configuration.version")
+    #set($settingsError = 'Les paramètres ont changé. Rechargez la page avant de les enregistrer.')
+  #else
+    #set($newGroups = {'personalReadGroups':[], 'personalWriteGroups':[], 'commonReadGroups':[], 'commonWriteGroups':[]})
+    #set($seenGroups = [])
+    #set($settingsRowCount = 0)
+    #foreach($entry in $request.parameterMap.entrySet())
+      #set($parameterName = "$!entry.key")
+      #if($parameterName.startsWith('group_') && $settingsError == '')
+        #set($rowIndex = $parameterName.substring(6))
+        #set($groupText = "$!request.getParameter($parameterName)")
+        #set($personalParameter = "personal_$rowIndex")
+        #set($commonParameter = "common_$rowIndex")
+        #set($personalLevel = "$!request.getParameter($personalParameter)")
+        #set($commonLevel = "$!request.getParameter($commonParameter)")
+        #set($settingsRowCount = $settingsRowCount + 1)
+        #if(!$rowIndex.matches('[0-9]+') || !$personalLevel.matches('[012]') || !$commonLevel.matches('[012]') || $groupText == '' || $groupText.matches('\s*') || $groupText.matches('[\s\S]*[\r\n][\s\S]*'))
+          #set($settingsError = 'Un groupe ou un droit est invalide.')
+        #else
+          #set($groupText = $groupText.replaceAll('^\s+|\s+$', ''))
+          #set($candidateReference = $services.model.resolveDocument($groupText))
+          #set($canonicalGroup = $services.model.serialize($candidateReference))
+          #if($commonLevel == '2') #set($personalLevel = '2') #end
+          #if($seenGroups.contains($canonicalGroup))
+            #set($settingsError = 'Un même groupe ne peut apparaître plusieurs fois.')
+          #else
+            #set($discard = $seenGroups.add($canonicalGroup))
+            #set($validGroup = $personalLevel == '0' && $commonLevel == '0')
+            #if($candidateReference.equals($guestReference))
+              #set($validGroup = $personalLevel == '0' && $commonLevel != '2')
+            #elseif($candidateReference.equals($allGroupReference))
+              #set($validGroup = true)
+            #elseif(!$validGroup)
+              #set($candidateDoc = false)
+              #set($candidateDoc = $xwiki.getDocument($candidateReference))
+              #set($validGroup = $candidateDoc && !$candidateDoc.isNew() && $candidateDoc.getObject('XWiki.XWikiGroups'))
+            #end
+            #if(!$validGroup)
+              #set($settingsError = "Le groupe $canonicalGroup est introuvable ou ne peut pas recevoir ces droits.")
+            #else
+              #if($personalLevel != '0') #set($discard = $newGroups.get('personalReadGroups').add($canonicalGroup)) #end
+              #if($personalLevel == '2') #set($discard = $newGroups.get('personalWriteGroups').add($canonicalGroup)) #end
+              #if($commonLevel != '0') #set($discard = $newGroups.get('commonReadGroups').add($canonicalGroup)) #end
+              #if($commonLevel == '2') #set($discard = $newGroups.get('commonWriteGroups').add($canonicalGroup)) #end
+            #end
+          #end
+        #end
+      #end
+    #end
+    #if($settingsError == '' && ($settingsRowCount == 0 || $settingsRowCount > 500 || "$settingsRowCount" != "$!request.getParameter('groupCount')"))
+      #set($settingsError = 'La liste des groupes est incomplète. Rechargez les paramètres.')
+    #end
+    #if($settingsError == '')
+      #if(!$configurationObject) #set($configurationObject = $configuration.newObject($configurationClass)) #end
+      #if(!$configurationObject)
+        #set($settingsError = "La classe $configurationClass n'est pas installée.")
+      #else
+        #set($newFieldValues = {})
+        #foreach($field in $permissionFields)
+          #set($fieldText = '')
+          #set($separator = '')
+          #foreach($groupRef in $newGroups.get($field))
+            #set($fieldText = "$fieldText$separator$groupRef")
+            #set($separator = "
+")
+          #end
+          #set($discard = $newFieldValues.put($field, $fieldText))
+          #set($discard = $configurationObject.set($field, $fieldText))
+          #if("$!configurationObject.getValue($field)" != $fieldText)
+            #set($settingsError = "Le champ $field de la classe $configurationClass est absent ou incomplet.")
+          #end
+        #end
+        #set($discard = $configurationObject.set('schemaVersion', '1'))
+        #if("$!configurationObject.getValue('schemaVersion')" != '1')
+          #set($settingsError = "Le champ schemaVersion de la classe $configurationClass est absent.")
+        #end
+        #if($settingsError == '')
+          #set($discard = $configuration.save('Paramètres des droits Personnel et Commun', true))
+          #set($savedConfiguration = false)
+          #set($savedConfiguration = $xwiki.getDocumentAsAuthor($configurationRef))
+          #set($savedObject = false)
+          #if($savedConfiguration) #set($savedObject = $savedConfiguration.getObject($configurationClass)) #end
+          #if(!$savedConfiguration || $savedConfiguration.isNew() || !$savedObject || "$!savedObject.getValue('schemaVersion')" != '1' || "$savedConfiguration.version" == $expectedVersion)
+            #set($settingsError = "La configuration n'a pas été enregistrée. Vérifiez les droits sur sa page.")
+          #else
+            #foreach($field in $permissionFields)
+              #if("$!savedObject.getValue($field)" != $newFieldValues.get($field))
+                #set($settingsError = "Le champ $field n'a pas été conservé. Vérifiez l'installation de la classe.")
+              #end
+            #end
+          #end
+        #end
+      #end
+    #end
+  #end
+  #if($settingsError == '')
+    #set($resultLine = 'LIENS_SETTINGS_SAVED')
+  #else
+    #set($resultLine = "LIENS_ERROR|$escapetool.url($settingsError)")
+  #end
+#end
+
 #set($action = "$!request.getParameter('action')")
 #set($resultLine = 'ERREUR_ACTION_INCONNUE')
 #set($resultLines = [])
 
 #if($request.getMethod() != 'POST')
   #set($resultLine = 'ERREUR_METHOD')
-#elseif($currentUserId == 'XWikiGuest')
-  #set($resultLine = 'ERREUR_DROITS')
 #elseif(!$services.csrf.isTokenValid($request.getParameter('form_token')))
   #set($resultLine = 'ERREUR_CSRF')
+#elseif($action == 'settings')
+  #liensSaveSettings()
 #elseif($action == 'listVisible')
   #set($query = $services.query.xwql("select distinct doc.fullName from Document doc, doc.object($className) obj"))
   #foreach($fullRef in $query.execute())
@@ -28,7 +192,7 @@
     #if($obj && $xwiki.hasAccessLevel('view', $currentUser, $targetDoc.fullName))
       #set($typeValue = "$!obj.getValue('type')")
       #set($ownerValue = "$!obj.getValue('proprietaire')")
-      #if($typeValue == 'commun' || ($typeValue == 'personnel' && $ownerValue == $currentUserId))
+      #if(($canReadCommon && $typeValue == 'commun') || ($canReadPersonal && $typeValue == 'personnel' && $ownerValue == $currentUserId))
         #set($a = "$!obj.getValue('nom_lien')")
         #set($l = "$!obj.getValue('lien')")
         #set($d = "$!obj.getValue('definition')")
@@ -36,7 +200,7 @@
       #end
     #end
   #end
-  #set($resultLine = "LIEN_LIST_OK|$escapetool.url($currentUserId)|$currentUserIsManager")
+  #set($resultLine = "LIEN_LIST_OK|$escapetool.url($currentUserId)|$canWriteCommon|$canReadPersonal|$canWritePersonal|$canReadCommon|$canWriteCommon")
 #elseif($action == 'create' || $action == 'save' || $action == 'delete')
   #set($error = '')
   #set($targetDoc = false)
@@ -54,7 +218,7 @@
       #set($ownerRoot = $services.model.createDocumentReference('', $ownerSpaces, 'WebHome'))
       #if(!$targetDoc.documentReference.getParent().equals($ownerRoot.getParent()))
         #set($error = 'ERREUR_REFERENCE')
-      #elseif(!$currentUserIsManager && ($oldType != 'personnel' || $oldOwner != $currentUserId))
+      #elseif(($oldType == 'commun' && !$canWriteCommon) || ($oldType == 'personnel' && (!$canWritePersonal || $oldOwner != $currentUserId)) || ($oldType != 'commun' && $oldType != 'personnel'))
         #set($error = 'ERREUR_DROITS')
       #else
         #set($requiredRight = 'edit')
@@ -87,11 +251,11 @@
     #set($definition = "$!request.getParameter('definition')")
     #set($requestedType = "$!request.getParameter('type')")
     #set($requestedOwner = "$!request.getParameter('proprietaire')")
-    #if(!$requestedType)
+    #if($requestedType == '')
       #set($requestedType = 'personnel')
       #if($obj) #set($requestedType = "$!obj.getValue('type')") #end
     #end
-    #if(!$requestedOwner)
+    #if($requestedOwner == '')
       #set($requestedOwner = $currentUserId)
       #if($obj) #set($requestedOwner = "$!obj.getValue('proprietaire')") #end
     #end
@@ -101,7 +265,7 @@
       #set($error = 'ERREUR_NOM')
     #elseif($requestedType != 'personnel' && $requestedType != 'commun')
       #set($error = 'ERREUR_TYPE')
-    #elseif(!$currentUserIsManager && ($requestedType != 'personnel' || $requestedOwner != $currentUserId))
+    #elseif(($requestedType == 'commun' && !$canWriteCommon) || ($requestedType == 'personnel' && !$canWritePersonal) || (!$canWriteCommon && $requestedOwner != $currentUserId))
       #set($error = 'ERREUR_DROITS')
     #end
 
@@ -164,6 +328,20 @@
     #end
   #end
   #if($error != '') #set($resultLine = $error) #end
+#end
+#if($action == 'settings' && "$!request.getParameter('settingsForm')" == 'true' && "$!request.getParameter('ajax')" != 'true')
+  #if($resultLine == 'LIENS_SETTINGS_SAVED')
+    #set($discard = $response.sendRedirect($xwiki.getURL('TestPage.PAGE.Lien-test.WebHome', 'view')))
+  #else
+    #set($discard = $response.setContentType('text/html; charset=UTF-8'))
+    #set($discard = $response.writer.print('<p>Les paramètres n’ont pas été enregistrés.</p><p>'))
+    #set($settingsDisplayMessage = $resultLine)
+    #if("$!settingsError" != '') #set($settingsDisplayMessage = $settingsError) #end
+    #set($discard = $response.writer.print($escapetool.xml($settingsDisplayMessage)))
+    #set($discard = $response.writer.print('</p>'))
+  #end
+  #set($discard = $xcontext.setFinished(true))
+  #stop
 #end
 #set($discard = $response.setContentType('text/plain; charset=UTF-8'))
 #foreach($line in $resultLines)

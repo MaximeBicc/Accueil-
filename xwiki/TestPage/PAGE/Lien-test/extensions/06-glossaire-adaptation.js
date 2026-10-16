@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  var liensState = { userId: '', isManager: false };
+  var liensState = { userId: '', canReadPersonal: false, canWritePersonal: false, canReadCommon: false, canWriteCommon: false };
   var visibleLinksCache = [];
   var popupRefreshVersion = 0;
   var bulkDeleting = false;
@@ -28,7 +28,8 @@
 
   function getCsrf() {
     var table = document.getElementById('mainGlossaryTable') || document.getElementById('secondaryGlossaryTable');
-    return table ? table.getAttribute('data-csrf') : '';
+    var root = document.querySelector('.liens-page');
+    return root ? root.getAttribute('data-csrf') : (table ? table.getAttribute('data-csrf') : '');
   }
 
   async function postLiens(fields) {
@@ -51,13 +52,17 @@
     return String(line || '').replace(/<[^>]+>/g, '').trim();
   }
 
-  function detectManagerFromExistingPage() {
-    var commonOption = document.querySelector('#glossaryModal select[name="type"] option[value="commun"]');
-    if (commonOption && !commonOption.disabled) liensState.isManager = true;
+  function readPermissionsFromPage() {
+    var root = document.querySelector('.liens-page');
+    if (!root) return;
+    liensState.userId = root.getAttribute('data-user-id') || '';
+    ['canReadPersonal', 'canWritePersonal', 'canReadCommon', 'canWriteCommon'].forEach(function (key) {
+      var attribute = 'data-' + key.replace(/[A-Z]/g, function (letter) { return '-' + letter.toLowerCase(); });
+      liensState[key] = root.getAttribute(attribute) === 'true';
+    });
   }
 
   async function loadVisibleLinks() {
-    detectManagerFromExistingPage();
     var text = await postLiens({ action: 'listVisible' });
     var parsed = parseLiensVisibleResponse(text);
     liensState = parsed.state;
@@ -86,27 +91,27 @@
         tbody.appendChild(tr);
       });
       if (typeof triggerGlobalFilter === 'function') triggerGlobalFilter();
-      applyManagerUi();
+      applyPermissionsUi();
     } catch (e) {
       console.error('Impossible de recharger les liens visibles', e);
     }
   }
 
-  function applyManagerUi() {
-    var table = document.getElementById('secondaryGlossaryTable');
-    if (table) {
-      Array.from(table.rows).forEach(function (row) {
-        if (!row.cells.length) return;
-        row.cells[row.cells.length - 1].style.display = liensState.isManager ? '' : 'none';
+  function canWriteTable(kind) {
+    return kind === 'common' ? liensState.canWriteCommon : liensState.canWritePersonal;
+  }
+
+  function applyPermissionsUi() {
+    [['mainGlossaryTable', 'personal'], ['secondaryGlossaryTable', 'common']].forEach(function (item) {
+      var table = document.getElementById(item[0]);
+      if (!table) return;
+      table.querySelectorAll('.liens-actions, .view-buttons, .edit-buttons').forEach(function (cell) {
+        if (!canWriteTable(item[1])) cell.style.display = 'none';
       });
-    }
-
-    document.querySelectorAll('#glossaryModal option[value="commun"], #secondaryGlossaryTable .edit-type-input option').forEach(function (option) {
-      if (option.value === 'commun' || option.value === 'personnel') {
-        option.disabled = !liensState.isManager && option.value === 'commun';
-      }
     });
-
+    document.querySelectorAll('#glossaryModal option[value="commun"], .edit-type-input option[value="commun"]').forEach(function (option) {
+      option.disabled = !liensState.canWriteCommon;
+    });
     updateToolbarForCurrentTab();
   }
 
@@ -233,7 +238,7 @@
   function ensureBulkCells(kind) {
     var cfg = tableConfig(kind);
     var table = document.getElementById(cfg.id);
-    if (!table || table.dataset.bulkCellsReady === 'true') return;
+    if (!table || !canWriteTable(kind) || table.dataset.bulkCellsReady === 'true') return;
     table.dataset.bulkCellsReady = 'true';
 
     var headerRows = table.querySelectorAll('thead tr');
@@ -297,8 +302,8 @@
 
   function setBulkDeleteMode(enabled) {
     var kind = currentTableKind();
-    if (enabled && kind === 'common' && !liensState.isManager) {
-      alert('La suppression multiple des liens communs est réservée aux managers.');
+    if (enabled && !canWriteTable(kind)) {
+      alert('Vous ne disposez pas du droit d’écriture dans cet onglet.');
       return;
     }
 
@@ -365,15 +370,13 @@
   function updateToolbarForCurrentTab() {
     var modeButton = document.getElementById('btnBulkDeleteModeLiens');
     if (!modeButton) return;
-    var common = currentTableKind() === 'common';
-    modeButton.style.display = common && !liensState.isManager ? 'none' : '';
+    modeButton.style.display = canWriteTable(currentTableKind()) ? '' : 'none';
     if (bulkDeleteMode && bulkDeleteTableKind !== currentTableKind()) setBulkDeleteMode(false);
   }
 
   function setupToolbar() {
-    var addButton = document.querySelector('button[data-target="#glossaryModal"]');
-    if (!addButton) return;
-    var left = addButton.parentNode;
+    var left = document.getElementById('liensToolbarLeft');
+    if (!left || (!liensState.canWritePersonal && !liensState.canWriteCommon)) return;
     var row = left.parentNode;
     if (!left.id) left.id = 'liensToolbarLeft';
     row.classList.add('glossary-toolbar');
@@ -552,7 +555,7 @@
       input = document.createElement('select');
       input.className = 'form-control input-sm excel-import-input';
       var personal = document.createElement('option'); personal.value = 'personnel'; personal.textContent = 'Personnel';
-      var common = document.createElement('option'); common.value = 'commun'; common.textContent = 'Commun'; common.disabled = !liensState.isManager;
+      var common = document.createElement('option'); common.value = 'commun'; common.textContent = 'Commun'; common.disabled = !liensState.canWriteCommon;
       input.appendChild(personal); input.appendChild(common);
       input.value = row.type || 'personnel';
     } else {
@@ -560,12 +563,12 @@
       if (textarea) input.rows = 2; else input.type = 'text';
       input.className = 'form-control input-sm excel-import-input';
       input.value = row[field] || '';
-      if (field === 'author' && !liensState.isManager) input.disabled = true;
+      if (field === 'author' && !liensState.canWriteCommon) input.disabled = true;
     }
 
     input.addEventListener('change', function () {
       row[field] = String(input.value || '').trim();
-      if (!liensState.isManager) {
+      if (!liensState.canWriteCommon) {
         row.type = 'personnel';
         row.author = liensState.userId;
       }
@@ -680,7 +683,7 @@
         };
         if (!item.acronym && !item.label && !item.definition) continue;
         if (item.type !== 'commun') item.type = 'personnel';
-        if (!liensState.isManager) { item.type = 'personnel'; item.author = liensState.userId; }
+        if (!liensState.canWriteCommon) { item.type = 'personnel'; item.author = liensState.userId; }
         excelRows.push(item);
       }
       excelFileName = file.name;
@@ -750,7 +753,7 @@
               '<tbody><tr><td>API</td><td>Application Programming Interface</td><td>Interface de programmation</td><td>personnel</td><td>' + (liensState.userId || 'DOE') + '</td></tr>' +
               '<tr><td>VPN</td><td>Virtual Private Network</td><td>Réseau privé virtuel</td><td>commun</td><td>' + (liensState.userId || 'DOE') + '</td></tr></tbody>' +
             '</table></div>' +
-            '<p class="text-muted">Auteur est facultatif : s’il est vide, l’utilisateur qui importe est utilisé. Un non-manager est toujours forcé en Personnel avec lui-même comme auteur.</p>' +
+            '<p class="text-muted">Auteur est facultatif : s’il est vide, l’utilisateur qui importe est utilisé. Sans droit d’écriture dans Commun, l’import utilise Personnel et l’utilisateur connecté comme auteur.</p>' +
           '</div><div class="modal-footer"><button type="button" class="btn btn-default" data-dismiss="modal">Fermer</button></div>' +
         '</div></div></div>';
     document.body.appendChild(exampleModal.firstChild);
@@ -805,29 +808,70 @@
     });
   }
 
+  function bindLiensSettings() {
+    var form = document.getElementById('liensSettingsForm');
+    if (!form || form.dataset.ready === 'true') return;
+    form.dataset.ready = 'true';
+    function normalizeRow(row) {
+      var common = row.querySelector('[data-kind="common"]');
+      var personal = row.querySelector('[data-kind="personal"]');
+      if (!common || !personal) return;
+      if (common.value === '2') personal.value = '2';
+      personal.querySelectorAll('option').forEach(function (option) { option.disabled = common.value === '2' && option.value !== '2'; });
+    }
+    form.querySelectorAll('.liens-permission-row').forEach(function (row) {
+      normalizeRow(row);
+      row.addEventListener('change', function () { normalizeRow(row); });
+    });
+    form.addEventListener('submit', async function (event) {
+      event.preventDefault();
+      if (form.dataset.saving === 'true') return;
+      form.dataset.saving = 'true';
+      var button = form.querySelector('[type="submit"]');
+      var feedback = form.querySelector('.liens-settings-feedback');
+      button.disabled = true;
+      feedback.textContent = '';
+      try {
+        var data = new FormData(form);
+        data.set('ajax', 'true');
+        var response = await fetch(form.action, { method: 'POST', body: data, credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        var result = (await response.text()).trim();
+        if (result === 'LIENS_SETTINGS_SAVED') { window.location.reload(); return; }
+        if (result.indexOf('LIENS_ERROR|') === 0) throw new Error(decodeURIComponent(result.substring(12).replace(/\+/g, ' ')));
+        throw new Error(result || 'Les paramètres n’ont pas été enregistrés.');
+      } catch (error) {
+        feedback.textContent = error.message;
+      } finally {
+        form.dataset.saving = 'false';
+        button.disabled = false;
+      }
+    });
+  }
+
   async function initialize() {
-    var table = document.getElementById('mainGlossaryTable');
-    if (!table || table.dataset.adaptationReady === 'true') return;
-    table.dataset.adaptationReady = 'true';
+    var root = document.querySelector('.liens-page');
+    if (!root || root.dataset.adaptationReady === 'true') return;
+    root.dataset.adaptationReady = 'true';
+    readPermissionsFromPage();
     // Comme dans le Glossaire : sortir les modales du contexte d'empilement XWiki.
-    ['actionFeedbackModal', 'deleteConfirmModal', 'deleteConfirmModal2', 'glossaryModal'].forEach(function (modalId) {
+    ['actionFeedbackModal', 'deleteConfirmModal', 'deleteConfirmModal2', 'glossaryModal', 'liensSettingsModal'].forEach(function (modalId) {
       var modal = document.getElementById(modalId);
       if (modal && modal.parentNode !== document.body) document.body.appendChild(modal);
     });
+    bindLiensSettings();
     setupToolbar();
-    createExcelUi();
+    if (liensState.canWritePersonal || liensState.canWriteCommon) createExcelUi();
     installSortButtons('mainGlossaryTable', 'main-term-row', 'personal', ['acronym', 'label', 'definition']);
     installSortButtons('secondaryGlossaryTable', 'secondary-term-row', 'common', ['acronym', 'label', 'definition', 'author']);
     ensureBulkCells('personal');
     ensureBulkCells('common');
     installTabWatcher();
-    detectManagerFromExistingPage();
-    liensState.userId = table.getAttribute('data-current-user') || '';
-    applyManagerUi();
+    applyPermissionsUi();
     setBulkDeleteMode(false);
     if (window.jQuery) window.jQuery('#glossaryModal').on('shown.bs.modal.liensRows', refreshExistingPopup);
     try { await refreshExistingPopup(); } catch (e) { console.error(e); }
-    applyManagerUi();
+    applyPermissionsUi();
     setBulkDeleteMode(false);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initialize, { once: true });
