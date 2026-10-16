@@ -5,6 +5,7 @@ function liensErrorMessage(result, status) {
     ERREUR_CSRF: 'Le jeton de sécurité est invalide ou la session a expiré. Rechargez la page puis réessayez.',
     ERREUR_DROITS: 'Votre compte ne dispose pas des droits nécessaires pour cette action.',
     ERREUR_AUTEUR: 'Cet auteur n’existe plus. Choisissez un compte XWiki existant puis réessayez.',
+    ERREUR_AUTEUR_DROITS: 'Cet auteur ne fait pas partie d’un groupe autorisé à écrire dans Commun. Choisissez un auteur dans la liste.',
     ERREUR_METHOD: 'Le serveur attend une requête POST.',
     ERREUR_ACTION_INCONNUE: 'La page DATA ne reconnaît pas cette action. Vérifiez que les sources de la page et des extensions ont été mises à jour ensemble.'
   };
@@ -35,6 +36,40 @@ async function liensReadResponse(response) {
   var result = await response.text();
   if (!response.ok) throw new Error(liensErrorMessage(result, response.status));
   return result;
+}
+
+// Source commune à l'import et à l'éditeur : membres des groupes d'écriture Commun.
+function liensReadAuthorCatalog() {
+  var catalog = document.getElementById('liensAuthorOptions');
+  if (!catalog || catalog.getAttribute('data-author-source') !== 'common-write-groups') return [];
+  return Array.from((catalog.content || catalog).querySelectorAll('option')).map(function (option) {
+    return { id: option.value, label: option.dataset.label || option.textContent,
+      reverseLabel: option.dataset.reverseLabel || '', reference: option.dataset.reference || '' };
+  });
+}
+
+async function liensLoadAuthorCatalog() {
+  try {
+    var root = document.querySelector('.liens-page');
+    var endpoint = new URL(root.getAttribute('data-endpoint-url'), window.location.href);
+    endpoint.searchParams.set('xpage', 'plain');
+    var data = new URLSearchParams({ action: 'listAuthors', form_token: root.getAttribute('data-csrf') || '' });
+    var response = await fetch(endpoint.href, { method: 'POST', body: data, credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+    var result = await liensReadResponse(response);
+    var lines = result.trim().split(/\r?\n/).filter(function (line) { return line.trim(); });
+    if (lines.pop() !== 'LIENS_AUTHORS_OK') throw new Error('Liste des auteurs indisponible.');
+    var authors = lines.map(function (line) {
+      var parts = line.split('|');
+      if (parts.length !== 5 || parts[0] !== 'LIEN_AUTHOR') throw new Error('Liste des auteurs incomplète.');
+      var values = parts.slice(1).map(function (value) { return decodeURIComponent(value.replace(/\+/g, ' ')); });
+      return { id: values[0], label: values[1], reverseLabel: values[2], reference: values[3] };
+    });
+    authors.sort(function (a, b) { return a.id.localeCompare(b.id, 'fr'); });
+    return authors;
+  } catch (error) {
+    // Un échec du service ne doit jamais empêcher l'ouverture de l'aperçu.
+    return liensReadAuthorCatalog();
+  }
 }
 
 function liensPopupRow(ref) {

@@ -1,10 +1,51 @@
 var rowToDelete2 = null;
 
-function refreshCommonOwnerPicker(row) {
+function validateCommonOwnerPicker(select) {
+  var option = select.options[select.selectedIndex];
+  var invalid = !option || option.getAttribute('data-author-invalid') === 'true';
+  select.setAttribute('aria-invalid', invalid ? 'true' : 'false');
+  select.closest('.edit-proprietaire').classList.toggle('liens-invalid-author', invalid);
+  return !invalid;
+}
+
+async function refreshCommonOwnerPicker(row) {
   if (!row) return;
   var holder = row.querySelector('.edit-proprietaire');
   var select = holder ? holder.querySelector('select.secondary-proprietaire-value') : null;
   if (!holder || !select) return;
+
+  if (row.dataset.authorLoading === 'true' || row.dataset.editing !== 'true') return;
+  row.dataset.authorLoading = 'true';
+  var revision = row.dataset.authorRevision;
+  var saveButton = row.querySelector('.edit-buttons button');
+  if (saveButton) saveButton.disabled = true;
+  try {
+    var authors = await liensLoadAuthorCatalog();
+    if (row.dataset.editing !== 'true' || row.dataset.authorRevision !== revision) return;
+    var value = select.value;
+    var label = (select.options[select.selectedIndex] || {}).textContent || value;
+    var oldPicker = select.tomselect || select.selectize;
+    if (oldPicker && typeof oldPicker.destroy === 'function') oldPicker.destroy();
+    select.innerHTML = '';
+    if (!authors.some(function (author) { return author.id === value; })) {
+      var unknown = new Option(label, value);
+      unknown.setAttribute('data-author-invalid', 'true');
+      select.add(unknown);
+    }
+    authors.forEach(function (author) { select.add(new Option(author.label + ' (' + author.id + ')', author.id)); });
+    select.value = value;
+    if (select.dataset.authorValidationReady !== 'true') {
+      select.dataset.authorValidationReady = 'true';
+      select.addEventListener('change', function () { validateCommonOwnerPicker(select); });
+    }
+    validateCommonOwnerPicker(select);
+  } finally {
+    if (row.dataset.authorRevision === revision) {
+      row.dataset.authorLoading = 'false';
+      if (saveButton && row.dataset.saving !== 'true') saveButton.disabled = false;
+    }
+  }
+  if (row.dataset.editing !== 'true') return;
 
   holder.style.display = 'block';
   select.disabled = false;
@@ -38,7 +79,7 @@ function refreshCommonOwnerPicker(row) {
         var instance = select.tomselect || select.selectize;
         var hasControl = !!holder.querySelector('.selectize-control, .ts-wrapper');
         if (!instance && !hasControl && typeof $select.xwikiSelectize === 'function') {
-          $select.xwikiSelectize();
+          $select.xwikiSelectize({ create: false });
         }
       } catch (e) {
         console.warn('Réinitialisation du sélecteur de créateur impossible', e);
@@ -56,8 +97,11 @@ function toggleEditMode2(button, isEnteringEdit) {
   var table = button.closest('#secondaryGlossaryTable');
   var viewElements = row.querySelectorAll('.view-mode, .view-buttons');
   var editElements = row.querySelectorAll('.edit-mode, .edit-buttons');
+  row.dataset.authorRevision = String(Number(row.dataset.authorRevision || 0) + 1);
+  row.dataset.authorLoading = 'false';
 
   if (isEnteringEdit) {
+    row.dataset.editing = 'true';
     table.classList.remove('hide-type-column');
     viewElements.forEach(el => el.style.display = 'none');
     row.querySelectorAll('.edit-mode').forEach(el => el.style.display = 'block');
@@ -66,6 +110,7 @@ function toggleEditMode2(button, isEnteringEdit) {
     if (ownerSelect) row.dataset.originalOwner = ownerSelect.value;
     window.setTimeout(function() { refreshCommonOwnerPicker(row); }, 0);
   } else {
+    row.dataset.editing = 'false';
     table.classList.add('hide-type-column');
     row.querySelector('.edit-acronym').value = row.querySelector('.secondary-acronym .view-mode').textContent.trim();
     row.querySelector('.edit-label').value = row.querySelector('.secondary-label .view-mode').textContent.trim();
@@ -88,7 +133,7 @@ function toggleEditMode2(button, isEnteringEdit) {
 
 async function saveRowEdition2(button) {
   var row = button.closest('.secondary-term-row');
-  if (row.dataset.saving === 'true') return;
+  if (row.dataset.saving === 'true' || row.dataset.authorLoading === 'true') return;
   var table = document.getElementById('secondaryGlossaryTable');
   var fullRef = row.getAttribute('data-full-ref');
   var className = table.getAttribute('data-class-path');
@@ -97,6 +142,10 @@ async function saveRowEdition2(button) {
   var label = row.querySelector('.edit-label').value;
   var definition = row.querySelector('.edit-definition').value;
   var proprietaireSelect = row.querySelector('.secondary-proprietaire-value');
+  if (!proprietaireSelect || !validateCommonOwnerPicker(proprietaireSelect)) {
+    alert('Choisissez un auteur membre d’un groupe autorisé à écrire dans Commun.');
+    return;
+  }
   var proprietaire = proprietaireSelect ? proprietaireSelect.value : '';
   var type = row.querySelector('.edit-type-input').value;
 

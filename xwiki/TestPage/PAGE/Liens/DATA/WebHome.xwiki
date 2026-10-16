@@ -65,6 +65,54 @@
 #set($canReadPersonal = $isAuthenticated && ($permissions.get('personalReadGroups') || $canWritePersonal))
 #set($canReadCommon = $permissions.get('commonReadGroups') || $canWriteCommon)
 ## END LIENS PERMISSIONS
+## BEGIN LIENS AUTHORS — bloc identique dans l'affichage et DATA.
+#macro(liensLoadAuthors)
+  #set($linkAuthors = [])
+  #set($authorRefs = [])
+  #set($seenAuthorRefs = [])
+  #if($canWriteCommon)
+    #foreach($authorGroup in $configuredGroups.get('commonWriteGroups'))
+      #set($authorGroupReference = $services.model.resolveDocument($authorGroup))
+      ## getMembers attend une DocumentReference ; true inclut les sous-groupes.
+      #foreach($memberReference in $services.user.group.getMembers($authorGroupReference, true))
+        #if(!$authorRefs.contains($memberReference)) #set($discard = $authorRefs.add($memberReference)) #end
+      #end
+      #if($authorGroupReference.equals($allGroupReference))
+        ## AllGroup peut être implicite : inclure les profils du wiki du groupe.
+        #foreach($authorName in $xwiki.getSpaceDocsName('XWiki'))
+          #set($memberReference = $services.model.createDocumentReference($authorGroupReference.wikiReference.name, ['XWiki'], $authorName))
+          #if(!$authorRefs.contains($memberReference)) #set($discard = $authorRefs.add($memberReference)) #end
+        #end
+      #end
+    #end
+    ## Le compte connecté a déjà été vérifié comme membre d'un groupe autorisé.
+    #if(!$authorRefs.contains($currentUserReference)) #set($discard = $authorRefs.add($currentUserReference)) #end
+    #foreach($authorReference in $authorRefs)
+      #set($canonicalAuthor = $services.model.serialize($authorReference))
+      #if(!$seenAuthorRefs.contains($canonicalAuthor))
+        #set($discard = $seenAuthorRefs.add($canonicalAuthor))
+        #set($authorDoc = false)
+        #set($authorDoc = $xwiki.getDocumentAsAuthor($authorReference))
+        #set($authorObject = false)
+        #if($authorDoc) #set($authorObject = $authorDoc.getObject('XWiki.XWikiUsers')) #end
+        ## Les sous-groupes et les comptes supprimés ne sont pas des auteurs.
+        #if($authorDoc && !$authorDoc.isNew() && $authorObject && !$authorReference.equals($guestReference))
+          #set($authorFirst = "$!authorObject.getValue('first_name')")
+          #set($authorLast = "$!authorObject.getValue('last_name')")
+          #set($authorLabel = "$authorFirst $authorLast")
+          #set($authorLabel = $authorLabel.trim())
+          #if($authorLabel == '') #set($authorLabel = $authorDoc.name) #end
+          #set($authorId = $authorDoc.name)
+          #if(!$authorReference.equals($currentUserReference) && (!$authorReference.wikiReference.equals($allGroupReference.wikiReference) || $authorDoc.name == $currentUserReference.name))
+            #set($authorId = $canonicalAuthor)
+          #end
+          #set($discard = $linkAuthors.add({'id':$authorId, 'label':$authorLabel, 'reverseLabel':"$authorLast $authorFirst", 'reference':$canonicalAuthor, 'documentReference':$authorReference}))
+        #end
+      #end
+    #end
+  #end
+#end
+## END LIENS AUTHORS
 #macro(liensSaveSettings)
   #set($settingsError = '')
   #set($expectedVersion = "$!request.getParameter('expectedVersion')")
@@ -184,6 +232,16 @@
   #set($resultLine = 'ERREUR_CSRF')
 #elseif($action == 'settings')
   #liensSaveSettings()
+#elseif($action == 'listAuthors')
+  #if(!$canWriteCommon)
+    #set($resultLine = 'ERREUR_DROITS')
+  #else
+    #liensLoadAuthors()
+    #foreach($linkAuthor in $linkAuthors)
+      #set($discard = $resultLines.add("LIEN_AUTHOR|$escapetool.url($linkAuthor.id)|$escapetool.url($linkAuthor.label)|$escapetool.url($linkAuthor.reverseLabel)|$escapetool.url($linkAuthor.reference)"))
+    #end
+    #set($resultLine = 'LIENS_AUTHORS_OK')
+  #end
 #elseif($action == 'listVisible')
   #set($query = $services.query.xwql("select distinct doc.fullName from Document doc, doc.object($className) obj"))
   #foreach($fullRef in $query.execute())
@@ -269,13 +327,24 @@
       #set($error = 'ERREUR_DROITS')
     #end
 
-    #if($error == '' && ($action == 'create' || $requestedOwner != $oldOwner))
-      ## Le compte peut avoir été supprimé depuis l'ouverture de l'aperçu Excel.
+    #if($error == '' && ($action == 'create' || $requestedOwner != $oldOwner || $requestedType == 'commun'))
+      ## Recalculer la liste : le groupe ou ses membres ont pu changer depuis l'aperçu.
       #set($ownerReference = $services.model.createDocumentReference('', ['XWiki'], $requestedOwner))
       #if($requestedOwner == $currentUserId) #set($ownerReference = $currentUserReference) #end
+      #if($canWriteCommon)
+        #liensLoadAuthors()
+        #set($eligibleOwner = false)
+        #foreach($linkAuthor in $linkAuthors)
+          #if($linkAuthor.id == $requestedOwner)
+            #set($eligibleOwner = true)
+            #set($ownerReference = $linkAuthor.documentReference)
+          #end
+        #end
+        #if(!$eligibleOwner) #set($error = 'ERREUR_AUTEUR_DROITS') #end
+      #end
       #set($ownerDoc = false)
-      #set($ownerDoc = $xwiki.getDocument($ownerReference))
-      #if(!$ownerDoc || $ownerDoc.isNew() || !$ownerDoc.getObject('XWiki.XWikiUsers'))
+      #set($ownerDoc = $xwiki.getDocumentAsAuthor($ownerReference))
+      #if($error == '' && (!$ownerDoc || $ownerDoc.isNew() || !$ownerDoc.getObject('XWiki.XWikiUsers')))
         #set($error = 'ERREUR_AUTEUR')
       #end
     #end

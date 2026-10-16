@@ -5,6 +5,7 @@ const { chromium } = require('playwright');
 
 // HTML produit par LiensVelocityTest et bibliothèques réelles dans assetsDir.
 const html = fs.readFileSync(process.argv[2] || '/tmp/liens-rendered.html', 'utf8');
+const authorResponse = fs.readFileSync((process.argv[2] || '/tmp/liens-rendered.html') + '.authors.txt', 'utf8');
 const assetsDir = process.argv[3] || '/tmp';
 const root = path.resolve('xwiki/TestPage/PAGE/Lien-test/extensions');
 const scripts = fs.readdirSync(root).filter(name => name.endsWith('.js')).sort();
@@ -13,6 +14,7 @@ const readAsset = name => fs.readFileSync(path.join(assetsDir, `liens-${name}`),
 let checks = 0;
 function check(actual, expected, label) { assert.deepEqual(actual, expected, label); checks++; }
 function fields(request) {
+  if ((request.headers()['content-type'] || '').startsWith('application/x-www-form-urlencoded')) return Object.fromEntries(new URLSearchParams(request.postData() || ''));
   const values = {};
   const body = request.postData() || '';
   const re = /name="([^"]+)"\r\n\r\n([\s\S]*?)\r\n--/g;
@@ -39,6 +41,7 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
       const errors = [];
       const alerts = [];
       let mode = '';
+      let currentAuthors = authorResponse;
       const requests = [];
       page.on('pageerror', error => errors.push(error.message));
       page.on('dialog', async dialog => { alerts.push(dialog.message()); await dialog.accept(); });
@@ -47,6 +50,7 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
         if (request.method() === 'POST') {
           const data = fields(request);
           requests.push(data);
+          if (data.action === 'listAuthors') return route.fulfill({ status: mode === 'authorsUnavailable' ? 503 : 200, contentType: 'text/plain', body: mode === 'authorsUnavailable' ? 'Service indisponible' : currentAuthors });
           if (mode === 'http') return route.fulfill({ status: 500, body: 'Erreur' });
           if (mode === 'network') return route.abort();
           if (mode === 'delay') await new Promise(resolve => setTimeout(resolve, 100));
@@ -72,7 +76,7 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
       if (late) for (const name of scripts) await page.addScriptTag({ content: fs.readFileSync(path.join(root, name), 'utf8') });
       await page.waitForSelector('#btnExcelExampleLiens');
       await page.waitForFunction(() => document.querySelectorAll('#popupCheckTable .term-row').length === 2);
-      return { page, errors, alerts, requests, setMode: value => { mode = value; } };
+      return { page, errors, alerts, requests, setMode: value => { mode = value; }, setAuthors: value => { currentAuthors = value; } };
     }
     const state = await setup();
     const { page } = state;
@@ -208,6 +212,33 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
     await failedRow.locator('.edit-buttons button').nth(1).click();
     state.setMode('');
     await page.fill('#filterAcronym', '');
+    // L'édition recharge les mêmes auteurs autorisés que l'import.
+    await page.click('[data-liens-tab="Tab2"]');
+    await page.fill('#filterProprietaire2', '');
+    const common = page.locator('#secondaryGlossaryTable .secondary-term-row').first();
+    await common.locator('.view-buttons button').first().click();
+    await common.evaluate(row => new Promise(resolve => {
+      const poll = () => row.dataset.authorLoading === 'false' && row.querySelector('.secondary-proprietaire-value').dataset.authorValidationReady === 'true' ? resolve() : setTimeout(poll, 10);
+      poll();
+    }));
+    check(await common.locator('.secondary-proprietaire-value option[value="Login42"]').count(), 1, 'édition recharge le membre autorisé depuis DATA');
+    check(await common.locator('.secondary-proprietaire-value option[value="NonAuteur"]').count(), 0, 'édition exclut le compte hors groupes');
+    await common.locator('.secondary-proprietaire-value').selectOption('Login42');
+    await common.locator('.edit-buttons button').first().evaluate(button => saveRowEdition2(button));
+    check(state.requests.filter(request => request.action === 'save').at(-1).proprietaire, 'Login42', 'édition envoie le membre autorisé choisi');
+    check(await common.locator('.secondary-proprietaire .view-mode').textContent(), 'Jean Dupont (Login42)', 'édition affiche le nom du membre choisi');
+    state.setAuthors(authorResponse.split('\n').filter(line => !line.startsWith('LIEN_AUTHOR|Login42|')).join('\n'));
+    await common.locator('.view-buttons button').first().click();
+    await page.waitForFunction(() => document.querySelector('#secondaryGlossaryTable .secondary-term-row').dataset.authorLoading === 'false' && document.querySelector('#secondaryGlossaryTable .secondary-proprietaire-value').getAttribute('aria-invalid') === 'true');
+    check(await common.locator('.secondary-proprietaire-value option[data-author-invalid="true"]').count(), 1, 'ancien auteur retiré des groupes signalé en édition');
+    const savesBefore = state.requests.filter(request => request.action === 'save').length;
+    await common.locator('.edit-buttons button').first().evaluate(button => saveRowEdition2(button));
+    check(state.requests.filter(request => request.action === 'save').length, savesBefore, 'édition ne soumet pas un auteur devenu non autorisé');
+    await common.locator('.secondary-proprietaire-value').selectOption('Test');
+    check(await common.locator('.secondary-proprietaire-value').getAttribute('aria-invalid'), 'false', 'nouveau choix autorisé valide l’éditeur');
+    await common.locator('.edit-buttons button').nth(1).click();
+    state.setAuthors(authorResponse);
+    await page.click('[data-liens-tab="Tab1"]');
     // Plusieurs éditions : le type reste visible tant qu'une autre ligne est éditée.
     await page.evaluate(() => {
       const buttons = document.querySelectorAll('#mainGlossaryTable .view-buttons button:first-child');
@@ -258,7 +289,9 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
     await authors.nth(9).selectOption('Autre');
     check(await page.locator('#excelLiensPreviewBody .liens-invalid-author').count(), 0, 'correction manuelle retire le rouge');
     check((await page.locator('#excelLiensSelectionSummary').textContent()).includes('non reconnu'), false, 'compteur des auteurs mis à jour après correction');
-    check(await page.locator('#secondaryGlossaryTable .secondary-proprietaire-value').first().locator('option[value="AdeleMartin"]').count(), 1, 'auteur hors des groupes gestionnaires proposé aussi en édition');
+    check(await page.locator('#secondaryGlossaryTable .secondary-proprietaire-value').first().locator('option[value="AdeleMartin"]').count(), 1, 'membre d’un groupe autorisé proposé aussi en édition');
+    check(await page.locator('#secondaryGlossaryTable .secondary-proprietaire-value option[value="NonAuteur"]').count(), 0, 'compte sans écriture commune absent de l’éditeur');
+    check(await authors.first().locator('option[value="NonAuteur"]').count(), 0, 'compte sans écriture commune absent de l’import');
     check(await page.locator('#excelLiensPreviewBody .excel-author-correction').filter({ hasText: 'AdeleMartni' }).count(), 1, 'correction visible avant import');
     check(await page.locator('#excelLiensPreviewBody img').count(), 0, 'auteur Excel traité comme texte');
     await authors.nth(1).selectOption('Autre');
@@ -331,6 +364,12 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
     const unavailable = await setup();
     await unavailable.page.addScriptTag({ content: readAsset('sheetjs.js') });
     const catalogMarkup = await unavailable.page.locator('#liensAuthorOptions').evaluate(select => select.outerHTML);
+    await unavailable.page.locator('#liensAuthorOptions').evaluate(select => select.remove());
+    await unavailable.page.locator('#excelLiensFileInput').setInputFiles({ name: 'auteurs.xlsx', buffer: Buffer.from(authorBytes) });
+    await unavailable.page.waitForFunction(() => document.querySelectorAll('#excelLiensPreviewBody select.excel-author-select')[10]?.value === 'Login42');
+    check(await unavailable.page.locator('#excelLiensPreviewBody select.excel-author-select').nth(10).getAttribute('aria-invalid'), 'false', 'DATA retrouve les membres autorisés même sans catalogue HTML');
+    await unavailable.page.evaluate(markup => document.querySelector('.liens-page').insertAdjacentHTML('beforeend', markup), catalogMarkup);
+    unavailable.setMode('authorsUnavailable');
     for (const mode of ['vide', 'absent']) {
       await unavailable.page.evaluate(mode => {
         const catalog = document.getElementById('liensAuthorOptions');
@@ -349,6 +388,7 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
     await unavailable.page.evaluate(markup => {
       const source = document.createElement('div'); source.innerHTML = markup;
       const legacy = document.createElement('template'); legacy.id = 'liensAuthorOptions';
+      legacy.setAttribute('data-author-source', 'common-write-groups');
       legacy.innerHTML = source.querySelector('select').innerHTML;
       document.querySelector('.liens-page').appendChild(legacy);
     }, catalogMarkup);
@@ -374,6 +414,7 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
     check(await nonManager.page.locator('#excelLiensPreviewBody .excel-author-select').evaluateAll(selects => selects.every(select => select.disabled && select.value === 'Test')), true, 'écriture personnelle seule conserve son auteur');
     check(await nonManager.page.locator('#excelLiensPreviewBody select:not(.excel-author-select)').evaluateAll(selects => selects.every(select => select.value === 'personnel')), true, 'écriture personnelle seule force le type Personnel');
     check(nonManager.errors, [], 'aucune exception non-manager');
+    check(nonManager.requests.filter(request => request.action === 'listAuthors').length, 0, 'écriture personnelle seule ne charge pas le catalogue des groupes');
     await nonManager.page.close();
     console.log(`${checks} vérifications Chromium réussies.`);
   } finally { await browser.close(); }

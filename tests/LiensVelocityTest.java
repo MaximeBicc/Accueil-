@@ -27,9 +27,11 @@ public class LiensVelocityTest {
   public static class WikiRef {
     final String name; WikiRef(String name) { this.name = name; }
     public String getName() { return name; }
+    public boolean equals(Object other) { return other instanceof WikiRef ref && name.equals(ref.name); }
+    public int hashCode() { return name.hashCode(); }
   }
   public static class Model {
-    public Ref createDocumentReference(String wiki, List<String> spaces, String name) { return new Ref(String.join(".", spaces), name); }
+    public Ref createDocumentReference(String wiki, List<String> spaces, String name) { return new Ref((wiki.isEmpty() || wiki.equals("xwiki") ? "" : wiki + ":") + String.join(".", spaces), name); }
     public Ref resolveDocument(String text) {
       if (text.startsWith("xwiki:")) text = text.substring(6);
       int cut = -1;
@@ -43,6 +45,7 @@ public class LiensVelocityTest {
       return new Ref(cut < 0 ? SPACE : text.substring(0, cut), name);
     }
     public String serialize(Ref ref) { return ref.toString(); }
+    public String serialize(String reference) { return reference; }
     public String serialize(Ref ref, String hint) { return ref.toString(); }
   }
   public static class Obj {
@@ -207,13 +210,31 @@ public class LiensVelocityTest {
   public static class Groups {
     boolean manager;
     final Set<Ref> memberships = new LinkedHashSet<>();
+    final Map<Ref, List<Ref>> members = new LinkedHashMap<>();
+    void addMembers(String group, String... users) {
+      List<Ref> list = members.computeIfAbsent(new Model().resolveDocument(group), key -> new ArrayList<>());
+      for (String user : users) list.add(new Model().resolveDocument(user));
+    }
     public List<Ref> getGroups(Ref user, WikiRef wiki, boolean recursive) {
       List<Ref> result = new ArrayList<>();
       if (manager) for (String name : List.of("XWiki.IVQ_Gestionnaires", "XWiki.IVQ_Gestionnaire")) result.add(new Model().resolveDocument(name));
       for (Ref group : memberships) if (group.getWikiReference().name.equals(wiki.name)) result.add(group);
       return result;
     }
-    public List<String> getMembers(String name, boolean recursive) { return manager ? List.of("XWiki.Test") : List.of(); }
+    // Signature réelle de GroupScriptService : DocumentReference, boolean.
+    public List<Ref> getMembers(Ref group, boolean recursive) {
+      Set<Ref> found = new LinkedHashSet<>(); Deque<Ref> pending = new ArrayDeque<>(); pending.add(group);
+      Set<Ref> visited = new HashSet<>();
+      while (!pending.isEmpty()) {
+        Ref current = pending.removeFirst(); if (!visited.add(current)) continue;
+        List<Ref> direct = members.getOrDefault(current, List.of());
+        if (manager && current.parent.equals("XWiki") && (current.name.equals("IVQ_Gestionnaires") || current.name.equals("IVQ_Gestionnaire"))) {
+          direct = new ArrayList<>(direct); direct.add(new Ref("XWiki", "Test")); direct.add(new Ref("XWiki", "Autre"));
+        }
+        found.addAll(direct); if (recursive) pending.addAll(direct);
+      }
+      return new ArrayList<>(found);
+    }
   }
   public static class UserService {
     final Groups groups; UserService(Groups groups) { this.groups = groups; }
@@ -355,33 +376,77 @@ public class LiensVelocityTest {
   static void check(boolean condition, String label) { if (!condition) throw new AssertionError(label); checks++; }
   static void authorTests() throws Exception {
     Fixture f = new Fixture(); f.groups.manager = true;
+    String homeSource = Files.readString(ROOT.resolve("Lien-test/WebHome.xwiki"));
+    String dataSource = Files.readString(ROOT.resolve("Liens/DATA/WebHome.xwiki"));
+    String begin = "## BEGIN LIENS AUTHORS", end = "## END LIENS AUTHORS";
+    check(homeSource.substring(homeSource.indexOf(begin), homeSource.indexOf(end)).equals(dataSource.substring(dataSource.indexOf(begin), dataSource.indexOf(end))), "même définition des auteurs dans affichage et DATA");
     String result = f.render("DATA/WebHome.xwiki", "create", "acronym", "IMPORT", "label", "Libellé", "definition", "Définition", "type", "commun", "proprietaire", "Inconnu");
-    check(result.equals("ERREUR_AUTEUR") && f.wiki.docs.isEmpty(), "import refuse un auteur inexistant sans créer de fiche");
-    Doc notUser = f.wiki.getDocument("XWiki.PageOrdinaire"); notUser.save("", false);
-    result = f.render("DATA/WebHome.xwiki", "create", "proprietaire", "PageOrdinaire");
-    check(result.equals("ERREUR_AUTEUR") && f.wiki.docs.size() == 1, "une page existante sans XWikiUsers n'est pas un auteur");
+    check(result.equals("ERREUR_AUTEUR_DROITS") && f.wiki.docs.isEmpty(), "import refuse un auteur hors groupes sans créer de fiche");
     f.wiki.profile("AdeleMartin", "Adèle", "Martin");
     result = f.render("DATA/WebHome.xwiki", "create", "proprietaire", "AdeleMartin");
-    check(result.startsWith("GLOSSAIRE_OK|") && f.wiki.getDocument("TestPage.PAGE.Liens.DATA.LIENDATA.AdeleMartin.IMPORT").obj.getValue("proprietaire").equals("AdeleMartin"), "un compte existant hors des groupes gestionnaires peut être auteur");
+    check(result.equals("ERREUR_AUTEUR_DROITS"), "un profil existant sans écriture commune est refusé");
+    f.groups.addMembers("XWiki.IVQ_Gestionnaires", "XWiki.AdeleMartin");
+    result = f.render("DATA/WebHome.xwiki", "create", "proprietaire", "AdeleMartin");
+    check(result.startsWith("GLOSSAIRE_OK|") && f.wiki.getDocument("TestPage.PAGE.Liens.DATA.LIENDATA.AdeleMartin.IMPORT").obj.getValue("proprietaire").equals("AdeleMartin"), "membre d'un groupe d'écriture commune accepté à l'import");
     f = new Fixture(); f.groups.manager = true; Doc source = common(f);
     result = f.render("DATA/WebHome.xwiki", "save", "targetRef", source.getFullName(), "acronym", "COMMUN", "label", "Libellé", "definition", "Définition", "type", "commun", "proprietaire", "Inconnu");
-    check(result.equals("ERREUR_AUTEUR") && f.refactoring.calls == 0 && source.obj.getValue("proprietaire").equals("Test"), "édition refuse de changer vers un auteur inexistant");
+    check(result.equals("ERREUR_AUTEUR_DROITS") && f.refactoring.calls == 0 && source.obj.getValue("proprietaire").equals("Test"), "édition refuse un auteur hors groupes sans déplacer la fiche");
     f.wiki.profile("AdeleMartin", "Adèle", "Martin");
     f.wiki.profile("SansNom", "", "");
     f.wiki.profile("Echappe", "<img src=x onerror=alert(1)>", "& Co");
+    f.wiki.profile("Lecteur", "Simple", "Lecteur");
     f.wiki.getDocument("XWiki.PageOrdinaire").save("", false);
+    f.groups.addMembers("XWiki.IVQ_Gestionnaires", "XWiki.AdeleMartin", "XWiki.SousGroupe", "XWiki.PageOrdinaire", "XWiki.Supprime");
+    f.groups.addMembers("XWiki.SousGroupe", "XWiki.SansNom", "XWiki.Echappe", "XWiki.IVQ_Gestionnaires");
     String html = f.render("WebHome.xwiki", "");
-    check(html.contains("id=\"liensAuthorOptions\"") && html.contains("value=\"AdeleMartin\"") && html.contains("Adèle Martin (AdeleMartin)"), "catalogue des comptes et noms accessible sans dépendre des auteurs présents");
-    check(html.contains("data-label=\"SansNom\"") && html.contains("&lt;img src=x onerror=alert(1)&gt;"), "auteurs sans nom et noms échappés");
-    check(!html.contains("value=\"PageOrdinaire\""), "catalogue réservé aux profils utilisateurs");
+    check(html.contains("value=\"AdeleMartin\"") && html.contains("Adèle Martin (AdeleMartin)"), "catalogue depuis les groupes avec noms/prénoms");
+    check(html.contains("data-label=\"SansNom\"") && html.contains("&lt;img src=x onerror=alert(1)&gt;"), "sous-groupes récursifs, cycles, noms vides et noms échappés");
+    check(!html.contains("value=\"PageOrdinaire\"") && !html.contains("value=\"Lecteur\"") && !html.contains("value=\"SousGroupe\"") && !html.contains("value=\"Supprime\""), "seuls les utilisateurs membres sont proposés");
     f.wiki.emptyUserQuery = true;
-    html = f.render("WebHome.xwiki", "");
-    check(html.contains("value=\"AdeleMartin\"") && html.contains("data-reverse-label=\"Martin Adèle\"") && !html.contains("value=\"PageOrdinaire\""), "repli sur les pages XWiki conserve les noms/prénoms et vérifie les profils");
+    check(f.render("WebHome.xwiki", "").contains("data-reverse-label=\"Martin Adèle\""), "aucune dépendance à la requête globale des profils");
+    result = f.render("DATA/WebHome.xwiki", "listAuthors");
+    check(result.contains("LIEN_AUTHOR|AdeleMartin|Ad%C3%A8le+Martin|Martin+Ad%C3%A8le|") && result.endsWith("LIENS_AUTHORS_OK"), "DATA fournit le même catalogue encodé à l'éditeur et à l'import");
+    check(!result.contains("LIEN_AUTHOR|Lecteur|") && !result.contains("LIEN_AUTHOR|SousGroupe|"), "service exclut lecteurs et groupes");
+    f.groups.members.get(new Ref("XWiki", "IVQ_Gestionnaires")).remove(new Ref("XWiki", "AdeleMartin"));
+    result = f.render("DATA/WebHome.xwiki", "create", "acronym", "RETIRE", "proprietaire", "AdeleMartin");
+    check(result.equals("ERREUR_AUTEUR_DROITS"), "membre retiré après aperçu refusé à l'enregistrement");
+    result = f.render("DATA/WebHome.xwiki", "save", "targetRef", "TestPage.PAGE.Liens.DATA.LIENDATA.Test.COMMUN", "acronym", "COMMUN", "proprietaire", "Test");
+    check(result.startsWith("GLOSSAIRE_OK|"), "le membre connecté conserve un auteur valide pour l'édition");
+    f.groups.addMembers("XWiki.IVQ_Gestionnaires", "XWiki.AdeleMartin");
     f.wiki.profiles.remove(new Ref("XWiki", "AdeleMartin"));
-    result = f.render("DATA/WebHome.xwiki", "create", "acronym", "SUPPRIME", "proprietaire", "AdeleMartin");
-    check(result.equals("ERREUR_AUTEUR"), "auteur supprimé après aperçu refusé à l'enregistrement");
+    check(f.render("DATA/WebHome.xwiki", "create", "proprietaire", "AdeleMartin").equals("ERREUR_AUTEUR_DROITS"), "membre supprimé exclu même s'il reste dans le groupe");
     f = new Fixture();
-    check(!f.render("WebHome.xwiki", "").contains("id=\"liensAuthorOptions\""), "pas de catalogue des auteurs sans écriture commune");
+    check(f.render("DATA/WebHome.xwiki", "listAuthors").equals("ERREUR_DROITS"), "catalogue réservé à l'écriture commune");
+    check(!f.render("WebHome.xwiki", "").contains("id=\"liensAuthorOptions\""), "pas de catalogue sans écriture commune");
+    f = new Fixture(); configure(f, 0, 2); f.wiki.profile("Implicite", "Compte", "Implicite");
+    check(f.render("DATA/WebHome.xwiki", "listAuthors").contains("LIEN_AUTHOR|Implicite|"), "AllGroup implicite inclut tous les profils du wiki");
+    f = new Fixture(); Doc configuration = configure(f, 0, 0);
+    configuration.obj.set("commonWriteGroups", "XWiki.Redacteurs\nautre:XWiki.Equipe");
+    configuration.obj.set("commonReadGroups", "XWiki.Lecteurs");
+    f.groups.memberships.add(new Ref("XWiki", "Redacteurs"));
+    f.wiki.profile("DeuxGroupes", "Deux", "Groupes"); f.wiki.profile("LectureSeule", "Lecture", "Seule");
+    f.groups.addMembers("XWiki.Redacteurs", "XWiki.DeuxGroupes");
+    f.groups.addMembers("autre:XWiki.Equipe", "XWiki.DeuxGroupes", "XWiki.Autre");
+    f.groups.addMembers("XWiki.Lecteurs", "XWiki.LectureSeule");
+    result = f.render("DATA/WebHome.xwiki", "listAuthors");
+    check(result.contains("LIEN_AUTHOR|DeuxGroupes|") && result.contains("LIEN_AUTHOR|Autre|") && !result.contains("LIEN_AUTHOR|LectureSeule|"), "union des groupes autorisés, y compris groupe d'un autre wiki");
+    check(result.indexOf("LIEN_AUTHOR|DeuxGroupes|") == result.lastIndexOf("LIEN_AUTHOR|DeuxGroupes|"), "membre de plusieurs groupes sans doublon");
+    Doc foreign = f.wiki.getDocument("autre:XWiki.Auteur"); foreign.newObject("XWiki.XWikiUsers");
+    foreign.obj.set("first_name", "Auteur"); foreign.obj.set("last_name", "Global"); foreign.save("", false);
+    f.groups.addMembers("autre:XWiki.Equipe", "autre:XWiki.Auteur");
+    result = f.render("DATA/WebHome.xwiki", "listAuthors");
+    check(result.contains("LIEN_AUTHOR|autre%3AXWiki.Auteur|Auteur+Global|"), "auteur d'un autre wiki conservé avec référence qualifiée");
+    result = f.render("DATA/WebHome.xwiki", "create", "acronym", "GLOBAL", "label", "Libellé", "definition", "Définition", "type", "commun", "proprietaire", "autre:XWiki.Auteur");
+    check(result.startsWith("GLOSSAIRE_OK|"), "création avec un membre qualifié d'un autre wiki");
+    f.wiki.profile("NonMembre", "Ancien", "Auteur");
+    Doc legacy = f.wiki.getDocument(new Ref("TestPage.PAGE.Liens.DATA.LIENDATA.NonMembre", "HISTORIQUE"));
+    legacy.newObject("TestPage.PAGE.Liens.CODE.lienClass.WebHome"); legacy.obj.set("proprietaire", "NonMembre"); legacy.obj.set("type", "commun"); legacy.save("", false);
+    result = f.render("DATA/WebHome.xwiki", "save", "targetRef", legacy.getFullName(), "acronym", "HISTORIQUE", "proprietaire", "NonMembre");
+    check(result.equals("ERREUR_AUTEUR_DROITS") && f.refactoring.calls == 0, "ancien auteur non membre refusé même si l'identifiant ne change pas");
+    f.request.method = "GET";
+    check(f.render("DATA/WebHome.xwiki", "listAuthors").equals("ERREUR_METHOD"), "catalogue vérifie POST");
+    f.request.method = "POST"; f.request.params.put("form_token", "bad");
+    check(f.render("DATA/WebHome.xwiki", "listAuthors").equals("ERREUR_CSRF"), "catalogue vérifie CSRF");
   }
   public static void main(String[] args) throws Exception {
     ENGINE.init();
@@ -447,12 +512,17 @@ public class LiensVelocityTest {
     check(result.contains("%3Cimg") && !result.contains("PRIVE") && result.contains("LIEN_LIST_OK|Test|false"), "liste encodée et privée");
     f = new Fixture(); f.groups.manager = true;
     f.wiki.profile("AdeleMartin", "Adèle", "Martin"); f.wiki.profile("ZoeDurand", "Zoé", "Durand"); f.wiki.profile("Login42", "Jean", "Dupont");
+    f.wiki.profile("NonAuteur", "Membre", "Lecture");
+    f.groups.addMembers("XWiki.IVQ_Gestionnaires", "XWiki.AdeleMartin", "XWiki.ZoeDurand", "XWiki.Login42");
     for (int i = 0; i < 27; i++) {
       Doc row = f.wiki.add(String.format("A%02d", i), String.format("A%02d", i));
       row.obj.set("lien", i % 2 == 0 ? "Groupe pair" : "Groupe impair"); row.obj.set("definition", "Définition " + i);
     }
     for (int i = 0; i < 17; i++) { Doc row = f.wiki.add(String.format("C%02d", i), String.format("C%02d", i)); row.obj.set("type", "commun"); }
-    if (args.length > 0) Files.writeString(Path.of(args[0]), f.render("WebHome.xwiki", ""));
+    if (args.length > 0) {
+      Files.writeString(Path.of(args[0]), f.render("WebHome.xwiki", ""));
+      Files.writeString(Path.of(args[0] + ".authors.txt"), f.render("DATA/WebHome.xwiki", "listAuthors"));
+    }
     permissionsTests(args.length > 0 ? args[0] : null);
     authorTests();
     System.out.println(checks + " vérifications Velocity réussies.");

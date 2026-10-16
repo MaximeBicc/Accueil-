@@ -77,31 +77,55 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
 #set($canReadCommon = $permissions.get('commonReadGroups') || $canWriteCommon)
 ## END LIENS PERMISSIONS
 
-#set($linkAuthors = [])
-#if($canWriteCommon)
-  #set($authorRefs = $services.query.xwql("select distinct doc.fullName from Document doc, doc.object(XWiki.XWikiUsers) usr where doc.space = 'XWiki' order by doc.fullName").execute())
-  #if($authorRefs.isEmpty())
-    ## Repli sur les pages du wiki si la requête des profils ne renvoie aucun compte.
-    #set($authorRefs = [])
-    #foreach($authorName in $xwiki.getSpaceDocsName('XWiki'))
-      #set($discard = $authorRefs.add($services.model.createDocumentReference('', ['XWiki'], $authorName)))
+## BEGIN LIENS AUTHORS — bloc identique dans l'affichage et DATA.
+#macro(liensLoadAuthors)
+  #set($linkAuthors = [])
+  #set($authorRefs = [])
+  #set($seenAuthorRefs = [])
+  #if($canWriteCommon)
+    #foreach($authorGroup in $configuredGroups.get('commonWriteGroups'))
+      #set($authorGroupReference = $services.model.resolveDocument($authorGroup))
+      ## getMembers attend une DocumentReference ; true inclut les sous-groupes.
+      #foreach($memberReference in $services.user.group.getMembers($authorGroupReference, true))
+        #if(!$authorRefs.contains($memberReference)) #set($discard = $authorRefs.add($memberReference)) #end
+      #end
+      #if($authorGroupReference.equals($allGroupReference))
+        ## AllGroup peut être implicite : inclure les profils du wiki du groupe.
+        #foreach($authorName in $xwiki.getSpaceDocsName('XWiki'))
+          #set($memberReference = $services.model.createDocumentReference($authorGroupReference.wikiReference.name, ['XWiki'], $authorName))
+          #if(!$authorRefs.contains($memberReference)) #set($discard = $authorRefs.add($memberReference)) #end
+        #end
+      #end
     #end
-  #end
-  #foreach($authorRef in $authorRefs)
-    #set($authorDoc = false)
-    #set($authorDoc = $xwiki.getDocument($authorRef))
-    #set($authorObject = false)
-    #set($authorObject = $authorDoc.getObject('XWiki.XWikiUsers'))
-    #if($authorDoc && !$authorDoc.isNew() && $authorObject && $xwiki.hasAccessLevel('view', $user, $authorDoc.fullName))
-      #set($authorFirst = "$!authorObject.getValue('first_name')")
-      #set($authorLast = "$!authorObject.getValue('last_name')")
-      #set($authorLabel = "$authorFirst $authorLast")
-      #set($authorLabel = $authorLabel.trim())
-      #if($authorLabel == '') #set($authorLabel = $authorDoc.name) #end
-      #set($discard = $linkAuthors.add({'id':$authorDoc.name, 'label':$authorLabel, 'reverseLabel':"$authorLast $authorFirst", 'reference':$services.model.serialize($authorDoc.documentReference)}))
+    ## Le compte connecté a déjà été vérifié comme membre d'un groupe autorisé.
+    #if(!$authorRefs.contains($currentUserReference)) #set($discard = $authorRefs.add($currentUserReference)) #end
+    #foreach($authorReference in $authorRefs)
+      #set($canonicalAuthor = $services.model.serialize($authorReference))
+      #if(!$seenAuthorRefs.contains($canonicalAuthor))
+        #set($discard = $seenAuthorRefs.add($canonicalAuthor))
+        #set($authorDoc = false)
+        #set($authorDoc = $xwiki.getDocumentAsAuthor($authorReference))
+        #set($authorObject = false)
+        #if($authorDoc) #set($authorObject = $authorDoc.getObject('XWiki.XWikiUsers')) #end
+        ## Les sous-groupes et les comptes supprimés ne sont pas des auteurs.
+        #if($authorDoc && !$authorDoc.isNew() && $authorObject && !$authorReference.equals($guestReference))
+          #set($authorFirst = "$!authorObject.getValue('first_name')")
+          #set($authorLast = "$!authorObject.getValue('last_name')")
+          #set($authorLabel = "$authorFirst $authorLast")
+          #set($authorLabel = $authorLabel.trim())
+          #if($authorLabel == '') #set($authorLabel = $authorDoc.name) #end
+          #set($authorId = $authorDoc.name)
+          #if(!$authorReference.equals($currentUserReference) && (!$authorReference.wikiReference.equals($allGroupReference.wikiReference) || $authorDoc.name == $currentUserReference.name))
+            #set($authorId = $canonicalAuthor)
+          #end
+          #set($discard = $linkAuthors.add({'id':$authorId, 'label':$authorLabel, 'reverseLabel':"$authorLast $authorFirst", 'reference':$canonicalAuthor, 'documentReference':$authorReference}))
+        #end
+      #end
     #end
   #end
 #end
+## END LIENS AUTHORS
+#liensLoadAuthors()
 #set($urlLiensData = $xwiki.getURL('TestPage.PAGE.Liens.DATA.WebHome', 'view'))
 #if("$!request.getParameter('action')" == 'checkAndCreate')
   #set($createError = '')
@@ -226,7 +250,7 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
 </div>
 
 #if($canWriteCommon)
-<select id="liensAuthorOptions" hidden disabled aria-hidden="true" tabindex="-1">
+<select id="liensAuthorOptions" data-author-source="common-write-groups" hidden disabled aria-hidden="true" tabindex="-1">
   #foreach($linkAuthor in $linkAuthors)
   <option value="$escapetool.xml($linkAuthor.id)" data-label="$escapetool.xml($linkAuthor.label)" data-reverse-label="$escapetool.xml($linkAuthor.reverseLabel)" data-reference="$escapetool.xml($linkAuthor.reference)">$escapetool.html($linkAuthor.label) ($escapetool.html($linkAuthor.id))</option>
   #end
@@ -464,16 +488,21 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
             #set ($typeValue = $targetObject.getValue('type'))
             #set ($proprietaireValue = $targetObject.getValue('proprietaire'))
 
-            ## 2. Récupération du document sur le wiki central
-            #set ($userPageRef = "xwiki:XWiki.${proprietaireValue}")
-            #set ($userDoc = $xwiki.getDocument($userPageRef))
-            #set ($userObj = $userDoc.getObject('XWiki.XWikiUsers'))
+            ## Le propriétaire peut être une référence qualifiée d'un autre wiki.
+            #set($userPageRef = $services.model.createDocumentReference('', ['XWiki'], $proprietaireValue))
+            #if($proprietaireValue.contains(':')) #set($userPageRef = $services.model.resolveDocument($proprietaireValue)) #end
+            #if($proprietaireValue == $userId) #set($userPageRef = $currentUserReference) #end
+            #set($userDoc = false)
+            #set($userDoc = $xwiki.getDocument($userPageRef))
+            #set($userObj = false)
+            #if($userDoc) #set($userObj = $userDoc.getObject('XWiki.XWikiUsers')) #end
+            #set($displayProprietaire = $proprietaireValue)
             #if($userObj)
-              #set ($firstName = $userObj.getValue('first_name'))
-              #set ($lastName = $userObj.getValue('last_name'))
-              #set($displayProprietaire = "${firstName} ${lastName}")
-            #else
-              #set($displayProprietaire = $proprietaireValue)
+              #set($firstName = "$!userObj.getValue('first_name')")
+              #set($lastName = "$!userObj.getValue('last_name')")
+              #set($displayProprietaire = "$firstName $lastName")
+              #set($displayProprietaire = $displayProprietaire.trim())
+              #if($displayProprietaire == '') #set($displayProprietaire = $proprietaireValue) #end
             #end
 
             #if ($typeValue == "commun")
@@ -495,11 +524,17 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
                   <span class="view-mode">$escapetool.html($!displayProprietaire)</span>
                   <div class="edit-mode edit-proprietaire" name="monChoix" style="display:none">
                     <select class="xwiki-selectize secondary-proprietaire-value">
-                      <option value="$escapetool.xml($!proprietaireValue)">$escapetool.html($!displayProprietaire)</option>
+                      #set($listedOwner = false)
                       #foreach($linkAuthor in $linkAuthors)
-                        #if($proprietaireValue != $linkAuthor.id)
-                          <option value="$escapetool.xml($linkAuthor.id)">$escapetool.html($linkAuthor.label) ($escapetool.html($linkAuthor.id))</option>
-                        #end
+                        #if($proprietaireValue == $linkAuthor.id) #set($listedOwner = true) #end
+                      #end
+                      #if(!$listedOwner)
+                      <option value="$escapetool.xml($!proprietaireValue)" data-author-invalid="true" selected>$escapetool.html($!displayProprietaire) (auteur non autorisé)</option>
+                      #end
+                      #foreach($linkAuthor in $linkAuthors)
+                        #set($authorSelected = '')
+                        #if($proprietaireValue == $linkAuthor.id) #set($authorSelected = ' selected') #end
+                        <option value="$escapetool.xml($linkAuthor.id)"$authorSelected>$escapetool.html($linkAuthor.label) ($escapetool.html($linkAuthor.id))</option>
                       #end
                     </select>
                   </div>

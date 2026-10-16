@@ -300,6 +300,14 @@
   border-color: #a94442;
 }
 
+#secondaryGlossaryTable .edit-proprietaire.liens-invalid-author select,
+#secondaryGlossaryTable .edit-proprietaire.liens-invalid-author .ts-control,
+#secondaryGlossaryTable .edit-proprietaire.liens-invalid-author .selectize-input {
+  color: #a94442;
+  background-color: #f2dede;
+  border-color: #a94442;
+}
+
 .excel-line-col {
   width: 65px;
 }

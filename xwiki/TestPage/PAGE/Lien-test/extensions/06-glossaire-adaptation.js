@@ -540,18 +540,16 @@
       .toLocaleLowerCase('fr').replace(/[^\p{L}\p{N}]/gu, '');
   }
 
-  function loadExcelAuthors() {
-    var catalog = document.getElementById('liensAuthorOptions');
-    // Accepter le select natif et l'ancien template, sans bloquer si le catalogue manque.
-    var container = catalog && (catalog.content || catalog);
-    excelAuthors = container ? Array.from(container.querySelectorAll('option')).map(function (option) {
+  async function loadExcelAuthors() {
+    var catalog = liensState.canWriteCommon ? await liensLoadAuthorCatalog() : [];
+    excelAuthors = catalog.map(function (author) {
       return {
-        id: option.value, text: option.textContent,
-        names: [option.value, option.dataset.label, option.dataset.reverseLabel].filter(Boolean),
-        aliases: [option.value, option.dataset.label, option.dataset.reverseLabel, option.dataset.reference, 'XWiki.' + option.value]
+        id: author.id, text: author.label + ' (' + author.id + ')',
+        names: [author.id, author.label, author.reverseLabel].filter(Boolean),
+        aliases: [author.id, author.label, author.reverseLabel, author.reference, 'XWiki.' + author.id]
           .filter(Boolean)
       };
-    }) : [];
+    });
     excelAuthors.sort(function (a, b) { return a.id.localeCompare(b.id, 'fr'); });
     excelAuthorById = new Map(excelAuthors.map(function (author) { return [author.id, author]; }));
   }
@@ -636,7 +634,7 @@
     if (row.invalidAuthor) {
       var error = document.createElement('small');
       error.className = 'help-block text-danger excel-author-error';
-      error.textContent = 'Auteur non reconnu — choisissez un compte existant.';
+      error.textContent = 'Auteur non reconnu — choisissez un membre d’un groupe autorisé à écrire dans Commun.';
       td.appendChild(error);
     } else if (row.authorOriginal && row.authorOriginal !== row.author) {
       var hint = document.createElement('small');
@@ -774,7 +772,7 @@
     }
 
     try {
-      loadExcelAuthors();
+      await loadExcelAuthors();
       var buffer = await file.arrayBuffer();
       if (!isLiensSheetJSLibrary(xlsxLibrary)) throw new Error('La bibliothèque SheetJS chargée ne possède pas read()');
       var workbook = xlsxLibrary.read(buffer, { type: 'array' });
@@ -832,7 +830,7 @@
     recomputeExcelFlags();
 
     if (excelRows.some(function (row) { return row.invalidAuthor; })) {
-      alert('Corrigez les auteurs en rouge en choisissant un compte existant avant de lancer l’import.');
+      alert('Corrigez les auteurs en rouge en choisissant un membre d’un groupe autorisé à écrire dans Commun avant de lancer l’import.');
       return;
     }
 
@@ -886,7 +884,7 @@
               '<tbody><tr><td>API</td><td>Application Programming Interface</td><td>Interface de programmation</td><td>personnel</td><td>' + (liensState.userId || 'DOE') + '</td></tr>' +
               '<tr><td>VPN</td><td>Virtual Private Network</td><td>Réseau privé virtuel</td><td>commun</td><td>' + (liensState.userId || 'DOE') + '</td></tr></tbody>' +
             '</table></div>' +
-            '<p class="text-muted">Auteur est facultatif : s’il est vide, l’utilisateur qui importe est utilisé. Les identifiants et les noms sont comparés aux comptes XWiki existants. Une correspondance proche est sélectionnée ; sinon la valeur Excel reste affichée en rouge pour être corrigée dans la liste. Sans droit d’écriture dans Commun, l’import utilise Personnel et l’utilisateur connecté comme auteur.</p>' +
+            '<p class="text-muted">Auteur est facultatif : s’il est vide, l’utilisateur qui importe est utilisé. Les identifiants et les noms sont comparés aux membres des groupes autorisés à écrire dans Commun, sous-groupes inclus. Une correspondance proche est sélectionnée ; sinon la valeur Excel reste affichée en rouge pour être corrigée dans la liste. Sans droit d’écriture dans Commun, l’import utilise Personnel et l’utilisateur connecté comme auteur.</p>' +
           '</div><div class="modal-footer"><button type="button" class="btn btn-default" data-dismiss="modal">Fermer</button></div>' +
         '</div></div></div>';
     document.body.appendChild(exampleModal.firstChild);
@@ -898,7 +896,7 @@
           '<div class="modal-header"><button type="button" class="close" data-dismiss="modal" aria-label="Fermer" title="Fermer">' + getLiensXWikiIcon('cross') + '</button><h4 class="modal-title">Import Excel des liens</h4></div>' +
           '<div class="modal-body">' +
             '<div id="excelLiensInfo" class="text-muted excel-import-info"></div>' +
-            '<p class="text-muted">Vérifiez les auteurs retenus. Les auteurs en rouge ne sont pas reconnus : choisissez un compte existant dans la liste avant d’ajouter les liens.</p>' +
+            '<p class="text-muted">Les auteurs doivent appartenir à un groupe autorisé à écrire dans Commun. Pour chaque auteur en rouge, choisissez un membre dans la liste avant d’ajouter les liens.</p>' +
             '<div class="row">' +
               '<div class="col-md-8"><h5><strong>Données récupérées</strong></h5><div class="excel-import-table-wrap excel-import-preview-wrap">' +
                 '<table class="table table-striped table-bordered table-condensed excel-import-table"><thead><tr>' +

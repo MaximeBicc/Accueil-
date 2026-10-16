@@ -9,7 +9,7 @@
   var bulkSelectWidth = 54;
 
   function repairCreatorPicker(row) {
-    if (!row) return;
+    if (!row || row.dataset.editing !== 'true') return;
     var holder = row.querySelector('.edit-proprietaire');
     var select = holder ? holder.querySelector('select.secondary-proprietaire-value') : null;
     if (!holder || !select) return;
