@@ -222,6 +222,7 @@
             }); body.appendChild(row);
         });
         table.appendChild(body); view.body.appendChild(table);
+        view.body.appendChild(node("p", "Attribuez les droits aux groupes puis enregistrez. Sans attribution, aucune action n’est autorisée, même pour les administrateurs. Ceux-ci conservent l’accès aux paramètres.", "help-block"));
         view.body.appendChild(node("p", "Chaque opération autorisée s’effectue directement. Le droit Proposer permet de soumettre les autres opérations à validation, sauf la suppression.", "help-block"));
         var save = node("button","Enregistrer les autorisations","btn btn-primary"); save.type="button";
         save.onclick = async function () {

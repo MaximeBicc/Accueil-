@@ -101,7 +101,7 @@ async function open(page, mode = 'propositions') {
   }, mode);
 }
 
-async function workflowPage(browser, permissions = {}) {
+async function workflowPage(browser, permissions = {}, options = {}) {
   const page = await browser.newPage();
   await page.route('https://wiki.test/**', route => route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html>' }));
   await page.goto('https://wiki.test/documentation');
@@ -110,9 +110,9 @@ async function workflowPage(browser, permissions = {}) {
     <button id="doc-settings" hidden>Paramètres</button><button id="doc-add-folder">Ajouter un dossier</button>
     <button id="doc-add-document">Ajouter un document</button>
   </body></html>`);
-  await page.evaluate(granted => {
+  await page.evaluate(({ granted, groupGrants }) => {
     window.urlCommande = '/xwiki/bin/view/COMMANDE';
-    window.testWorkflow = { granted, requests: [], fail: '', responses: {}, alerts: [], confirmations: [], refreshes: 0 };
+    window.testWorkflow = { granted, groupGrants, settingsVersion: '4.2', requests: [], fail: '', responses: {}, alerts: [], confirmations: [], refreshes: 0 };
     window.alert = message => testWorkflow.alerts.push(String(message));
     window.confirm = message => { testWorkflow.confirmations.push(String(message)); return true; };
     window.fetch = async (url, options = {}) => {
@@ -127,10 +127,20 @@ async function workflowPage(browser, permissions = {}) {
         status = testWorkflow.responses[action].status || 200;
       } else if (testWorkflow.fail === action) body = '<div id="documentation-error" data-message="Action refusée">ERREUR_DROITS</div>';
       else if (action === 'workflow') {
-        body = '<div id="documentation-permissions" data-settings-version="4.2" ' +
+        body = '<div id="documentation-permissions" data-settings-version="' + testWorkflow.settingsVersion + '" ' +
           Object.entries(granted).map(([right, value]) => 'data-can-' + right + '="' + value + '"').join(' ') + '></div>' +
           '<div class="doc-group-data" data-ref="XWiki.Contributors" data-title="Contributeurs"></div>' +
-          '<div class="doc-grant-data" data-right="propose" data-group="XWiki.Contributors"></div>';
+          Object.entries(testWorkflow.groupGrants).flatMap(([right, groups]) => groups.map(group =>
+            '<div class="doc-grant-data" data-right="' + right + '" data-group="' + group + '"></div>')).join('');
+      } else if (action === 'enregistrer parametres') {
+        for (const right of ['create', 'move', 'modify', 'import', 'content', 'propose', 'review', 'delete']) {
+          const groups = (values[right + '_groups'] || '').split('\n').filter(Boolean);
+          testWorkflow.groupGrants[right] = groups;
+          granted[right] = groups.includes('XWiki.Contributors');
+        }
+        const version = testWorkflow.settingsVersion.split('.');
+        testWorkflow.settingsVersion = version[0] + '.' + (Number(version[1]) + 1);
+        body = 'PARAMETRES_OK';
       } else if (action === 'contenu document') body = '<div id="documentation-content" data-version="3.7"></div><textarea id="documentation-source">' + (testWorkflow.source || 'Contenu initial') + '</textarea>';
       else if (action === 'modifier metadonnees document') body = values.mode === 'proposal' ? 'PROPOSITION_OK' :
         '<div id="creation-result" data-code="METADONNEES_OK"></div><div id="metadata-result" data-modified="16/10/2026 12:00"></div>METADONNEES_OK';
@@ -143,7 +153,7 @@ async function workflowPage(browser, permissions = {}) {
       })[action] || 'PROPOSITION_OK';
       return { ok: status >= 200 && status < 300, status, text: async () => body };
     };
-  }, { view: true, ...permissions });
+  }, { granted: { view: true, ...permissions }, groupGrants: options.groupGrants || { propose: ['XWiki.Contributors'] } });
   await page.addScriptTag({ path: path.join(codeDir, 'Propositions.js') });
   await page.evaluate(() => DocPropositions.ready);
   return page;
@@ -362,6 +372,133 @@ async function deleteInUI(page, mode) {
         assert.equal(saved.values.propose_groups, 'XWiki.Contributors');
         assert.equal(saved.values.create_groups, '');
         assert.equal(saved.values.review_groups, '');
+      } finally { await page.close(); }
+    });
+
+    await check('An administrator without action grants can configure settings but cannot create, import, move, edit, propose, validate or delete', async () => {
+      const rights = ['create', 'import', 'move', 'modify', 'content', 'propose', 'review', 'delete'];
+      const page = await workflowPage(browser, { configure: true, ...Object.fromEntries(rights.map(right => [right, false])) }, { groupGrants: {} });
+      try {
+        await addCreationUI(page);
+        await addExplorerUI(page);
+        assert.equal(await page.locator('#doc-settings').isVisible(), true);
+        assert.equal(await page.locator('#doc-add-folder').isVisible(), false);
+        assert.equal(await page.locator('#doc-add-document').isVisible(), false);
+        assert.deepEqual(await page.evaluate(rights => rights.map(right => DocPropositions.can(right)), rights), rights.map(() => false));
+        assert.deepEqual(await page.evaluate(rights => rights.map(right => DocPropositions.modeFor(right)), rights), rights.map(() => ''));
+
+        await page.evaluate(async ref => {
+          testWorkflow.requests = [];
+          await ajouterFichier();
+          await ajouterDocument();
+          await DocPropositions.openContentEditor(ref);
+          await deleteExplorerItems(document.getElementById('box'), [{ ref, title: 'Guide', type: 'document' }]);
+        }, existing);
+        assert.equal(await page.locator('#popup').isVisible(), false);
+        assert.equal(await page.locator('dialog').count(), 0);
+        for (const action of ['deplacer element', 'supprimer element']) {
+          const message = await page.evaluate(async ({ action, ref, target }) => {
+            try { await postExplorerAction({ action, source_ref: ref, target_parent_ref: target }); return ''; }
+            catch (error) { return error.message; }
+          }, { action, ref: existing, target: root });
+          assert.match(message, /droit|autoris/i);
+        }
+        const reviewError = await page.evaluate(async () => {
+          try { await DocPropositions.proposalAction('proposal', 'accept', '', '1.1'); return ''; }
+          catch (error) { return error.message; }
+        });
+        assert.match(reviewError, /validation/);
+
+        await open(page, '');
+        assert.equal(await page.locator('.architecture-row[draggable="true"], .architecture-drop-target').count(), 0);
+        assert.equal(await page.locator('#architecture-validate-btn').isVisible(), false);
+        assert.equal(await page.locator('#architecture-delete-btn').isVisible(), false);
+        const drag = await page.evaluate(({ ref, targetRef }) => {
+          const row = document.querySelector('.architecture-row[data-architecture-ref="' + ref + '"]');
+          const target = document.querySelector('.architecture-row[data-architecture-ref="' + targetRef + '"]');
+          const start = new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: new DataTransfer() });
+          row.dispatchEvent(start);
+          target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: new DataTransfer() }));
+          return { refused: start.defaultPrevented, parent: architectureState.nodes[ref].parentRef };
+        }, { ref: existing, targetRef: root });
+        assert.deepEqual(drag, { refused: true, parent: folder });
+        await page.evaluate(async ref => {
+          architectureState.selected[ref] = true;
+          await deleteArchitectureSelection(document.getElementById('box'));
+        }, existing);
+        assert.equal(await page.evaluate(() => testWorkflow.requests.filter(request => request.method === 'POST').length), 0);
+        assert.equal(await page.evaluate(() => testWorkflow.confirmations.length), 0);
+        await page.evaluate(() => closeArchitectureEditor());
+
+        await page.locator('#doc-settings').click();
+        const dialog = page.getByRole('dialog', { name: 'Paramètres de la documentation' });
+        await dialog.waitFor();
+        assert.equal(await dialog.locator('input[type="checkbox"]:checked').count(), 0);
+        await dialog.getByRole('button', { name: 'Fermer', exact: true }).click();
+      } finally { await page.close(); }
+    });
+
+    await check('Saving and removing explicit group grants refreshes the workflow and enforces the new rights immediately', async () => {
+      const page = await workflowPage(browser, { configure: true }, { groupGrants: {} });
+      try {
+        await addCreationUI(page);
+        await addExplorerUI(page);
+        // The combined fixture uses the real creation form, rather than the
+        // token-only form needed by explorer-only scenarios.
+        await page.evaluate(() => document.querySelector('#box #formulairePopup').remove());
+        await page.locator('#doc-settings').click();
+        let dialog = page.getByRole('dialog', { name: 'Paramètres de la documentation' });
+        await dialog.waitFor();
+        await dialog.locator('input[data-right="create"]').check();
+        await dialog.locator('input[data-right="delete"]').check();
+        await dialog.getByRole('button', { name: 'Enregistrer les autorisations' }).click();
+        await page.waitForFunction(() => !document.querySelector('dialog'));
+        assert.equal(await page.locator('#doc-add-folder').isVisible(), true);
+        assert.equal(await page.locator('#explorer-delete-btn').isVisible(), true);
+        assert.deepEqual(await page.evaluate(() => ['create', 'delete', 'propose', 'move'].map(right => DocPropositions.modeFor(right))), ['direct', 'direct', '', '']);
+        assert.equal(await page.evaluate(() => DocPropositions.can('configure')), true);
+
+        await page.evaluate(() => ajouterFichier());
+        await page.locator('#folder-name-input').fill('Nouveau');
+        await page.locator('#btn-popup-valide').click();
+        await page.waitForFunction(() => document.getElementById('popup').style.display === 'none');
+        await deleteInUI(page, 'explorer');
+        const mutations = await page.evaluate(() => testWorkflow.requests.filter(request =>
+          ['ajouter un fichier', 'supprimer element'].includes(request.action)));
+        assert.equal(mutations.length, 2);
+        assert.ok(mutations.every(request => request.values.mode === 'direct'));
+
+        await page.locator('#doc-settings').click();
+        dialog = page.getByRole('dialog', { name: 'Paramètres de la documentation' });
+        await dialog.waitFor();
+        assert.equal(await dialog.locator('input[data-right="create"]').isChecked(), true);
+        assert.equal(await dialog.locator('input[data-right="delete"]').isChecked(), true);
+        assert.equal(await dialog.locator('input[data-right="propose"]').isChecked(), false);
+        await dialog.locator('input[data-right="create"]').uncheck();
+        await dialog.locator('input[data-right="delete"]').uncheck();
+        await dialog.getByRole('button', { name: 'Enregistrer les autorisations' }).click();
+        await page.waitForFunction(() => !document.querySelector('dialog'));
+        assert.equal(await page.locator('#doc-add-folder').isVisible(), false);
+        assert.equal(await page.locator('#doc-add-document').isVisible(), false);
+        assert.equal(await page.locator('#explorer-delete-btn').isVisible(), false);
+        assert.deepEqual(await page.evaluate(() => ['create', 'delete', 'propose'].map(right => DocPropositions.modeFor(right))), ['', '', '']);
+        assert.equal(await page.locator('#doc-settings').isVisible(), true);
+
+        await page.evaluate(async ref => {
+          testWorkflow.requests = [];
+          await ajouterFichier();
+          await deleteExplorerItems(document.getElementById('box'), [{ ref, title: 'Guide', type: 'document' }]);
+        }, existing);
+        assert.equal(await page.locator('#popup').isVisible(), false);
+        assert.equal(await page.evaluate(() => testWorkflow.requests.filter(request => request.method === 'POST').length), 0);
+        const workflow = await page.evaluate(async () => {
+          const result = await DocPropositions.request('workflow');
+          const permissions = result.getElementById('documentation-permissions');
+          return { version: permissions.getAttribute('data-settings-version'),
+            create: permissions.getAttribute('data-can-create'), delete: permissions.getAttribute('data-can-delete'),
+            grants: result.querySelectorAll('.doc-grant-data').length };
+        });
+        assert.deepEqual(workflow, { version: '4.4', create: 'false', delete: 'false', grants: 0 });
       } finally { await page.close(); }
     });
 

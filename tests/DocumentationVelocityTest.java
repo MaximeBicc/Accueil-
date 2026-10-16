@@ -57,10 +57,14 @@ public class DocumentationVelocityTest {
     final Wiki owner; String reference;
     final Map<String, byte[]> attachments = new LinkedHashMap<>();
     String content = "", title = "", parent = ""; int revision;
+    boolean configurationObjectPresent = true;
     Doc() { this(null, "TestPage.PAGE.doc-test.CODE.Configuration.WebHome"); }
     Doc(Wiki owner, String reference) { this.owner = owner; this.reference = reference; }
-    public Obj getObject(String name) { return name.equals(CONFIG_CLASS) ? configuration : objects.getOrDefault(name, List.of()).stream().findFirst().orElse(null); }
-    public Obj newObject(String name) { Obj value = new Obj(); objects.computeIfAbsent(name, ignored -> new ArrayList<>()).add(value); return value; }
+    public Obj getObject(String name) { return name.equals(CONFIG_CLASS) ? configurationObjectPresent ? configuration : null : objects.getOrDefault(name, List.of()).stream().findFirst().orElse(null); }
+    public Obj newObject(String name) {
+      if (name.equals(CONFIG_CLASS)) { configurationObjectPresent = true; return configuration; }
+      Obj value = new Obj(); objects.computeIfAbsent(name, ignored -> new ArrayList<>()).add(value); return value;
+    }
     public List<Obj> getObjects(String name) { return new ArrayList<>(objects.getOrDefault(name, List.of())); }
     public boolean removeObject(Obj value) { return objects.values().stream().anyMatch(values -> values.remove(value)); }
     public boolean isNew() { return owner != null && !owner.docs.containsKey(reference); }
@@ -107,7 +111,7 @@ public class DocumentationVelocityTest {
     final List<String> deleted = new ArrayList<>();
     final Upload upload = new Upload();
     int unique;
-    boolean admin, serviceAdmin = true, visible = true, nativeEdit, nativeDelete, readableConfiguration = true;
+    boolean admin, serviceAdmin = true, visible = true, nativeEdit, nativeDelete, readableConfiguration = true, configurationExists = true;
     public Extensions getJsx() { return new Extensions(); }
     public Extensions getSsx() { return new Extensions(); }
     public Upload getFileupload() { return upload; }
@@ -116,7 +120,11 @@ public class DocumentationVelocityTest {
       return switch (level) { case "admin" -> user.equals("XWiki.ScriptAuthor") ? serviceAdmin : admin; case "view" -> visible; case "edit" -> nativeEdit; case "delete" -> nativeDelete; default -> false; };
     }
     public Doc getDocumentAsAuthor(String ref) {
-      if (ref.equals("TestPage.PAGE.doc-test.CODE.Configuration.WebHome")) return readableConfiguration ? config : null;
+      if (ref.equals("TestPage.PAGE.doc-test.CODE.Configuration.WebHome")) {
+        if (!readableConfiguration) return null;
+        if (configurationExists) return config;
+        Doc missing = new Doc(this, ref); missing.configurationObjectPresent = false; return missing;
+      }
       return docs.getOrDefault(ref, new Doc(this, ref));
     }
     public Doc getDocumentAsAuthor(Ref ref) { return getDocumentAsAuthor(ref.toString()); }
@@ -343,6 +351,17 @@ public class DocumentationVelocityTest {
     f.wiki.docs.forEach((reference, value) -> values.put(reference, value.revision));
     return values;
   }
+  static void invalidOrEmptyConfiguration(Fixture f, String state) {
+    switch (state) {
+      case "missing page" -> f.wiki.configurationExists = false;
+      case "missing object" -> f.wiki.config.configurationObjectPresent = false;
+      case "empty lists" -> f.configured();
+      case "empty version" -> f.wiki.config.configuration.set("schemaVersion", "");
+      case "unknown version" -> f.wiki.config.configuration.set("schemaVersion", "999");
+      case "inaccessible" -> f.wiki.readableConfiguration = false;
+      default -> throw new IllegalArgumentException(state);
+    }
+  }
   public static void main(String[] args) throws Exception {
     String homeSource = Files.readString(ROOT.resolve("WebHome.xwiki"));
     String commandSource = Files.readString(ROOT.resolve("COMMANDE.xwiki"));
@@ -362,14 +381,16 @@ public class DocumentationVelocityTest {
     check(!boot.pageOutput.contains("Vous devez être connecté") && !boot.pageOutput.contains("#documentationPermissions"), "A valid administrator cannot receive the false connection warning");
     check(boot.pageOutput.contains("value=\"test-token\""), "The complete page must render the real CSRF form token");
     String workflow = boot.list("workflow");
-    check(workflow.contains("data-can-configure=\"true\"") && workflow.contains("data-can-create=\"true\""), "COMMANDE must bootstrap native administrator permissions independently of WebHome");
-    done("Fresh complete WebHome and COMMANDE renders recognize an IVQ_Gestionnaires native administrator");
+    check(workflow.contains("data-can-configure=\"true\"") && workflow.contains("data-can-create=\"false\""), "COMMANDE must recognize native administrator settings rights without granting unconfigured actions");
+    denyWrites(boot);
+    done("Fresh complete renders recognize an IVQ_Gestionnaires administrator for settings while denying unconfigured actions");
 
     boot = new Fixture(); boot.wiki.nativeEdit = true; boot.render();
     check(boot.pageOutput.contains("id=\"box\"") && !boot.pageOutput.contains("id=\"doc-settings\""), "An authorized editor must see the explorer without administrator settings");
     workflow = boot.list("workflow");
-    check(workflow.contains("data-can-configure=\"false\"") && workflow.contains("data-can-create=\"true\""), "Fresh editor workflow must retain native permissions without settings");
-    done("Fresh complete editor renders show the explorer while hiding administrator settings");
+    check(workflow.contains("data-can-configure=\"false\"") && workflow.contains("data-can-create=\"false\""), "Native edit permission cannot grant an unconfigured documentation action");
+    denyWrites(boot);
+    done("Fresh complete editor renders show the explorer without settings or unconfigured action rights");
 
     boot = new Fixture(); boot.user.user = new Ref("xwiki", "XWiki.XWikiGuest"); boot.render();
     check(boot.pageOutput.contains("Vous devez être connecté") && !boot.pageOutput.contains("id=\"box\""), "An anonymous user must still receive the connection warning");
@@ -390,15 +411,30 @@ public class DocumentationVelocityTest {
     check(boot.post("enregistrer parametres", "expectedVersion", boot.wiki.config.getVersion()).equals("ERREUR_DROITS"), "Non-administrators cannot save settings by forging a request");
     done("Fresh complete settings POST accepts native administrators and rejects ordinary users");
 
-    Fixture f = new Fixture(); f.wiki.admin = true; f.configured(); f.render();
-    for (String right : List.of("Configure", "Create", "Move", "Modify", "Import", "Content", "Propose", "Review", "Delete"))
-      check(f.can(right), "Admin permission missing: " + right);
-    done("Administrators receive settings and all documentation permissions");
+    Fixture f;
+    for (boolean administrator : List.of(false, true)) {
+      for (String configuration : List.of("missing page", "missing object", "empty lists", "empty version", "unknown version", "inaccessible")) {
+        f = new Fixture(); f.wiki.admin = administrator; f.wiki.nativeEdit = true; f.wiki.nativeDelete = true;
+        invalidOrEmptyConfiguration(f, configuration);
+        // Even matching group lists are ignored without a readable, recognized schema.
+        if (!configuration.equals("empty lists"))
+          for (String field : List.of("createGroups", "moveGroups", "modifyGroups", "importGroups", "contentGroups", "proposeGroups", "reviewGroups", "deleteGroups"))
+            f.group(field, "XWiki.IVQ_Gestionnaires");
+        f.render();
+        check(f.can("View") && f.can("Configure") == administrator, "Native view and settings must remain independent from action grants");
+        denyWrites(f);
+        check(!f.pageOutput.contains("id=\"doc-add-folder\"") && !f.pageOutput.contains("id=\"doc-add-document\""), "Unconfigured rights cannot expose creation controls");
+        workflow = f.list("workflow");
+        denyWrites(f);
+        for (String right : List.of("create", "move", "modify", "import", "content", "propose", "review", "delete"))
+          check(workflow.contains("data-can-" + right + "=\"false\""), "The server cannot expose an unconfigured action as allowed: " + right);
+        done((administrator ? "Native administrator" : "Native editor") + " receives no action grants with " + configuration);
+      }
+    }
 
-    f = new Fixture(); f.wiki.nativeEdit = true; f.wiki.nativeDelete = true; f.render();
-    check(f.can("Create") && f.can("Content") && f.can("Move") && f.can("Delete") && f.can("Propose"), "Initial native permissions lost");
-    check(!f.can("Configure") && !f.can("Review"), "Native editors cannot configure or validate");
-    done("Initial configuration retains native editor rights without granting settings or validation");
+    f = new Fixture(); f.wiki.admin = true; f.configured(); f.group("createGroups", "XWiki.Creators"); f.render();
+    check(f.can("Configure") && f.can("Create") && !f.can("Propose") && !f.can("Delete") && !f.can("Review"), "Administrators must receive only explicitly assigned action rights");
+    done("Administrator settings rights and one explicit create grant do not grant proposal, deletion or validation");
 
     f = new Fixture(); f.configured(); f.group("createGroups", "XWiki.Creators"); f.group("proposeGroups", "XWiki.Contributors"); f.render();
     check(f.can("Create") && f.can("Propose"), "Configured membership not used");
@@ -444,7 +480,7 @@ public class DocumentationVelocityTest {
     check(((Number)f.context.get("purgedCount")).intValue() == 2, "Incorrect actual purge count");
     done("Real COMMANDE purge deletes at the seven-day boundary and protects recent, pending, malformed and outside pages");
 
-    f = new Fixture(); f.wiki.admin = true;
+    f = new Fixture(); f.wiki.admin = true; f.configured(); f.group("reviewGroups", "XWiki.Reviewers");
     f.trash(TRASH + ".Expired", "rejected", NOW - WEEK);
     f.trash(TRASH + ".Fresh", "rejected", NOW - WEEK + 1);
     f.trash(TRASH + ".InvalidStatus", "pending", NOW);
@@ -462,7 +498,7 @@ public class DocumentationVelocityTest {
     listed = f.list("propositions");
     check(listed.contains("data-ref=\"" + mine + "\""), "Authors must see their pending proposals");
     check(!listed.contains("data-ref=\"" + theirs + "\""), "Ordinary proposers must not receive other authors' private proposal data");
-    f.wiki.admin = true; listed = f.list("propositions");
+    f.wiki.admin = true; f.group("reviewGroups", "XWiki.Reviewers"); listed = f.list("propositions");
     check(listed.contains("data-ref=\"" + theirs + "\""), "Validators must see pending proposals from other authors");
     done("Real proposal listing scopes private data to its author or a validator");
 
@@ -481,7 +517,7 @@ public class DocumentationVelocityTest {
       "parent_proposal_ref", parentProposal, "nom_fichier", "Document enfant", "content", "**Texte**", "batch_id", "batch-one");
     check(result.equals("PROPOSITION_OK"), "Child proposal failed: " + result);
     String childProposal = String.valueOf(f.context.get("resultProposalRef"));
-    f.wiki.admin = true;
+    f.wiki.admin = true; f.group("reviewGroups", "XWiki.Reviewers");
     result = f.post("valider proposition", "proposal_ref", childProposal, "version", f.wiki.docs.get(childProposal).getVersion());
     check(result.equals("ERREUR_DEPENDANCE_PROPOSITION"), "Child cannot publish before its proposed folder: " + result);
     check(f.wiki.docs.get(childProposal).getObject(PROPOSAL_CLASS).getValue("status").equals("pending"), "A failed validation must preserve the pending child");
@@ -506,14 +542,14 @@ public class DocumentationVelocityTest {
     check(publishedChild.getObject("TestPage.PAGE.doc-test.CODE.docContentClass.WebHome").getValue("source").equals("**Texte**"), "Proposed document source was not retained");
     done("Real partial validation publishes each item independently under the accepted destination");
 
-    f.wiki.admin = false;
+    f.wiki.admin = false; f.wiki.config.configuration.set("reviewGroups", "");
     result = f.post("ajouter un document", "mode", "proposal", "type", "document", "page", MAIN, "nom_fichier", "À revoir", "content", "Brouillon");
     check(result.equals("PROPOSITION_OK"), "Review fixture creation failed: " + result);
     String refusedRef = String.valueOf(f.context.get("resultProposalRef"));
     String version = f.wiki.docs.get(refusedRef).getVersion();
     result = f.post("refuser proposition", "proposal_ref", refusedRef, "version", version, "comment", "Incomplet");
     check(result.equals("ERREUR_DROITS"), "A proposer cannot refuse a proposal without validation right");
-    f.wiki.admin = true;
+    f.wiki.admin = true; f.group("reviewGroups", "XWiki.Reviewers");
     result = f.post("refuser proposition", "proposal_ref", refusedRef, "version", "stale", "comment", "Incomplet");
     check(result.equals("ERREUR_CONFLIT_VERSION"), "A stale review must not move a proposal");
     result = f.post("refuser proposition", "proposal_ref", refusedRef, "version", version, "comment", "Incomplet");
@@ -523,7 +559,7 @@ public class DocumentationVelocityTest {
     Obj refused = f.wiki.docs.get(trashRef).getObject(PROPOSAL_CLASS);
     check(refused.getValue("status").equals("rejected") && refused.getValue("reviewComment").equals("Incomplet"), "Refusal status and reason must be stored");
     check(((Date)refused.getValue("deletedAt")).getTime() == NOW, "Trash retention must begin when refusal is saved");
-    f.wiki.admin = false;
+    f.wiki.admin = false; f.wiki.config.configuration.set("reviewGroups", "");
     result = f.post("restaurer proposition", "proposal_ref", trashRef, "version", f.wiki.docs.get(trashRef).getVersion());
     check(result.equals("PROPOSITION_RESTAUREE_OK"), "Author restoration failed: " + result);
     check(f.wiki.docs.containsKey(refusedRef) && !f.wiki.docs.containsKey(trashRef), "Restoration must move the page back to PROPOSITIONS");
@@ -550,6 +586,61 @@ public class DocumentationVelocityTest {
       new OperationCase("document move", "moveGroups", "deplacer element", "DEPLACEMENT_OK",
         new String[]{"source_ref", GUIDE, "target_parent_ref", TARGET})
     );
+    for (boolean administrator : List.of(false, true)) {
+      for (String state : List.of("missing page", "missing object", "empty lists", "empty version", "unknown version", "inaccessible")) {
+        f = operationFixture("proposeGroups");
+        result = f.post("ajouter un document", "type", "document", "page", MAIN, "nom_fichier", "En attente", "content", "Brouillon privé");
+        check(result.equals("PROPOSITION_OK"), "The denial fixture must contain a real pending proposal");
+        String pending = String.valueOf(f.context.get("resultProposalRef"));
+        f.wiki.config.configuration.set("proposeGroups", "");
+        f.wiki.admin = administrator;
+        invalidOrEmptyConfiguration(f, state);
+        Map<String, Integer> before = revisions(f);
+        for (OperationCase operation : operations) {
+          result = f.post(operation.action, operation.parameters);
+          check(result.equals("ERREUR_DROITS"), (administrator ? "Administrator" : "Native editor") + " cannot execute " + operation.label + " with " + state + ": " + result);
+          check(revisions(f).equals(before) && f.wiki.upload.loads == 0 && f.refactoring.moveCalls == 0, "Refused POST cannot change documents, process an upload or start a move job");
+          check(!f.pageOutput.contains("id=\"creation-result\""), "A refused POST cannot expose a successful result");
+        }
+        result = f.post("supprimer element", "source_ref", GUIDE);
+        check(result.equals("ERREUR_DROITS") && f.refactoring.deleteCalls == 0, "Native admin/edit/delete rights cannot authorize deletion without a configured delete group");
+        for (String action : List.of("valider proposition", "refuser proposition")) {
+          result = f.post(action, "proposal_ref", pending, "version", f.wiki.docs.get(pending).getVersion(), "comment", "Motif de refus");
+          check(result.equals("ERREUR_DROITS"), "Validation and refusal require an explicit review group, including for administrators: " + result);
+        }
+        check(revisions(f).equals(before) && f.wiki.deleted.isEmpty(), "All refused mutations must preserve published documents and the pending proposal");
+        check(f.wiki.docs.get(pending).getObject(PROPOSAL_CLASS).getValue("status").equals("pending"), "Refused review cannot change proposal status");
+        denyWrites(f);
+        done((administrator ? "Administrator" : "Native editor") + " POST creation/import/metadata/content/move/delete/review is denied without mutation with " + state);
+      }
+    }
+
+    f = operationFixture(); f.wiki.admin = true; f.wiki.config.configurationObjectPresent = false;
+    String managerGroup = "XWiki.IVQ_Gestionnaires";
+    Doc managerGroupDocument = new Doc(f.wiki, managerGroup);
+    managerGroupDocument.newObject("XWiki.XWikiGroups"); managerGroupDocument.saveAsAuthor("Existing administrator group", true);
+    f.users.group.members.add(f.model.resolveDocument(managerGroup));
+    f.render(); denyWrites(f);
+    check(f.can("Configure") && f.pageOutput.contains("id=\"doc-settings\""), "An unconfigured administrator must still be able to open settings");
+    result = f.post("enregistrer parametres", "expectedVersion", "1.1",
+      "create_groups", managerGroup, "move_groups", managerGroup, "modify_groups", managerGroup, "import_groups", managerGroup,
+      "content_groups", managerGroup, "propose_groups", managerGroup, "review_groups", managerGroup, "delete_groups", managerGroup);
+    check(result.equals("PARAMETRES_OK"), "An administrator without action rights must be able to assign its existing group in settings: " + result);
+    f.list("workflow");
+    for (String right : List.of("Configure", "Create", "Move", "Modify", "Import", "Content", "Propose", "Review", "Delete"))
+      check(f.can(right), "An explicit saved administrator group grant must take effect on the next request: " + right);
+    result = f.post("ajouter un fichier", "type", "folder", "page", MAIN, "nom_fichier", "Dossier autorisé");
+    check(result.equals("LIEN_AJOUTE_OK"), "The configured administrator must create directly after an explicit group grant");
+    result = f.post("supprimer element", "source_ref", GUIDE);
+    check(result.equals("SUPPRESSION_OK") && f.refactoring.deleteCalls == 1, "The configured administrator must delete only after its explicit group grant");
+    result = f.post("enregistrer parametres", "expectedVersion", f.wiki.config.getVersion());
+    check(result.equals("PARAMETRES_OK"), "The administrator must be able to revoke all action grants while keeping settings access");
+    f.list("workflow"); denyWrites(f);
+    check(f.can("Configure"), "Revoking all action grants must not lock an administrator out of settings");
+    result = f.post("ajouter un fichier", "type", "folder", "page", MAIN, "nom_fichier", "Dossier désormais interdit");
+    check(result.equals("ERREUR_DROITS"), "A subsequent administrator POST must honor revoked grants immediately");
+    done("An administrator can save and revoke explicit IVQ_Gestionnaires grants through the real settings POST without implicit action rights");
+
     for (OperationCase operation : operations) {
       for (String mode : List.of("", "direct", "proposal")) {
         f = operationFixture(operation.grant);
@@ -620,14 +711,14 @@ public class DocumentationVelocityTest {
     done("Deletion also requires native XWiki permission before a delete job starts");
 
     for (boolean nativeAdministrator : List.of(false, true)) {
-      f = operationFixture(nativeAdministrator ? new String[]{} : new String[]{"deleteGroups"}); f.wiki.admin = nativeAdministrator;
+      f = operationFixture("deleteGroups"); f.wiki.admin = nativeAdministrator;
       f.wiki.docs.get(GUIDE).getObject(DOCUMENT_CLASS).set("type", "folder");
       Doc descendant = f.document("TestPage.PAGE.doc-test.Guide.Enfant.WebHome", "document", "Enfant"); descendant.parent = GUIDE;
       result = f.post("supprimer element", "source_ref", GUIDE, "mode", "proposal");
       check(result.equals("SUPPRESSION_OK") && !f.wiki.docs.containsKey(GUIDE) && !f.wiki.docs.containsKey(descendant.reference), "Authorized deletion must directly remove the native folder and descendant even with a legacy proposal mode: " + result);
-      check(f.refactoring.deleteCalls == 1 && f.can("Propose") == nativeAdministrator, "Delete-only group needs no proposal permission");
+      check(f.refactoring.deleteCalls == 1 && !f.can("Propose"), "Delete-only group needs no proposal permission, including for administrators");
     }
-    done("Delete-only groups and native administrators directly delete folders and descendants without a proposal");
+    done("Explicit delete-only groups let members and administrators delete folders without proposal permission");
 
     f = operationFixture("deleteGroups"); f.refactoring.failDelete = true;
     result = f.post("supprimer element", "source_ref", GUIDE);
@@ -648,7 +739,7 @@ public class DocumentationVelocityTest {
     Doc invalidProposal = f.wiki.docs.get(invalidDeletion);
     invalidProposal.getObject(PROPOSAL_CLASS).set("operation", "delete");
     invalidProposal.getObject(PROPOSAL_CLASS).set("sourceRef", GUIDE);
-    f.wiki.admin = true;
+    f.wiki.admin = true; f.group("reviewGroups", "XWiki.Reviewers");
     result = f.post("valider proposition", "proposal_ref", invalidDeletion, "version", invalidProposal.getVersion());
     check(result.equals("ERREUR_ACTION") && f.refactoring.deleteCalls == 0 && f.wiki.docs.containsKey(GUIDE), "Even administrators cannot validate a malformed deletion proposal");
     check(invalidProposal.getObject(PROPOSAL_CLASS).getValue("status").equals("pending"), "Invalid deletion validation cannot mark a proposal as accepted");
@@ -663,21 +754,21 @@ public class DocumentationVelocityTest {
     check(result.equals("PROPOSITION_OK"), "Metadata proposal failed: " + result);
     String metadataProposal = String.valueOf(f.context.get("resultProposalRef"));
     check(source.content.equals("Texte original") && source.getObject(DOCUMENT_CLASS).getValue("description").equals("Description originale"), "Proposing metadata must preserve published content and metadata");
-    f.wiki.admin = true;
+    f.wiki.admin = true; f.group("reviewGroups", "XWiki.Reviewers");
     result = f.post("valider proposition", "proposal_ref", metadataProposal, "version", f.wiki.docs.get(metadataProposal).getVersion());
     check(result.equals("PROPOSITION_VALIDEE_OK"), "Metadata validation failed: " + result);
     check(source.getObject(DOCUMENT_CLASS).getValue("description").equals("Description proposée"), "Accepted metadata must update the existing document");
     check(source.getObject("TestPage.PAGE.doc-test.CODE.docContentClass.WebHome").getValue("source").equals("Texte original"), "Wrapping the original document must preserve its text");
     done("Real metadata proposal leaves the document unchanged until validation and retains its existing content");
 
-    f.wiki.admin = false;
+    f.wiki.admin = false; f.wiki.config.configuration.set("reviewGroups", "");
     result = f.post("modifier contenu document", "mode", "proposal", "source_ref", sourceRef,
       "base_version", source.getVersion(), "content", "Texte {{/velocity}} proposé ERREUR_CSRF");
     check(result.equals("PROPOSITION_OK"), "Content proposal failed: " + result);
     String contentProposal = String.valueOf(f.context.get("resultProposalRef"));
     check(source.getObject("TestPage.PAGE.doc-test.CODE.docContentClass.WebHome").getValue("source").equals("Texte original"), "Content proposals cannot modify the published source");
     source.saveAsAuthor("Concurrent edit", true);
-    f.wiki.admin = true;
+    f.wiki.admin = true; f.group("reviewGroups", "XWiki.Reviewers");
     result = f.post("valider proposition", "proposal_ref", contentProposal, "version", f.wiki.docs.get(contentProposal).getVersion());
     check(result.equals("ERREUR_CONFLIT_VERSION"), "Concurrent source editing must prevent applying an outdated content proposal: " + result);
     check(f.wiki.docs.get(contentProposal).getObject(PROPOSAL_CLASS).getValue("status").equals("pending"), "A conflict must keep the proposal available for review");
