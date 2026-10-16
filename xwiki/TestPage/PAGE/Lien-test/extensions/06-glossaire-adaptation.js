@@ -541,19 +541,19 @@
   }
 
   function loadExcelAuthors() {
-    var template = document.getElementById('liensAuthorOptions');
-    excelAuthors = template ? Array.from(template.content.querySelectorAll('option')).map(function (option) {
+    var catalog = document.getElementById('liensAuthorOptions');
+    // Accepter le select natif et l'ancien template, sans bloquer si le catalogue manque.
+    var container = catalog && (catalog.content || catalog);
+    excelAuthors = container ? Array.from(container.querySelectorAll('option')).map(function (option) {
       return {
         id: option.value, text: option.textContent,
+        names: [option.value, option.dataset.label, option.dataset.reverseLabel].filter(Boolean),
         aliases: [option.value, option.dataset.label, option.dataset.reverseLabel, option.dataset.reference, 'XWiki.' + option.value]
           .filter(Boolean)
       };
     }) : [];
     excelAuthors.sort(function (a, b) { return a.id.localeCompare(b.id, 'fr'); });
     excelAuthorById = new Map(excelAuthors.map(function (author) { return [author.id, author]; }));
-    if (liensState.canWriteCommon && !excelAuthors.length) {
-      throw new Error('Aucun auteur XWiki existant n’est disponible. Rechargez la page et vérifiez la liste des comptes.');
-    }
   }
 
   function authorDistance(a, b) {
@@ -582,12 +582,14 @@
     var bestDistance = Infinity;
     excelAuthors.forEach(function (author) {
       // Les références servent à reconnaître une valeur exacte, les noms au rapprochement.
-      var distance = Math.min.apply(null, author.aliases.slice(0, 3).map(function (alias) {
-        return authorDistance(normalized, normalizeAuthor(alias));
+      var distance = Math.min.apply(null, author.names.map(function (alias) {
+        var name = normalizeAuthor(alias);
+        return authorDistance(normalized, name) / Math.max(normalized.length, name.length, 1);
       }));
       if (distance < bestDistance) { best = author.id; bestDistance = distance; }
     });
-    return best || '';
+    // Ne pas attribuer un nom inconnu à un compte arbitraire.
+    return best && bestDistance <= 0.25 ? best : original;
   }
 
   function recomputeExcelFlags() {
@@ -597,7 +599,8 @@
     excelRows.forEach(function (row) {
       var a = normalizeHeader(row.acronym);
       var l = normalizeHeader(row.label);
-      row.invalid = !row.acronym || !row.label || !row.definition || (liensState.canWriteCommon && !excelAuthorById.has(row.author));
+      row.invalidAuthor = liensState.canWriteCommon && !excelAuthorById.has(row.author);
+      row.invalid = !row.acronym || !row.label || !row.definition || row.invalidAuthor;
       row.duplicateAcronymExisting = !!(a && existing.acronyms[a]);
       row.duplicateLabelExisting = !!(l && existing.labels[l]);
       row.duplicateAcronymFile = !!(a && seenAcronyms[a]);
@@ -612,6 +615,34 @@
   function enhanceExcelAuthors() {
     if (window.jQuery && jQuery('#excelLiensModal').is(':visible') && typeof jQuery.fn.xwikiSelectize === 'function') {
       jQuery('#excelLiensPreviewBody select.excel-author-select:not(:disabled)').xwikiSelectize({ create: false });
+    }
+  }
+
+  function updateExcelSummary() {
+    var summary = document.getElementById('excelLiensSelectionSummary');
+    if (!summary) return;
+    var incomplete = excelRows.filter(function (row) { return !row.acronym || !row.label || !row.definition; }).length;
+    var invalidAuthors = excelRows.filter(function (row) { return row.invalidAuthor; }).length;
+    summary.textContent = excelRows.length + ' ligne(s) détectée(s)' +
+      (incomplete ? ' — ' + incomplete + ' incomplète(s)' : '') +
+      (invalidAuthors ? ' — ' + invalidAuthors + ' auteur(s) non reconnu(s), à corriger en rouge' : '') + '.';
+  }
+
+  function updateExcelAuthorCell(td, input, row) {
+    td.classList.toggle('danger', row.invalidAuthor);
+    td.classList.toggle('liens-invalid-author', row.invalidAuthor);
+    input.setAttribute('aria-invalid', row.invalidAuthor ? 'true' : 'false');
+    td.querySelectorAll('.excel-author-error, .excel-author-correction').forEach(function (hint) { hint.remove(); });
+    if (row.invalidAuthor) {
+      var error = document.createElement('small');
+      error.className = 'help-block text-danger excel-author-error';
+      error.textContent = 'Auteur non reconnu — choisissez un compte existant.';
+      td.appendChild(error);
+    } else if (row.authorOriginal && row.authorOriginal !== row.author) {
+      var hint = document.createElement('small');
+      hint.className = 'help-block excel-author-correction';
+      hint.textContent = 'Auteur Excel : « ' + row.authorOriginal + ' ». Compte retenu : ' + (excelAuthorById.get(row.author) || {}).text;
+      td.appendChild(hint);
     }
   }
 
@@ -632,6 +663,7 @@
       input.className = 'form-control input-sm excel-import-input excel-author-select xwiki-selectize';
       input.setAttribute('aria-label', 'Auteur de la ligne ' + row.sourceLine);
       if (liensState.canWriteCommon) {
+        if (row.invalidAuthor) input.add(new Option(row.author, row.author));
         excelAuthors.forEach(function (author) { input.add(new Option(author.text, author.id)); });
       } else {
         input.add(new Option(liensState.userId, liensState.userId));
@@ -656,19 +688,14 @@
       recomputeExcelFlags();
       if (field === 'author') {
         row.authorOriginal = '';
-        var hint = td.querySelector('.excel-author-correction');
-        if (hint) hint.remove();
+        updateExcelAuthorCell(td, input, row);
+        updateExcelSummary();
         return;
       }
       renderExcelPreview();
     });
     td.appendChild(input);
-    if (field === 'author' && row.authorOriginal && row.authorOriginal !== row.author) {
-      var hint = document.createElement('small');
-      hint.className = 'help-block excel-author-correction';
-      hint.textContent = 'Auteur Excel : « ' + row.authorOriginal + ' ». Compte retenu : ' + (excelAuthorById.get(row.author) || {}).text;
-      td.appendChild(hint);
-    }
+    if (field === 'author') updateExcelAuthorCell(td, input, row);
     tr.appendChild(td);
   }
 
@@ -691,9 +718,9 @@
       : 'Aucun entête reconnu : colonnes 1 à 5 utilisées dans l’ordre Acronyme, Libellé, Définition, Type, Auteur.';
     if (!inferred.length && excelHeaderInfo && excelHeaderInfo.detected) description = 'Entête détectée.';
     info.textContent = excelFileName + ' — feuille « ' + excelSheetName + ' » — ' + description;
+    if (liensState.canWriteCommon && !excelAuthors.length) info.textContent += ' Liste des comptes indisponible : les auteurs Excel restent affichés en rouge.';
 
     var duplicateCount = 0;
-    var invalidCount = 0;
     excelRows.forEach(function (row, index) {
       var tr = document.createElement('tr');
       var line = document.createElement('td'); line.textContent = row.sourceLine; tr.appendChild(line);
@@ -707,7 +734,6 @@
       del.addEventListener('click', function () { excelRows.splice(index, 1); renderExcelPreview(); });
       action.appendChild(del); tr.appendChild(action); previewBody.appendChild(tr);
 
-      if (row.invalid) invalidCount++;
       if (row.duplicateAcronym || row.duplicateLabel) {
         duplicateCount++;
         var duplicate = document.createElement('tr');
@@ -733,10 +759,7 @@
       duplicatesBody.appendChild(empty);
     }
 
-    var summary = document.getElementById('excelLiensSelectionSummary');
-    if (summary) {
-      summary.textContent = excelRows.length + ' ligne(s) détectée(s)' + (invalidCount ? ' — ' + invalidCount + ' incomplète(s)' : '') + '.';
-    }
+    updateExcelSummary();
     enhanceExcelAuthors();
   }
 
@@ -808,6 +831,11 @@
     var allowL = !!(acceptLabel && acceptLabel.checked);
     recomputeExcelFlags();
 
+    if (excelRows.some(function (row) { return row.invalidAuthor; })) {
+      alert('Corrigez les auteurs en rouge en choisissant un compte existant avant de lancer l’import.');
+      return;
+    }
+
     var candidates = excelRows.filter(function (row) {
       if (row.invalid) return false;
       if (row.duplicateAcronym && !allowA) return false;
@@ -858,7 +886,7 @@
               '<tbody><tr><td>API</td><td>Application Programming Interface</td><td>Interface de programmation</td><td>personnel</td><td>' + (liensState.userId || 'DOE') + '</td></tr>' +
               '<tr><td>VPN</td><td>Virtual Private Network</td><td>Réseau privé virtuel</td><td>commun</td><td>' + (liensState.userId || 'DOE') + '</td></tr></tbody>' +
             '</table></div>' +
-            '<p class="text-muted">Auteur est facultatif : s’il est vide, l’utilisateur qui importe est utilisé. Les identifiants et les noms sont comparés aux comptes XWiki existants ; le compte le plus proche est sélectionné et reste modifiable avant l’import. Sans droit d’écriture dans Commun, l’import utilise Personnel et l’utilisateur connecté comme auteur.</p>' +
+            '<p class="text-muted">Auteur est facultatif : s’il est vide, l’utilisateur qui importe est utilisé. Les identifiants et les noms sont comparés aux comptes XWiki existants. Une correspondance proche est sélectionnée ; sinon la valeur Excel reste affichée en rouge pour être corrigée dans la liste. Sans droit d’écriture dans Commun, l’import utilise Personnel et l’utilisateur connecté comme auteur.</p>' +
           '</div><div class="modal-footer"><button type="button" class="btn btn-default" data-dismiss="modal">Fermer</button></div>' +
         '</div></div></div>';
     document.body.appendChild(exampleModal.firstChild);
@@ -870,7 +898,7 @@
           '<div class="modal-header"><button type="button" class="close" data-dismiss="modal" aria-label="Fermer" title="Fermer">' + getLiensXWikiIcon('cross') + '</button><h4 class="modal-title">Import Excel des liens</h4></div>' +
           '<div class="modal-body">' +
             '<div id="excelLiensInfo" class="text-muted excel-import-info"></div>' +
-            '<p class="text-muted">Vérifiez les auteurs retenus. La liste permet de choisir un autre compte existant avant d’ajouter les liens.</p>' +
+            '<p class="text-muted">Vérifiez les auteurs retenus. Les auteurs en rouge ne sont pas reconnus : choisissez un compte existant dans la liste avant d’ajouter les liens.</p>' +
             '<div class="row">' +
               '<div class="col-md-8"><h5><strong>Données récupérées</strong></h5><div class="excel-import-table-wrap excel-import-preview-wrap">' +
                 '<table class="table table-striped table-bordered table-condensed excel-import-table"><thead><tr>' +

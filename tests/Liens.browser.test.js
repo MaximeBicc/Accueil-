@@ -231,7 +231,7 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
     // Lecture et import d'un vrai fichier XLSX.
     await page.addScriptTag({ content: readAsset('sheetjs.js') });
     const authorBytes = await page.evaluate(() => {
-      const authors = ['AdeleMartin', 'AdeleMartni', 'ADÈLE MARTIN', 'Martin Adele', 'XWiki.AdeleMartin', 'xwiki:XWiki.AdeleMartin', 'Zoe Duran', '', 'Personne introuvable', '<img src=x onerror=alert(1)>'];
+      const authors = ['AdeleMartin', 'AdeleMartni', 'ADÈLE MARTIN', 'Martin Adele', 'XWiki.AdeleMartin', 'xwiki:XWiki.AdeleMartin', 'Zoe Duran', '', 'Personne introuvable', '<img src=x onerror=alert(1)>', 'Dupont Jean', 'Jean Dupont'];
       const data = [['Acronyme', 'Libellé', 'Définition', 'Type', 'Auteur'], ...authors.map((author, i) => ['IMPORT' + i, 'Auteur ' + i, 'Définition', 'commun', author])];
       const book = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(data), 'Auteurs');
       return Array.from(new Uint8Array(XLSX.write(book, { type: 'array', bookType: 'xlsx' })));
@@ -239,12 +239,25 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
     await page.locator('#excelLiensFileInput').setInputFiles({ name: 'auteurs.xlsx', buffer: Buffer.from(authorBytes) });
     await page.waitForSelector('#excelLiensModal.in');
     const authors = page.locator('#excelLiensPreviewBody select.excel-author-select');
-    check(await authors.count(), 10, 'une liste déroulante par auteur Excel');
+    check(await authors.count(), 12, 'une liste déroulante par auteur Excel');
     for (let i = 0; i < 6; i++) check(await authors.nth(i).inputValue(), 'AdeleMartin', 'identifiant, faute, accent, nom inversé et référence ' + i);
     check(await authors.nth(6).inputValue(), 'ZoeDurand', 'auteur le plus proche du prénom/nom');
     check(await authors.nth(7).inputValue(), 'Test', 'auteur vide utilise le compte connecté');
     check(await authors.evaluateAll(selects => selects.every(select => Array.from(select.options).some(option => option.value === select.value))), true, 'chaque auteur retenu appartient aux comptes existants');
-    check(await authors.first().locator('option').allTextContents(), ['Adèle Martin (AdeleMartin)', 'Autre auteur (Autre)', 'Test (Test)', 'Zoé Durand (ZoeDurand)'], 'même catalogue que pour changer un auteur en édition');
+    check(await authors.first().locator('option').allTextContents(), ['Adèle Martin (AdeleMartin)', 'Autre auteur (Autre)', 'Jean Dupont (Login42)', 'Test (Test)', 'Zoé Durand (ZoeDurand)'], 'même catalogue que pour changer un auteur en édition');
+    check(await authors.nth(10).inputValue(), 'Login42', 'nom prénom reconnu avec un identifiant totalement différent');
+    check(await authors.nth(11).inputValue(), 'Login42', 'prénom nom reconnu avec un identifiant totalement différent');
+    check(await authors.nth(8).inputValue(), 'Personne introuvable', 'un auteur sans correspondance proche conserve sa valeur Excel');
+    check(await authors.nth(8).getAttribute('aria-invalid'), 'true', 'auteur inconnu signalé comme invalide');
+    check(await authors.nth(8).evaluate(select => getComputedStyle(select).color), 'rgb(169, 68, 66)', 'auteur inconnu affiché en rouge');
+    check(await page.locator('#excelLiensPreviewBody .liens-invalid-author').count(), 2, 'deux auteurs inconnus conservés sans affectation arbitraire');
+    await page.click('#btnConfirmExcelLiensImport');
+    check(await page.locator('#excelLiensModal.in').isVisible(), true, 'auteurs invalides conservent le menu ouvert');
+    check(state.requests.filter(req => req.action === 'create').length, 0, 'aucune création avant correction des auteurs rouges');
+    await authors.nth(8).selectOption('Test');
+    await authors.nth(9).selectOption('Autre');
+    check(await page.locator('#excelLiensPreviewBody .liens-invalid-author').count(), 0, 'correction manuelle retire le rouge');
+    check((await page.locator('#excelLiensSelectionSummary').textContent()).includes('non reconnu'), false, 'compteur des auteurs mis à jour après correction');
     check(await page.locator('#secondaryGlossaryTable .secondary-proprietaire-value').first().locator('option[value="AdeleMartin"]').count(), 1, 'auteur hors des groupes gestionnaires proposé aussi en édition');
     check(await page.locator('#excelLiensPreviewBody .excel-author-correction').filter({ hasText: 'AdeleMartni' }).count(), 1, 'correction visible avant import');
     check(await page.locator('#excelLiensPreviewBody img').count(), 0, 'auteur Excel traité comme texte');
@@ -267,12 +280,18 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
     await page.locator('.ts-dropdown .option[data-value="ZoeDurand"]').click();
     await page.waitForFunction(() => document.querySelector('#excelLiensPreviewBody .excel-author-select').value === 'ZoeDurand' && !!document.querySelector('#excelLiensPreviewBody .excel-author-select').tomselect);
     check(await authors.first().inputValue(), 'ZoeDurand', 'recherche et choix avec le vrai sélecteur enrichi');
-    check(await page.locator('.ts-wrapper').count(), 10, 'un seul widget par ligne après changement d’auteur');
-    check(await page.locator('.ts-dropdown').count(), 10, 'un seul menu enrichi par ligne');
+    check(await page.locator('.ts-wrapper').count(), 12, 'un seul widget par ligne après changement d’auteur');
+    check(await page.locator('.ts-dropdown').count(), 12, 'un seul menu enrichi par ligne');
     await page.locator('#excelLiensPreviewBody tr').first().locator('input.excel-import-input').first().fill('IMPORT-ENRICHI');
     await page.locator('#excelLiensPreviewBody tr').first().locator('input.excel-import-input').first().dispatchEvent('change');
     check(await authors.first().inputValue(), 'ZoeDurand', 'auteur conservé après recalcul avec le sélecteur enrichi');
-    check(await page.locator('.ts-dropdown').count(), 10, 'anciens menus enrichis détruits au recalcul');
+    check(await page.locator('.ts-dropdown').count(), 12, 'anciens menus enrichis détruits au recalcul');
+    await page.locator('#excelLiensFileInput').setInputFiles({ name: 'auteurs.xlsx', buffer: Buffer.from(authorBytes) });
+    await page.waitForFunction(() => document.querySelectorAll('#excelLiensPreviewBody select.excel-author-select')[8]?.tomselect?.getValue() === 'Personne introuvable');
+    check(await authors.nth(8).inputValue(), 'Personne introuvable', 'valeur inconnue conservée aussi dans le sélecteur enrichi');
+    check(await authors.nth(8).evaluate(select => getComputedStyle(select.closest('td').querySelector('.ts-control')).color), 'rgb(169, 68, 66)', 'sélecteur enrichi invalide affiché en rouge');
+    await authors.nth(8).evaluate(select => select.tomselect.setValue('Test'));
+    check(await authors.nth(8).getAttribute('aria-invalid'), 'false', 'choix enrichi valide retire le signalement');
     await page.click('#excelLiensModal button[data-dismiss="modal"]');
     await page.waitForSelector('#excelLiensModal.in', { state: 'hidden' });
     const bytes = await page.evaluate(() => {
@@ -308,6 +327,36 @@ const list = row(['TestPage.PAGE.Liens.DATA.LIENDATA.Test.A00', 'A00', 'Groupe p
     check(await page.locator('#mainGlossaryTable .main-term-row').count(), before, 'échec réseau en suppression multiple conserve les lignes');
     check(state.errors, [], 'aucune exception navigateur');
     await page.close();
+    // L'absence du catalogue ne doit jamais empêcher la lecture du fichier et l'aperçu.
+    const unavailable = await setup();
+    await unavailable.page.addScriptTag({ content: readAsset('sheetjs.js') });
+    const catalogMarkup = await unavailable.page.locator('#liensAuthorOptions').evaluate(select => select.outerHTML);
+    for (const mode of ['vide', 'absent']) {
+      await unavailable.page.evaluate(mode => {
+        const catalog = document.getElementById('liensAuthorOptions');
+        if (mode === 'vide') catalog.innerHTML = ''; else catalog.remove();
+      }, mode);
+      await unavailable.page.locator('#excelLiensFileInput').setInputFiles({ name: 'auteurs.xlsx', buffer: Buffer.from(authorBytes) });
+      await unavailable.page.waitForSelector('#excelLiensModal.in');
+      check(await unavailable.page.locator('#excelLiensPreviewBody tr').count(), 12, 'aperçu ouvert avec catalogue ' + mode);
+      check(await unavailable.page.locator('#excelLiensPreviewBody select.excel-author-select').nth(10).inputValue(), 'Dupont Jean', 'nom prénom conservé avec catalogue ' + mode);
+      check(await unavailable.page.locator('#excelLiensPreviewBody .liens-invalid-author').count(), 12, 'auteurs non vérifiables en rouge avec catalogue ' + mode);
+      check(unavailable.alerts, [], 'aucune erreur bloquante avec catalogue ' + mode);
+      check(await unavailable.page.locator('#excelLiensPreviewBody img').count(), 0, 'valeur inconnue échappée avec catalogue ' + mode);
+    }
+    await unavailable.page.click('#btnConfirmExcelLiensImport');
+    check(unavailable.requests.filter(req => req.action === 'create').length, 0, 'catalogue absent ne permet aucune création avec auteur invalide');
+    await unavailable.page.evaluate(markup => {
+      const source = document.createElement('div'); source.innerHTML = markup;
+      const legacy = document.createElement('template'); legacy.id = 'liensAuthorOptions';
+      legacy.innerHTML = source.querySelector('select').innerHTML;
+      document.querySelector('.liens-page').appendChild(legacy);
+    }, catalogMarkup);
+    await unavailable.page.locator('#excelLiensFileInput').setInputFiles({ name: 'auteurs.xlsx', buffer: Buffer.from(authorBytes) });
+    await unavailable.page.waitForFunction(() => document.querySelectorAll('#excelLiensPreviewBody select.excel-author-select')[10]?.value === 'Login42');
+    check(await unavailable.page.locator('#excelLiensPreviewBody select.excel-author-select').nth(10).inputValue(), 'Login42', 'ancien template reconnu aussi pour nom prénom');
+    check(unavailable.errors, [], 'aucune exception avec catalogue absent ou ancien format');
+    await unavailable.page.close();
     const late = await setup(true);
     check(await late.page.locator('#mainGlossaryTable .main-term-row:visible').count(), 10, 'extensions chargées après DOMContentLoaded');
     await late.page.fill('#filterAcronym', 'A00');

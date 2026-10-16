@@ -292,6 +292,14 @@
   width: 100%;
 }
 
+#excelLiensPreviewBody .liens-invalid-author select.excel-author-select,
+#excelLiensPreviewBody .liens-invalid-author .ts-control,
+#excelLiensPreviewBody .liens-invalid-author .selectize-input {
+  color: #a94442;
+  background-color: #f2dede;
+  border-color: #a94442;
+}
+
 .excel-line-col {
   width: 65px;
 }

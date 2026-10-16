@@ -79,7 +79,15 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
 
 #set($linkAuthors = [])
 #if($canWriteCommon)
-  #foreach($authorRef in $services.query.xwql("select distinct doc.fullName from Document doc, doc.object(XWiki.XWikiUsers) usr where doc.space = 'XWiki' order by doc.fullName").execute())
+  #set($authorRefs = $services.query.xwql("select distinct doc.fullName from Document doc, doc.object(XWiki.XWikiUsers) usr where doc.space = 'XWiki' order by doc.fullName").execute())
+  #if($authorRefs.isEmpty())
+    ## Repli sur les pages du wiki si la requête des profils ne renvoie aucun compte.
+    #set($authorRefs = [])
+    #foreach($authorName in $xwiki.getSpaceDocsName('XWiki'))
+      #set($discard = $authorRefs.add($services.model.createDocumentReference('', ['XWiki'], $authorName)))
+    #end
+  #end
+  #foreach($authorRef in $authorRefs)
     #set($authorDoc = false)
     #set($authorDoc = $xwiki.getDocument($authorRef))
     #set($authorObject = false)
@@ -218,11 +226,11 @@ $xwiki.ssx.use("TestPage.PAGE.Liens.CODE.GlossaireExtension")
 </div>
 
 #if($canWriteCommon)
-<template id="liensAuthorOptions">
+<select id="liensAuthorOptions" hidden disabled aria-hidden="true" tabindex="-1">
   #foreach($linkAuthor in $linkAuthors)
   <option value="$escapetool.xml($linkAuthor.id)" data-label="$escapetool.xml($linkAuthor.label)" data-reverse-label="$escapetool.xml($linkAuthor.reverseLabel)" data-reference="$escapetool.xml($linkAuthor.reference)">$escapetool.html($linkAuthor.label) ($escapetool.html($linkAuthor.id))</option>
   #end
-</template>
+</select>
 #end
 
 #set($documentRefs = [])

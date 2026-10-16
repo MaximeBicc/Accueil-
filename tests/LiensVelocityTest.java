@@ -72,7 +72,7 @@ public class LiensVelocityTest {
   public static class Wiki {
     final Map<Ref, Doc> docs = new LinkedHashMap<>();
     final Map<Ref, Doc> profiles = new LinkedHashMap<>();
-    boolean allowed = true, admin, configurationReadable = true, refuseSave; String missingField = "";
+    boolean allowed = true, admin, configurationReadable = true, refuseSave, emptyUserQuery; String missingField = "";
     public boolean hasWikiAdminRights() { return admin; }
     public Doc getDocumentAsAuthor(Object ref) { return configurationReadable ? getDocument(ref) : null; }
     public String getURL(String ref, String action) {
@@ -86,7 +86,7 @@ public class LiensVelocityTest {
     }
     public boolean hasAccessLevel(String right, String user, String reference) { return allowed; }
     public List<String> getSpaceDocsName(String space) {
-      return docs.keySet().stream().filter(r -> r.parent.equals(space)).map(r -> r.name).toList();
+      return java.util.stream.Stream.concat(docs.keySet().stream(), profiles.keySet().stream()).filter(r -> r.parent.equals(space)).map(r -> r.name).toList();
     }
     Doc add(String name, String acronym) {
       Doc d = getDocument(new Ref(SPACE, name)); d.newObject("");
@@ -224,7 +224,7 @@ public class LiensVelocityTest {
     String query;
     public Queries xwql(String query) { this.query = query; return this; }
     public List<String> execute() {
-      if (query.contains("XWiki.XWikiUsers")) return wiki.profiles.values().stream().map(Doc::getFullName).sorted().toList();
+      if (query.contains("XWiki.XWikiUsers")) return wiki.emptyUserQuery ? List.of() : wiki.profiles.values().stream().map(Doc::getFullName).sorted().toList();
       return wiki.docs.values().stream().filter(d -> query.contains("XWiki.XWikiGroups") ? d.objClass.equals("XWiki.XWikiGroups") : d.getObject("TestPage.PAGE.Liens.CODE.lienClass.WebHome") != null).map(Doc::getFullName).toList();
     }
   }
@@ -374,6 +374,9 @@ public class LiensVelocityTest {
     check(html.contains("id=\"liensAuthorOptions\"") && html.contains("value=\"AdeleMartin\"") && html.contains("Adèle Martin (AdeleMartin)"), "catalogue des comptes et noms accessible sans dépendre des auteurs présents");
     check(html.contains("data-label=\"SansNom\"") && html.contains("&lt;img src=x onerror=alert(1)&gt;"), "auteurs sans nom et noms échappés");
     check(!html.contains("value=\"PageOrdinaire\""), "catalogue réservé aux profils utilisateurs");
+    f.wiki.emptyUserQuery = true;
+    html = f.render("WebHome.xwiki", "");
+    check(html.contains("value=\"AdeleMartin\"") && html.contains("data-reverse-label=\"Martin Adèle\"") && !html.contains("value=\"PageOrdinaire\""), "repli sur les pages XWiki conserve les noms/prénoms et vérifie les profils");
     f.wiki.profiles.remove(new Ref("XWiki", "AdeleMartin"));
     result = f.render("DATA/WebHome.xwiki", "create", "acronym", "SUPPRIME", "proprietaire", "AdeleMartin");
     check(result.equals("ERREUR_AUTEUR"), "auteur supprimé après aperçu refusé à l'enregistrement");
@@ -443,7 +446,7 @@ public class LiensVelocityTest {
     result = f.render("DATA/WebHome.xwiki", "listVisible");
     check(result.contains("%3Cimg") && !result.contains("PRIVE") && result.contains("LIEN_LIST_OK|Test|false"), "liste encodée et privée");
     f = new Fixture(); f.groups.manager = true;
-    f.wiki.profile("AdeleMartin", "Adèle", "Martin"); f.wiki.profile("ZoeDurand", "Zoé", "Durand");
+    f.wiki.profile("AdeleMartin", "Adèle", "Martin"); f.wiki.profile("ZoeDurand", "Zoé", "Durand"); f.wiki.profile("Login42", "Jean", "Dupont");
     for (int i = 0; i < 27; i++) {
       Doc row = f.wiki.add(String.format("A%02d", i), String.format("A%02d", i));
       row.obj.set("lien", i % 2 == 0 ? "Groupe pair" : "Groupe impair"); row.obj.set("definition", "Définition " + i);
