@@ -60,19 +60,21 @@ Les paramètres exigent l'administration du wiki, POST, CSRF et la version coura
 
 ## HTTP 400 à l'enregistrement
 
-Les paramètres sont envoyés avec `application/x-www-form-urlencoded`, comme un formulaire HTML classique. L'ancien envoi multipart créait une partie par champ : avec beaucoup de groupes, un conteneur servlet limitant le nombre de parties pouvait rejeter la requête avec HTTP 400 avant l'exécution de DATA.
+Le champ caché `name="action"` masque la propriété DOM `form.action`. L'ancien JavaScript envoyait donc la requête vers `[object HTMLInputElement]` au lieu de la page DATA, ce qui provoquait une requête invalide. Le correctif lit l'attribut avec `form.getAttribute('action')`. Ce défaut a été reproduit dans Chromium, puis le test a vérifié l'adresse exacte du POST corrigé.
 
-Mettre à jour ensemble les JavaScript `01-actions-personnelles.js`, `02-actions-communes.js` et `06-glossaire-adaptation.js`, puis recharger sans cache avec Ctrl + F5. Si le JavaScript est regroupé dans un objet, remplacer son contenu complet dans l'ordre des sept sources indiqué dans LIENS_PAGE.md.
+Les paramètres restent envoyés avec `application/x-www-form-urlencoded`, comme un formulaire HTML classique.
+
+Pour ce correctif d'adresse, mettre à jour `06-glossaire-adaptation.js` sur `TestPage.PAGE.Liens.CODE.GlossaireExtension`, puis recharger sans cache avec Ctrl + F5. Conserver aussi les versions actuelles de `01-actions-personnelles.js` et `02-actions-communes.js`, qui affichent les diagnostics du serveur. Si le JavaScript est regroupé dans un objet, remplacer son contenu complet dans l'ordre des sept sources indiqué dans LIENS_PAGE.md.
 
 Le navigateur conserve désormais le statut HTTP et le message renvoyé par le serveur, qu'il s'agisse de texte, d'une réponse structurée ou d'une page HTML d'erreur. Les scripts et styles de cette page d'erreur ne sont pas affichés ni exécutés. Les choix restent conservés pour permettre un nouvel essai. Une erreur de jeton CSRF invite à recharger ; aucune vérification de sécurité n'est désactivée.
 
-Un HTTP 400 seul ne permet pas d'identifier sa cause sur l'instance. Si l'erreur persiste, relever l'action effectuée et le message complet visible après le code HTTP. Une classe incomplète, une session expirée et un refus du serveur nécessitent des corrections différentes.
+Dans l'onglet Réseau du navigateur, le POST doit cibler l'URL de `TestPage.PAGE.Liens.DATA.WebHome` et ne jamais contenir `[object HTMLInputElement]`. Si une autre erreur persiste, relever le message complet après le code HTTP. Les contrôles de classe, de session et de droits restent actifs.
 
 ## Validation
 
 - 222 contrôles des vrais templates avec une API XWiki simulée, exécutés avec Velocity 1.7 et 2.3.
 - 66 contrôles Chromium de régression : filtres, pagination, édition, suppression, import XLSX, boutons du Glossaire et fenêtres modales.
-- 149 contrôles Chromium des droits : neuf combinaisons Personnel/Commun, onglet Commun seul, lecture seule, chargement tardif, administration sans accès fonctionnel et enregistrement des paramètres. Les tests reproduisent aussi un refus HTTP 400 multipart, vérifient l'enregistrement de plus de 50 champs en formulaire classique et la restitution des diagnostics HTTP, HTML, JSON et CSRF.
+- 152 contrôles Chromium des droits : neuf combinaisons Personnel/Commun, onglet Commun seul, lecture seule, chargement tardif, administration sans accès fonctionnel et enregistrement des paramètres. Les tests reproduisent le masquage de `form.action` et le rejet de son URL, vérifient que le bouton appelle exactement DATA, l'enregistrement de plus de 50 champs et les diagnostics HTTP, HTML, JSON et CSRF.
 
 ```sh
 java -cp '/chemin/vers/jars/*' tests/LiensVelocityTest.java /tmp/liens-rendered.html

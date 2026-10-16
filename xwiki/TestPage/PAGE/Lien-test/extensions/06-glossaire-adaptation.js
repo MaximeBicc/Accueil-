@@ -835,7 +835,8 @@
         // d'un formulaire HTML classique, sans les limites de parties multipart.
         var data = new URLSearchParams(new FormData(form));
         data.set('ajax', 'true');
-        var response = await fetch(form.action, { method: 'POST', body: data, credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        // Le champ name="action" masque form.action par un HTMLInputElement.
+        var response = await fetch(form.getAttribute('action'), { method: 'POST', body: data, credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } });
         var result = (await liensReadResponse(response)).trim();
         if (result === 'LIENS_SETTINGS_SAVED') { window.location.reload(); return; }
         throw new Error(liensErrorMessage(result));

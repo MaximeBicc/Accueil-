@@ -72,7 +72,9 @@ public class LiensVelocityTest {
     boolean allowed = true, admin, configurationReadable = true, refuseSave; String missingField = "";
     public boolean hasWikiAdminRights() { return admin; }
     public Doc getDocumentAsAuthor(Object ref) { return configurationReadable ? getDocument(ref) : null; }
-    public String getURL(String ref, String action) { return "/liens"; }
+    public String getURL(String ref, String action) {
+      return ref.equals("TestPage.PAGE.Liens.DATA.WebHome") ? "/bin/view/TestPage/PAGE/Liens/DATA/" : "/liens";
+    }
     public Extension getJsx() { return new Extension(); }
     public Extension getSsx() { return new Extension(); }
     public Doc getDocument(Object ref) {

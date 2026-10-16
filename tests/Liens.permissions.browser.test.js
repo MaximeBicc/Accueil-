@@ -27,6 +27,10 @@ function check(value, expected, message) { assert.deepEqual(value, expected, mes
       page.on('pageerror', error => errors.push(error.message));
       await page.route('https://wiki.test/**', async route => {
         if (route.request().method() === 'POST') {
+          // XWiki rejette les URL invalides avant d'exécuter le template DATA.
+          if (new URL(route.request().url()).pathname !== '/bin/view/TestPage/PAGE/Liens/DATA/') {
+            return route.fulfill({ status: 400, contentType: 'text/html', body: '<p class="errormessage">Requête invalide</p>' });
+          }
           const contentType = route.request().headers()['content-type'] || '';
           const bodyText = route.request().postData() || '';
           const values = contentType.startsWith('application/x-www-form-urlencoded')
@@ -35,8 +39,6 @@ function check(value, expected, message) { assert.deepEqual(value, expected, mes
           transports.push(contentType);
           posts.push(values);
           const body = values.action === 'settings' ? settingsResult : 'LIEN_LIST_OK|Test|' + flags[3] + '|' + flags.join('|');
-          // Simuler la limite maxPartCount d'un conteneur servlet.
-          if (contentType.startsWith('multipart/form-data') && Object.keys(values).length > 50) return route.fulfill({ status: 400, contentType: 'text/html', body: '<p class="errormessage">Too many multipart parts</p>' });
           return route.fulfill({ status: values.action === 'settings' ? settingsStatus : 200, contentType: values.action === 'settings' ? settingsType : 'text/plain', body });
         }
         const before = '<!doctype html><html><head><meta charset="utf-8"><style>' + asset('bootstrap.css') + css + '</style><script>' + asset('jquery.js') + '</script><script>' + asset('bootstrap.js') + '</script>';
@@ -96,7 +98,20 @@ function check(value, expected, message) { assert.deepEqual(value, expected, mes
     await allRow.locator('[data-kind="common"]').selectOption('2');
     check(await allRow.locator('[data-kind="personal"]').inputValue(), '2', 'Commun écriture entraîne Personnel écriture');
     check(await allRow.locator('[data-kind="personal"] option[value="0"]').isDisabled(), true, 'impossible de retirer Personnel avec Commun écriture');
-    await admin.page.locator('#liensSettingsForm button[type="submit"]').click();
+    const brokenTarget = await admin.page.evaluate(async () => {
+      const form = document.getElementById('liensSettingsForm');
+      // Reproduction du bug : le contrôle name="action" masque form.action.
+      const response = await fetch(form.action, { method: 'POST', body: new URLSearchParams(new FormData(form)) });
+      return { value: String(form.action), status: response.status, url: response.url };
+    });
+    check(brokenTarget.value, '[object HTMLInputElement]', 'le champ action masque la propriété DOM du formulaire');
+    check(brokenTarget.status, 400, 'ancienne adresse reproduit Requête invalide');
+    check(decodeURI(brokenTarget.url).endsWith('/[object HTMLInputElement]'), true, 'ancienne requête envoyée hors DATA');
+    const [settingsResponse] = await Promise.all([
+      admin.page.waitForResponse(response => response.request().method() === 'POST'),
+      admin.page.locator('#liensSettingsForm button[type="submit"]').click()
+    ]);
+    check(new URL(settingsResponse.url()).pathname, '/bin/view/TestPage/PAGE/Liens/DATA/', 'Enregistrer appelle exactement la page DATA');
     await admin.page.waitForFunction(() => document.querySelector('.liens-settings-feedback').textContent.includes('Erreur de configuration test'));
     check(await admin.page.locator('#liensSettingsForm button[type="submit"]').isEnabled(), true, 'erreur conserve le formulaire utilisable');
     check(admin.posts[0].personal_1, '2', 'POST envoie le droit Personnel cumulé');
@@ -123,7 +138,7 @@ function check(value, expected, message) { assert.deepEqual(value, expected, mes
       check(await admin.page.locator('#liensSettingsForm button[type="submit"]').isEnabled(), true, 'réessai possible après erreur');
       check(message.includes('NE_PAS_EXECUTER'), false, 'scripts HTML ignorés');
     }
-    // Beaucoup de groupes : l'ancien multipart dépasse 50 parties et reçoit HTTP 400.
+    // Conserver l'envoi de tous les groupes et des caractères spéciaux.
     await admin.page.evaluate(() => {
       const form = document.getElementById('liensSettingsForm');
       const body = form.querySelector('tbody');
@@ -137,14 +152,8 @@ function check(value, expected, message) { assert.deepEqual(value, expected, mes
       form.querySelector('[name="groupCount"]').value = String(body.children.length);
     });
     admin.setResult('LIENS_SETTINGS_SAVED');
-    const rejectedMultipartStatus = await admin.page.evaluate(async () => {
-      const form = document.getElementById('liensSettingsForm');
-      const data = new FormData(form); data.set('ajax', 'true');
-      return (await fetch(form.action, { method: 'POST', body: data, credentials: 'same-origin' })).status;
-    });
-    check(rejectedMultipartStatus, 400, 'ancien multipart rejeté par la limite des 50 parties');
     await Promise.all([admin.page.waitForNavigation(), admin.page.locator('#liensSettingsForm button[type="submit"]').click()]);
-    check(admin.posts.filter(post => post.action === 'settings').length, 9, 'succès recharge la page');
+    check(admin.posts.filter(post => post.action === 'settings').length, 8, 'succès recharge la page');
     check(Object.keys(admin.posts.at(-1)).length > 50, true, 'enregistrement de plus de 50 champs');
     check(admin.posts.at(-1).group_41, 'XWiki.Équipe & Support 41', 'accents et caractères spéciaux conservés');
     check(admin.posts.at(-1).groupCount, '42', 'tous les groupes sont envoyés');
